@@ -89,16 +89,19 @@ button{{padding:6px 14px;font-size:14px}}
 </style></head><body>
 <h1>監看表抽查</h1>
 <p>右側依優先序列出最值得檢查的 {len(queue)} 格（紅：fallback、黃：低信心、藍：廣告邊界）。修正只寫進修正紀錄，不改動已交付的監看表。</p>
+<label>審核者 <input id="reviewer" placeholder="姓名或代號" required></label>
 <button id="export">匯出修正紀錄 JSON</button>
 <main><section><table><tr><th>時間</th>{head}</tr>{''.join(rows)}</table></section>
 <section>{''.join(cards)}</section></main>
 <script>
 document.getElementById('export').onclick=()=>{{
+  const reviewer=document.getElementById('reviewer').value.trim();
+  if(!reviewer){{alert('請先填審核者');return;}}
   const out=[...document.querySelectorAll('.card')].map(c=>{{
     const v=c.querySelector('input[type=radio]:checked');
     const [channel,minute]=c.dataset.key.split('|');
     return v?{{channel,minute,verdict:v.value,correct:c.querySelector('.fix').value||null,
-      error_type:c.querySelector('.etype').value||null,reviewed_at:new Date().toISOString()}}:null;
+      error_type:c.querySelector('.etype').value||null,reviewer,reviewed_at:new Date().toISOString()}}:null;
   }}).filter(Boolean);
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{{type:'application/json'}}));

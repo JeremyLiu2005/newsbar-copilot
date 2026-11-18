@@ -260,6 +260,43 @@ def cmd_apply_corrections(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_watch(a: argparse.Namespace) -> int:
+    """NFR-24: process each hourly slot from the recorder's drop folder."""
+    import time
+
+    from . import ops
+
+    cfg = _load_yaml(a.channels)["channels"]
+    inbox, out_dir = Path(a.inbox), Path(a.out_dir)
+    while True:
+        for key, date, hhmm, files in ops.ready_slots(inbox, list(cfg), out_dir, a.grace_sec):
+            missing = sorted(set(cfg) - set(files))
+            print(f"[{key}] 處理 {', '.join(files)}" + (f"；缺 {', '.join(missing)}" if missing else ""))
+            args = ["run", "--template", a.template, "--out", str(out_dir / f"{hhmm[:2]}監看_{date}.xlsx"),
+                    "--channels", a.channels, "--rules", a.rules, "--workdir", str(Path(a.workdir) / key),
+                    "--sheet-start", hhmm, "--jobs", str(a.jobs)]
+            for ch, p in files.items():
+                args += ["--video", f"{ch}={p}@{hhmm[:2]}:{hhmm[2:]}:00"]
+            try:
+                main(args)
+                ops.mark_done(out_dir, key)
+            except SystemExit as e:
+                print(f"✗ [{key}] {e}")
+        if a.keep_frames_days is not None:
+            ops.cleanup_frames(Path(a.workdir), a.keep_frames_days)
+        if a.once:
+            return 0
+        time.sleep(a.interval)
+
+
+def cmd_cleanup(a: argparse.Namespace) -> int:
+    from . import ops
+
+    n = ops.cleanup_frames(Path(a.workdir), a.older_than_days)
+    print(f"刪除 {n} 個截圖資料夾（文字結果保留）")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="newsbar")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -334,6 +371,24 @@ def main(argv: list[str] | None = None) -> int:
     ac.add_argument("--out", required=True)
     ac.add_argument("--channels", default="config/channels.example.yaml")
     ac.set_defaults(func=cmd_apply_corrections)
+    wt = sub.add_parser("watch", help="監看側錄資料夾，每小時自動產表")
+    wt.add_argument("--inbox", required=True, help="檔名格式 {channel}_{YYYYMMDD}_{HHMM}.mp4")
+    wt.add_argument("--out-dir", required=True)
+    wt.add_argument("--template", required=True)
+    wt.add_argument("--channels", default="config/channels.example.yaml")
+    wt.add_argument("--rules", default="config/rules.example.yaml")
+    wt.add_argument("--workdir", default="data/work")
+    wt.add_argument("--jobs", type=int, default=4)
+    wt.add_argument("--grace-sec", type=float, default=900, help="等其他台檔案的最長秒數")
+    wt.add_argument("--interval", type=float, default=60)
+    wt.add_argument("--keep-frames-days", type=float)
+    wt.add_argument("--once", action="store_true")
+    wt.set_defaults(func=cmd_watch)
+
+    cl = sub.add_parser("cleanup", help="刪除過期截圖（NFR-17）")
+    cl.add_argument("--workdir", default="data/work")
+    cl.add_argument("--older-than-days", type=float, default=7)
+    cl.set_defaults(func=cmd_cleanup)
     a = p.parse_args(argv)
     return a.func(a)
 

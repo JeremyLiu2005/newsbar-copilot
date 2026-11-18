@@ -26,7 +26,7 @@
 
 ```bash
 uv sync --python 3.11 --extra mac   # mac = Apple Vision OCR
-uv run pytest                        # 98 個測試：規格 T01–T24、合成影片 OCR／包框／平行端到端
+uv run pytest                        # 104 個測試：規格 T01–T24、合成影片 OCR／包框／平行端到端
 
 # 1. 檢查 ROI（可順便存包框樣板）
 uv run newsbar calibrate --video data/tvbs.mp4 --channel tvbs --channels config/channels.yaml --at 30
@@ -41,6 +41,8 @@ uv run newsbar eval --system out/12監看_20261106.xlsx --gold gold.xlsx --test-
 uv run newsbar apply-corrections --sheet out/12監看_20261106.xlsx --corrections corrections.json \
   --template 範本.xlsx --out out/12監看_20261106.修正版.xlsx
 ```
+
+全天自動：`newsbar watch --inbox 側錄資料夾 --out-dir out --template 範本.xlsx --keep-frames-days 7`（檔名 `{台別}_{YYYYMMDD}_{HHMM}.mp4`）。
 
 產出：`*.xlsx`（監看表）、`*.evidence.jsonl`（每格依據）、`*.report.csv`（抽查清單）、`*.report.json`（處理報告）、`*.review.html`（抽查頁）。
 
