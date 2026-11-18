@@ -22,4 +22,15 @@
 3. 每一格都由系統決定，不停下來等人工
 4. 只動四個競台的五字標欄，其他欄位與格式不變
 
+## 開發
+
+```bash
+uv sync --python 3.11
+uv run pytest            # 規格 §11 的 T01–T24 全部有對應測試
+uv run newsbar write-sheet --events events.jsonl --template 範本.xlsx --out out/12監看_20261106.xlsx
+```
+
+已實作：從每秒觀測值（`SecondObs`）到 Excel 的整段決策邏輯——廣告狀態機、換題判定、五字標校驗與 fallback、秒轉分鐘、寫表、證據包。
+未實作：影片抽取端（OCR、ASR、畫面訊號），以及 LLM 產生器（目前以規則擷取代替）。
+
 影片與中間產物放在 `data/`，不進版本控制。

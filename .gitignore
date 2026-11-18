@@ -11,3 +11,4 @@ __pycache__/
 *.bak-*
 config/channels.yaml
 config/rules.yaml
+.pytest_cache/
