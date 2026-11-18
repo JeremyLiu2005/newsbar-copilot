@@ -16,6 +16,9 @@ newsbar = "newsbar.cli:main"
 mac = [
     "pyobjc-framework-vision>=10",
 ]
+asr = [
+    "faster-whisper>=1.0",
+]
 
 [dependency-groups]
 dev = ["pytest>=8"]

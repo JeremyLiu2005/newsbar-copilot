@@ -15,7 +15,17 @@ class FasterWhisperBackend:
     def __init__(self, model: str | None = None, device: str = "auto"):
         from faster_whisper import WhisperModel
 
-        self._m = WhisperModel(model or "large-v3-turbo", device=device, compute_type="auto")
+        # Measured on the 11/06 TVBS audio (M4): small/CPU int8 ≈ 0.6× real time,
+        # small/MPS float16 ≈ 0.13× real time. GPU server: "large-v3-turbo" on CUDA.
+        import sys
+
+        if device == "auto" and sys.platform == "darwin":
+            try:
+                self._m = WhisperModel(model or "small", device="mps", compute_type="float16")
+                return
+            except Exception:  # MPS backend is experimental in CTranslate2
+                device = "cpu"
+        self._m = WhisperModel(model or "small", device=device, compute_type="int8" if device in ("cpu", "auto") else "auto")
 
     def transcribe(self, wav: Path) -> list[AsrSegment]:  # pragma: no cover - needs model
         segs, _ = self._m.transcribe(str(wav), language="zh", vad_filter=True,

@@ -36,11 +36,34 @@ def test_new_story_with_evidence_is_high_confidence():
     assert segs[1].confidence == "high" and "NEW-2a" in segs[1].signals
 
 
-def test_FB1_new_text_without_evidence_still_changes_with_low_confidence():
-    obs = news(30, 0, "新北土城七旬翁 遭貨車輾亡", "t1") + news(30, 30, "高金素梅共諜案起訴 求刑14年", "t1")
+def test_FB1_without_asr_new_text_still_changes_with_low_confidence():
+    obs = news(30, 0, "新北土城七旬翁 遭貨車輾亡", None, asr=None) + news(30, 30, "高金素梅共諜案起訴 求刑14年", None, asr=None)
     segs = segs_of(obs)
     assert len(segs) == 2
     assert segs[1].confidence == "low" and segs[1].fallback == "FB-1"
+
+
+def test_SAME6_with_asr_and_no_evidence_title_rotation_stays_in_story():
+    # real 11/06 TVBS: one story rotates 3 different titles while the speech topic stays the same
+    obs = (news(12, 0, "敬酒引爆大亂鬥桃園警開4槍喝止衝突", "t1") + news(22, 12, "酒店內兩派人馬爆衝突驚動30名快打警", "t1")
+           + news(40, 34, "60人圍觀喧嘩警鳴槍趕附近店家30年首見", "t1"))
+    segs = segs_of(obs)
+    assert len(segs) == 1 and "SAME-6" in segs[0].signals and len(segs[0].bar_texts) == 3
+
+
+def test_subtitles_shorter_than_seven_seconds_are_ignored():
+    obs = news(20, 0, "毒駕拒檢遭車撞飛男爬起還想掙脫警逃跑", "t1")
+    for k, sub in enumerate(["你還跑你還跑", "你跑什麼你跑什麼", "打110打110"]):
+        obs += news(3, 20 + 3 * k, sub, "t1")
+    obs += news(20, 29, "毒駕拒檢遭車撞飛男爬起還想掙脫警逃跑", "t1")
+    assert len(segs_of(obs)) == 1
+
+
+def test_NEW2d_name_credit_marks_next_title_as_new_story():
+    obs = (news(30, 0, "男二度毒駕拒檢催油門狂逃下秒遭車撞飛", "t1") + news(3, 30, "林佑璇趙立", "t1")
+           + news(30, 33, "敬酒引爆大亂鬥桃園警開4槍喝止衝突", "t1"))  # same ASR topic id, but a credit just ended
+    segs = segs_of(obs)
+    assert [s.start for s in segs] == [0, 33] and "NEW-2d" in segs[1].signals
 
 
 def test_TIME1_change_time_is_first_stable_second():

@@ -99,18 +99,31 @@ def _parse_video(spec: str, default_clock: str | None) -> tuple[str, Path, str |
     return ch, Path(path), clock or default_clock
 
 
+def _resolve_clock(path: Path, cfg: dict, clock: str | None, backend) -> str | None:
+    """--clock wins; otherwise read the on-screen clock (FR-24)."""
+    if clock or not cfg.get("clock"):
+        return clock
+    from .clock import start_clock
+
+    found = start_clock(path, cfg["clock"], backend)
+    print(f"[{path.name}] 畫面時鐘校時 → 第 0 秒 = {found or '讀不到，視為 sheet 起點'}")
+    return found
+
+
 def _extract_job(args: tuple) -> tuple:
     """Runs in a worker process (spawn) so each channel has its own OCR engine."""
     from . import extract, fingerprint, ingest
     from .ocr import get_backend
 
-    ch, path, clock, cfg, work, backend_name, asr_name, lib_path, sheet_start, duration = args
+    ch, path, clock, cfg, work, backend_name, asr_name, asr_model, lib_path, sheet_start, duration = args
     asr = None
     if asr_name != "none":
         from .asr import get_backend as get_asr
-        asr = get_asr(asr_name)
+        asr = get_asr(asr_name, asr_model)
+    backend = get_backend(backend_name)
+    clock = _resolve_clock(Path(path), cfg, clock, backend)
     offset = ingest.sheet_offset(clock, sheet_start) if clock else 0
-    obs, warns = extract.extract_channel(Path(path), ch, cfg, get_backend(backend_name), Path(work), offset, asr,
+    obs, warns = extract.extract_channel(Path(path), ch, cfg, backend, Path(work), offset, asr,
                                          fingerprint.AdLibrary.load(Path(lib_path)), duration=duration)
     return ch, len(obs), warns
 
@@ -139,7 +152,7 @@ def cmd_run(a: argparse.Namespace) -> int:
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
         t0 = time.time()
-        jobs = [(ch, str(p), c, cfg[ch], str(work), a.backend, a.asr, str(lib_path), a.sheet_start, a.duration)
+        jobs = [(ch, str(p), c, cfg[ch], str(work), a.backend, a.asr, a.asr_model, str(lib_path), a.sheet_start, a.duration)
                 for ch, p, c in todo]
         with ProcessPoolExecutor(max_workers=a.jobs, mp_context=mp.get_context("spawn")) as ex:
             futs = {ex.submit(_extract_job, j): j[0] for j in jobs}
@@ -166,7 +179,8 @@ def cmd_run(a: argparse.Namespace) -> int:
                     backend = get_backend(a.backend)
                 if a.asr != "none" and asr is None:
                     from .asr import get_backend as get_asr
-                    asr = get_asr(a.asr)
+                    asr = get_asr(a.asr, a.asr_model)
+                clock = _resolve_clock(path, cfg[ch], clock, backend)
                 offset = ingest.sheet_offset(clock, a.sheet_start) if clock else 0
                 obs, warns = extract.extract_channel(path, ch, cfg[ch], backend, work, offset, asr,
                                                      library, duration=a.duration)
@@ -289,6 +303,45 @@ def cmd_watch(a: argparse.Namespace) -> int:
         time.sleep(a.interval)
 
 
+def cmd_search(a: argparse.Namespace) -> int:
+    from .history import search
+
+    rows = search(Path(a.root), a.q, a.channel, a.date_from, a.date_to)
+    for r in rows:
+        print(f"{r['date']} {r['minute']} {r['channel']:5s} {r['value']:12s} {r['bar_text'] or ''}")
+    print(f"共 {len(rows)} 筆")
+    return 0
+
+
+def cmd_daily(a: argparse.Namespace) -> int:
+    from . import history
+
+    reps = [p for p in Path(a.root).rglob(f"*{a.date}*.report.json")]
+    out = history.daily_report(reps, Path(a.out), a.date)
+    print(f"日報 → {out}（{len(reps)} 個時段）")
+    smtp = (_load_yaml(a.rules).get("daily_report") or {}).get("smtp")
+    if a.send:
+        if not smtp:
+            raise SystemExit("rules.yaml 沒有 daily_report.smtp 設定，不寄送")
+        history.send_report(out, smtp["to"], smtp)
+        print("已寄出")
+    return 0
+
+
+def cmd_rules_check(a: argparse.Namespace) -> int:
+    from . import history
+
+    if a.record:
+        rep = json.loads(Path(a.record).read_text(encoding="utf-8"))
+        history.record_eval(Path(a.history), a.version, rep["change"]["f1"], rep["ad"]["f1"], a.date)
+    if history.should_rollback(Path(a.history), a.version, a.threshold, a.weeks):
+        prev = history.rollback(Path(a.rules_dir), Path(a.active), a.version, Path(a.history).with_name("rollback.log"))
+        print(f"規則退版 {a.version} → {prev}" if prev else "需要退版，但沒有更早的版本")
+    else:
+        print("規則維持現版")
+    return 0
+
+
 def cmd_cleanup(a: argparse.Namespace) -> int:
     from . import ops
 
@@ -339,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--workdir", default="data/work")
     r.add_argument("--backend", default="auto", choices=["auto", "vision", "paddle"])
     r.add_argument("--asr", default="none", choices=["none", "auto", "mlx", "faster-whisper"])
+    r.add_argument("--asr-model", help="例：small（Mac）、large-v3-turbo（GPU）")
     r.add_argument("--resume", action="store_true", help="已有 obs.jsonl 的台別直接沿用")
     r.add_argument("--jobs", type=int, default=1, help="平行處理台數（建議 4）")
     r.add_argument("--duration", type=float, help="只處理前 N 秒（測試用）")
@@ -384,6 +438,33 @@ def main(argv: list[str] | None = None) -> int:
     wt.add_argument("--keep-frames-days", type=float)
     wt.add_argument("--once", action="store_true")
     wt.set_defaults(func=cmd_watch)
+
+    se = sub.add_parser("search", help="歷史檢索（NFR-27）")
+    se.add_argument("--root", default="out")
+    se.add_argument("--q")
+    se.add_argument("--channel")
+    se.add_argument("--date-from")
+    se.add_argument("--date-to")
+    se.set_defaults(func=cmd_search)
+
+    dy = sub.add_parser("daily", help="日報 HTML，可選擇寄送（FR-18）")
+    dy.add_argument("--root", default="out")
+    dy.add_argument("--date", required=True, help="YYYYMMDD")
+    dy.add_argument("--out", required=True)
+    dy.add_argument("--rules", default="config/rules.example.yaml")
+    dy.add_argument("--send", action="store_true")
+    dy.set_defaults(func=cmd_daily)
+
+    rc = sub.add_parser("rules-check", help="記錄評估結果，連兩週未達標自動退版（FR-21）")
+    rc.add_argument("--history", default="out/eval_history.jsonl")
+    rc.add_argument("--record", help="newsbar eval 輸出的 json")
+    rc.add_argument("--version", required=True)
+    rc.add_argument("--date", required=True)
+    rc.add_argument("--rules-dir", default="config/rules")
+    rc.add_argument("--active", default="config/rules.yaml")
+    rc.add_argument("--threshold", type=float, default=0.75)
+    rc.add_argument("--weeks", type=int, default=2)
+    rc.set_defaults(func=cmd_rules_check)
 
     cl = sub.add_parser("cleanup", help="刪除過期截圖（NFR-17）")
     cl.add_argument("--workdir", default="data/work")

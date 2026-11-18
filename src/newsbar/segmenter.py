@@ -23,7 +23,10 @@ _STOPWORDS = {"新北", "台北", "台灣", "全台", "民眾", "今天", "記�
 @dataclass(frozen=True)
 class SegParams:
     min_conf: float = 0.0  # TXT-4 is applied in ocr.stream; raise only for un-voted input
-    stable_sec: int = 3  # TIME-1
+    stable_sec: int = 7  # TIME-1: real 11/06 data — titles last ≥7 s, speech subtitles and name credits ≤6 s
+    credit_max_sec: int = 5  # NEW-2d: a reporter-name credit flashes for ≤5 s …
+    credit_window_sec: int = 25  # … and a title starting within 25 s after it is a new story
+    asr_veto: bool = True  # SAME-6: with ASR, a new title without any NEW-2 evidence stays in the story
     asr_window_sec: int = 20  # NEW-2a
     visual_window_sec: int = 5  # NEW-2b, NEW-2c
 
@@ -33,6 +36,9 @@ class SegParams:
         return cls(
             min_conf=cls.min_conf,
             stable_sec=r.get("stable_sec", cls.stable_sec),
+            credit_max_sec=r.get("credit_max_sec", cls.credit_max_sec),
+            credit_window_sec=r.get("credit_window_sec", cls.credit_window_sec),
+            asr_veto=r.get("asr_veto", cls.asr_veto),
             asr_window_sec=r.get("asr_window_sec", cls.asr_window_sec),
             visual_window_sec=r.get("visual_window_sec", cls.visual_window_sec),
         )
@@ -85,6 +91,17 @@ class Segment:
         return " ".join(t for t in self.asr_texts if t)
 
 
+_CREDIT = re.compile(r"^[\u4e00-\u9fff]{2,12}$")
+# Function characters that occur in speech subtitles but practically never in personal names.
+_NOT_IN_NAMES = set("的了是我你他她們說這那會有在就也都要還不沒很個嗎呢吧啊喔啦因為所以如果但")
+
+
+def is_credit(text: str | None) -> bool:
+    """Reporter/anchor name credit: only CJK, 2–12 chars, no punctuation or digits."""
+    return (bool(text) and bool(_CREDIT.match(text)) and not is_weather(text)  # type: ignore[arg-type]
+            and not (set(text) & _NOT_IN_NAMES))  # type: ignore[arg-type]
+
+
 def is_weather(text: str) -> bool:
     return any(k in text for k in WEATHER_KEYWORDS)
 
@@ -110,6 +127,7 @@ def segment(
     run_topic: str | None = None
     run_topic_start = 0
     run_topic_len = 0
+    last_credit: int | None = None
 
     def text_of(o: SecondObs) -> str | None:
         if o.bar_text is None or o.bar_conf < params.min_conf:
@@ -117,6 +135,7 @@ def segment(
         return o.bar_text
 
     def evidence(t: int) -> list[str]:
+        nonlocal last_credit
         i = idx[t]
         sigs = ["NEW-1"]
         w = params.asr_window_sec
@@ -131,6 +150,8 @@ def segment(
         speakers = [o.speaker for o in win if o.speaker]
         if len(set(speakers)) > 1:
             sigs.append("NEW-2c")
+        if last_credit is not None and 0 <= t - last_credit <= params.credit_window_sec:
+            sigs.append("NEW-2d")
         return sigs
 
     def open_seg(seg: Segment) -> Segment:
@@ -153,6 +174,10 @@ def segment(
             return
         sigs = evidence(t)
         low = len(sigs) == 1
+        if low and has_asr and params.asr_veto and cur is not None and cur.type is EventType.NEWS:
+            cur.bar_texts.append(text)  # SAME-6: speech topic unchanged, no credit, no anchor → same story
+            cur.signals.append("SAME-6")
+            return
         open_seg(
             Segment(
                 t,
@@ -205,10 +230,12 @@ def segment(
         if o.asr_text and (not cur.asr_texts or cur.asr_texts[-1] != o.asr_text):
             cur.asr_texts.append(o.asr_text)
 
-        # Track the stable bar text (TIME-1).
+        # Track the stable bar text (TIME-1); remember where a name credit ended (NEW-2d).
         if text is not None and text == run_text:
             run_len += 1
         else:
+            if is_credit(run_text) and run_len <= params.credit_max_sec:
+                last_credit = o.sec
             run_text, run_start, run_len = text, o.sec, 1
         # Track the stable ASR topic (used only when OCR is missing).
         if o.topic is not None and o.topic == run_topic:

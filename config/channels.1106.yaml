@@ -1,0 +1,34 @@
+# 2026/11/06 午間四台實際版面（1280×720，相對座標 x,y,w,h）。由 data/cal 截圖目測校正。
+channels:
+  tvbs:
+    name: TVBS-N
+    excel_column_header: TVBS-N
+    main_bar: [0.245, 0.805, 0.73, 0.095]
+    ticker: [0.25, 0.90, 0.75, 0.06]
+    clock: [0.08, 0.90, 0.17, 0.06]
+    logo: [0.74, 0.04, 0.23, 0.07]
+    main_video: [0.0, 0.0, 1.0, 0.80]
+  ettv:
+    name: 東森
+    excel_column_header: 東森
+    main_bar: [0.0, 0.805, 1.0, 0.09]
+    ticker: [0.23, 0.90, 0.75, 0.065]
+    clock: [0.06, 0.90, 0.15, 0.065]
+    logo: [0.73, 0.04, 0.22, 0.06]
+    main_video: [0.0, 0.0, 1.0, 0.80]
+  ftv:
+    name: 民視
+    excel_column_header: 民視
+    main_bar: [0.225, 0.795, 0.77, 0.10]
+    ticker: [0.22, 0.90, 0.78, 0.07]
+    clock: [0.08, 0.90, 0.12, 0.07]
+    logo: [0.79, 0.07, 0.17, 0.06]
+    main_video: [0.0, 0.0, 1.0, 0.79]
+  cts:
+    name: 華視
+    excel_column_header: 華視
+    main_bar: [0.155, 0.808, 0.80, 0.10]
+    ticker: [0.14, 0.93, 0.82, 0.06]
+    clock: [0.03, 0.93, 0.10, 0.06]
+    logo: [0.79, 0.05, 0.18, 0.06]
+    main_video: [0.0, 0.0, 0.94, 0.80]
