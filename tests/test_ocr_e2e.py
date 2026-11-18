@@ -80,3 +80,13 @@ def test_sheet_offset():
     assert sheet_offset("11:59:50") == -10
     assert sheet_offset("12:00:00") == 0
     assert sheet_offset("12:30", "1230") == 0
+
+
+def test_duration_limits_every_roi_output(tmp_path):
+    """Regression: -t used to bind only to the first output (main_bar)."""
+    from newsbar import ingest
+
+    video = make_video(tmp_path, seconds=24)
+    dirs = ingest.extract_rois(video, ROIS, tmp_path / "f", duration=6)
+    assert {k: len(list(v.glob("*.jpg"))) for k, v in dirs.items()} == {"main_bar": 6, "ticker": 6}
+    assert (tmp_path / "f" / "main_bar.thumbs").stat().st_size == 6 * ingest.THUMB_W * ingest.THUMB_H

@@ -21,7 +21,7 @@ segmenter:
   visual_window_sec: 5
 
 labeler:
-  generator: rule
+  generator: ollama
   model: qwen2.5:7b-instruct
   allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
   min_len: 4

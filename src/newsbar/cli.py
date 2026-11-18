@@ -212,6 +212,12 @@ def cmd_run(a: argparse.Namespace) -> int:
         for w in ws:
             print(f"⚠ [{ch}] {w}")
     print(f"→ {out}\n→ {out.with_suffix('.review.html')}")
+    if a.upload:
+        import os
+
+        from . import gdrive
+        tok = gdrive.token_from(os.environ.get("NEWSBAR_GDRIVE_TOKEN"), a.token_cmd)
+        print(f"→ Google 試算表：{gdrive.push(out, tok, a.drive_folder).get('webViewLink')}")
     return 0
 
 
@@ -344,6 +350,46 @@ def cmd_rules_check(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_annotate(a: argparse.Namespace) -> int:
+    from . import annotate, extract
+
+    cfg = _load_yaml(a.channels)["channels"]
+    work = Path(a.workdir)
+    streams = {ch: extract.load_obs(work / ch / "obs.jsonl") for ch in cfg if (work / ch / "obs.jsonl").exists()}
+    print(annotate.render(streams, {k: cfg[k]["name"] for k in streams}, Path(a.out), a.sheet_start))
+    return 0
+
+
+def cmd_gold_import(a: argparse.Namespace) -> int:
+    from . import annotate
+
+    cfg = _load_yaml(a.channels)["channels"]
+    headers = {k: v["excel_column_header"] for k, v in cfg.items()}
+    data = annotate.load(Path(a.annotation))
+    cells = annotate.gold_cells(data["items"], headers.keys(), a.sheet_start, a.minutes)
+    excel_writer.write(Path(a.template), Path(a.out), cells, headers)
+    print(f"標準答案（{data['annotator']}）→ {a.out}")
+    if a.other:
+        from .minute_mapper import minute_labels
+        other = annotate.load(Path(a.other))
+        oc = annotate.gold_cells(other["items"], headers.keys(), a.sheet_start, a.minutes)
+        starts = lambda cs: {ch: {m for m, c in v.items() if any(e.type.value == "news" for e in c.events)} for ch, v in cs.items()}
+        k = annotate.kappa(starts(cells), starts(oc), minute_labels(a.sheet_start, a.minutes))
+        print(f"兩位標註者換題分鐘一致性 Cohen's κ = {k:.2f}（目標 ≥0.8）")
+    return 0
+
+
+def cmd_upload(a: argparse.Namespace) -> int:
+    import os
+
+    from . import gdrive
+
+    tok = gdrive.token_from(os.environ.get("NEWSBAR_GDRIVE_TOKEN"), a.token_cmd)
+    res = gdrive.push(Path(a.sheet), tok, a.folder)
+    print(f"已上傳到 Google 試算表：{res.get('webViewLink', res['id'])}")
+    return 0
+
+
 def cmd_cleanup(a: argparse.Namespace) -> int:
     from . import ops
 
@@ -397,6 +443,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--asr-model", help="例：small（Mac）、large-v3-turbo（GPU）")
     r.add_argument("--resume", action="store_true", help="已有 obs.jsonl 的台別直接沿用")
     r.add_argument("--jobs", type=int, default=1, help="平行處理台數（建議 4）")
+    r.add_argument("--upload", action="store_true", help="完成後上傳到自己的 Google 雲端（試算表）")
+    r.add_argument("--drive-folder")
+    r.add_argument("--token-cmd")
     r.add_argument("--duration", type=float, help="只處理前 N 秒（測試用）")
     r.add_argument("--sheet-start", default="1200")
     r.add_argument("--minutes", type=int, default=60)
@@ -467,6 +516,29 @@ def main(argv: list[str] | None = None) -> int:
     rc.add_argument("--threshold", type=float, default=0.75)
     rc.add_argument("--weeks", type=int, default=2)
     rc.set_defaults(func=cmd_rules_check)
+
+    an = sub.add_parser("annotate", help="產生標註頁（標準答案用）")
+    an.add_argument("--workdir", required=True)
+    an.add_argument("--out", required=True)
+    an.add_argument("--channels", default="config/channels.example.yaml")
+    an.add_argument("--sheet-start", default="1200")
+    an.set_defaults(func=cmd_annotate)
+
+    gi = sub.add_parser("gold-import", help="標註 JSON → 標準答案 xlsx，可算兩人 κ")
+    gi.add_argument("--annotation", required=True)
+    gi.add_argument("--other", help="第二位標註者的 JSON")
+    gi.add_argument("--template", required=True)
+    gi.add_argument("--out", required=True)
+    gi.add_argument("--channels", default="config/channels.example.yaml")
+    gi.add_argument("--sheet-start", default="1200")
+    gi.add_argument("--minutes", type=int, default=60)
+    gi.set_defaults(func=cmd_gold_import)
+
+    up = sub.add_parser("upload", help="監看表上傳到自己的 Google 雲端（轉成試算表，之後更新同一份）")
+    up.add_argument("--sheet", required=True)
+    up.add_argument("--folder", help="雲端資料夾 ID")
+    up.add_argument("--token-cmd", help="取得 OAuth 權杖的指令，例：gcloud auth print-access-token")
+    up.set_defaults(func=cmd_upload)
 
     cl = sub.add_parser("cleanup", help="刪除過期截圖（NFR-17）")
     cl.add_argument("--workdir", default="data/work")

@@ -23,13 +23,14 @@ from ..schemas import SecondObs
 from .base import OcrBackend, join_lines
 
 _WS = re.compile(r"\s+")
+_QUOTES = str.maketrans("", "", "\"'“”‘’「」『』")  # OCR flips quote styles between frames
 
 
 def normalize(text: str | None) -> str | None:
     if not text:
         return None
     t = unicodedata.normalize("NFKC", text)
-    t = _WS.sub("", t)
+    t = _WS.sub("", t).translate(_QUOTES)
     return t or None
 
 
@@ -107,13 +108,44 @@ def scrolling_spans(reads: list[RawRead], window: int = 10, min_moves: int = 6) 
     return spans
 
 
-def read_dir(backend: OcrBackend, frames: Path, sec_offset: int = 0) -> list[RawRead]:
-    reads = []
-    for img in sorted(frames.glob("*.jpg")):
-        lines = backend.read(img)
-        text, conf = join_lines(lines)
-        reads.append(RawRead(int(img.stem) + sec_offset, text, conf))
-    return reads
+def read_dir(backend: OcrBackend, frames: Path, sec_offset: int = 0, every: int = 1,
+             thumbs: Path | None = None, same_diff: float = 3.0) -> tuple[list[RawRead], int]:
+    """OCR one crop per second. Skips work two ways (NFR-05):
+    * `every` > 1 reads only every n-th second and forward-fills (ticker presence);
+    * `thumbs` (tiny grayscale copies) lets an unchanged crop reuse the previous read —
+      titles stay 7–45 s, so most seconds need no OCR at all.
+    Returns (reads, number of OCR calls actually made)."""
+    import numpy as np
+
+    from ..ingest import THUMB_H, THUMB_W
+
+    imgs = sorted(frames.glob("*.jpg"))
+    th = None
+    if thumbs is not None and thumbs.exists():
+        raw = np.fromfile(thumbs, dtype=np.uint8)
+        n = raw.size // (THUMB_W * THUMB_H)
+        th = raw[: n * THUMB_W * THUMB_H].reshape(n, THUMB_H, THUMB_W).astype(np.int16)
+    reads: list[RawRead] = []
+    calls = 0
+    last: tuple[str | None, float] | None = None
+    last_thumb = None
+    for k, img in enumerate(imgs):
+        idx = int(img.stem)
+        reuse = False
+        if last is not None and every > 1 and k % every:
+            reuse = True
+        elif last is not None and th is not None and idx < len(th) and last_thumb is not None:
+            reuse = float(np.abs(th[idx] - last_thumb).mean()) < same_diff
+        if reuse:
+            text, conf = last  # type: ignore[misc]
+        else:
+            text, conf = join_lines(backend.read(img))
+            calls += 1
+            last = (text, conf)
+            if th is not None and idx < len(th):
+                last_thumb = th[idx]
+        reads.append(RawRead(idx + sec_offset, text, conf))
+    return reads, calls
 
 
 @dataclass
@@ -130,7 +162,8 @@ def ocr_channel(
     sec_offset: int = 0,
     params: VoteParams = VoteParams(),
 ) -> OcrChannelResult:
-    raw = read_dir(backend, roi_dirs["main_bar"], sec_offset)
+    raw, calls = read_dir(backend, roi_dirs["main_bar"], sec_offset,
+                          thumbs=roi_dirs["main_bar"].parent / "main_bar.thumbs")
     if params.min_conf is None:
         params = VoteParams(getattr(backend, "min_conf", 0.6), params.window_sec, params.cluster_ratio, params.snap_ratio)
     voted = vote(raw, params)
@@ -143,7 +176,9 @@ def ocr_channel(
                 r.text, r.conf = None, 0.0
     ticker: dict[int, str | None] = {}
     if "ticker" in roi_dirs:
-        ticker = {r.sec: normalize(r.text) for r in read_dir(backend, roi_dirs["ticker"], sec_offset)}
+        t_reads, t_calls = read_dir(backend, roi_dirs["ticker"], sec_offset, every=5)
+        calls += t_calls
+        ticker = {r.sec: normalize(r.text) for r in t_reads}
     frames = {int(p.stem) + sec_offset: str(p) for p in roi_dirs["main_bar"].glob("*.jpg")}
     obs = [
         SecondObs(sec=r.sec, bar_text=r.text, bar_conf=r.conf, ticker_text=ticker.get(r.sec), frame=frames.get(r.sec))
@@ -152,7 +187,9 @@ def ocr_channel(
     blank = sum(1 for r in voted if r.text is None) / max(1, len(voted))
     if blank > 0.2:
         warnings.append(f"OCR 空白率 {blank:.0%}（>20%），請用 calibrate 檢查 ROI")
-    return OcrChannelResult(obs, raw, voted, warnings)
+    res = OcrChannelResult(obs, raw, voted, warnings)
+    res.ocr_calls = calls  # type: ignore[attr-defined]
+    return res
 
 
 def save_jsonl(reads: list[RawRead], path: Path) -> None:

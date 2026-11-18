@@ -12,6 +12,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+THUMB_W, THUMB_H = 96, 12  # main_bar change detector (one byte per pixel)
+
 ROI_NAMES = ("main_bar", "ticker", "flash", "weather_corner", "logo", "main_video")
 
 
@@ -90,13 +92,17 @@ def extract_rois(
     splits = "".join(f"[s{i}]" for i in range(len(names)))
     graph = [f"[0:v]fps={fps},split={len(names)}{splits}"]
     for i, n in enumerate(names):
-        graph.append(f"[s{i}]{_crop_expr(rois[n])}[o{i}]")
+        if n == "main_bar":  # extra tiny grayscale copy so OCR can skip unchanged seconds
+            graph.append(f"[s{i}]{_crop_expr(rois[n])},split=2[o{i}][c{i}]")
+            graph.append(f"[c{i}]scale={THUMB_W}:{THUMB_H},format=gray[t{i}]")
+        else:
+            graph.append(f"[s{i}]{_crop_expr(rois[n])}[o{i}]")
     cmd = [_ffbin("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y"]
     if start:
         cmd += ["-ss", str(start)]
-    cmd += ["-i", str(video)]
-    if duration:
+    if duration:  # input option: an output -t would only limit the first of several outputs
         cmd += ["-t", str(duration)]
+    cmd += ["-i", str(video)]
     cmd += ["-filter_complex", ";".join(graph)]
     dirs = {}
     for i, n in enumerate(names):
@@ -104,6 +110,8 @@ def extract_rois(
         d.mkdir(exist_ok=True)
         dirs[n] = d
         cmd += ["-map", f"[o{i}]", "-q:v", str(quality), "-start_number", "0", str(d / "%05d.jpg")]
+        if n == "main_bar":
+            cmd += ["-map", f"[t{i}]", "-f", "rawvideo", str(out_dir / "main_bar.thumbs")]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise IngestError(r.stderr.strip()[-500:])
