@@ -3,8 +3,9 @@
 新聞監看全自動填表：輸入四個競台的側錄影片與「12監看」範本，自動判斷換題與廣告、產生五字標，寫回 Excel。
 
 - 需求分析（Contextual Design）：[docs/requirements.md](docs/requirements.md)
+- 功能規格（痛點 → 規則 → 測試案例）：[docs/spec.md](docs/spec.md)
 - 系統架構：[docs/architecture.md](docs/architecture.md)
-- 狀態：設計稿（v0.1），尚未實作
+- 狀態：設計稿（需求 v0.1、規格 v0.1、架構 v0.2），尚未實作
 
 ## 核心流程
 
