@@ -1,0 +1,13 @@
+data/
+out/
+*.mp4
+*.ts
+*.wav
+*.xlsx
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.bak-*
+config/channels.yaml
+config/rules.yaml

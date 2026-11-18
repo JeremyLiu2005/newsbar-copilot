@@ -1,0 +1,31 @@
+# 每台的畫面區域設定。座標為相對比例 (x, y, w, h)，0–1，跟解析度無關。
+# 實際數值用 tools/calibrate_roi.py 從截圖框選後產生。
+channels:
+  tvbs:
+    name: TVBS-N
+    excel_column_header: TVBS-N
+    main_bar: [0.00, 0.80, 1.00, 0.09]   # 主新聞標題 bar
+    ticker:   [0.00, 0.93, 1.00, 0.07]   # 最下方跑馬燈（只用來排除）
+    logo:     [0.85, 0.03, 0.12, 0.08]   # 台徽
+    bar_color: "#1d3f8f"
+  ettv:
+    name: 東森
+    excel_column_header: 東森
+    main_bar: [0.00, 0.80, 1.00, 0.09]
+    ticker:   [0.00, 0.93, 1.00, 0.07]
+    logo:     [0.85, 0.03, 0.12, 0.08]
+    bar_color: "#000000"
+  ftv:
+    name: 民視
+    excel_column_header: 民視
+    main_bar: [0.00, 0.80, 1.00, 0.09]
+    ticker:   [0.00, 0.93, 1.00, 0.07]
+    logo:     [0.85, 0.03, 0.12, 0.08]
+    bar_color: "#000000"
+  cts:
+    name: 華視
+    excel_column_header: 華視
+    main_bar: [0.00, 0.80, 1.00, 0.09]
+    ticker:   [0.00, 0.93, 1.00, 0.07]
+    logo:     [0.85, 0.03, 0.12, 0.08]
+    bar_color: "#000000"
