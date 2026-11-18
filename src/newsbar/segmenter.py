@@ -102,6 +102,7 @@ def segment(
     cur: Segment | None = None
     last_news_idx: int | None = None  # last NEWS/WEATHER segment before a break
     breaks = {b.end: b for b in ad.breaks}
+    has_asr = any(o.asr_text for o in obs)
 
     run_text: str | None = None
     run_start = 0
@@ -183,8 +184,7 @@ def segment(
                 and prev is not None
                 and text is not None
                 and text == brk.residual_bar
-                and brk.residual_topic is not None
-                and o.topic == brk.residual_topic
+                and (o.topic == brk.residual_topic if brk.residual_topic is not None else not has_asr)
             ):
                 # AD-8: same story resumes → rewrite its label at the return minute.
                 open_seg(Segment(o.sec, prev.type, bar_texts=[text], signals=["AD-7", "AD-8"], reuse_of=last_news_idx))

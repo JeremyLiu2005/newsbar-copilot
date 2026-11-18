@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "新聞監看全自動填表"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+    "numpy>=1.26",
     "openpyxl>=3.1",
     "pyyaml>=6.0",
 ]

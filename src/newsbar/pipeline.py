@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import ad_state, evidence, excel_writer, labeler, segmenter
+from . import ad_state, cross_channel, evidence, excel_writer, labeler, segmenter
 from .minute_mapper import map_events
 from .schemas import Event, EventType, Labels, SecondObs, Source
 
@@ -59,6 +59,8 @@ def run(
     n_minutes: int = 60,
 ) -> dict:
     events = [ev for ch, obs in streams.items() for ev in run_channel(ch, obs, generator, rules)]
+    if ((rules or {}).get("cross_channel") or {}).get("enabled", True):
+        cross_channel.unify(events, ((rules or {}).get("cross_channel") or {}).get("window_sec", 900))
     cells = map_events(events, channel_headers.keys(), start, n_minutes, Labels.from_rules(rules))
     excel_writer.write(template, out, cells, channel_headers)
     recs = evidence.build(cells, str((rules or {}).get("version", "0")))

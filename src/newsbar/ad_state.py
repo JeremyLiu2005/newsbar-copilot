@@ -54,10 +54,16 @@ def _layout_back(o: SecondObs) -> bool:
     return not o.layout_changed and not o.bar_color_changed
 
 
-def _return_ok(o: SecondObs, residual_bar: str | None, residual_topic: str | None) -> bool:
-    """AD-7 (1)–(4) for one second."""
+def _return_ok(o: SecondObs, residual_bar: str | None, residual_topic: str | None, has_asr: bool = True) -> bool:
+    """AD-7 (1)–(4) for one second.
+
+    Without any ASR on the channel, (3) cannot be observed; the layout and bar
+    colour must then carry the decision and any bar reading satisfies (4).
+    """
     if not _layout_back(o):
         return False
+    if not has_asr:
+        return o.bar_text is not None
     speech = bool(o.asr_text) and not o.ad_speech  # (3) anchor/reporter speech
     if not speech:
         return False
@@ -74,6 +80,7 @@ def _return_ok(o: SecondObs, residual_bar: str | None, residual_topic: str | Non
 def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
     obs = sorted(obs, key=lambda o: o.sec)
     n = len(obs)
+    has_asr = any(o.asr_text for o in obs)
     states: dict[int, str] = {o.sec: NEWS for o in obs}
     breaks: list[AdBreak] = []
 
@@ -132,7 +139,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                     layout_back_since = k if layout_back_since is None else layout_back_since
                 else:
                     layout_back_since = None
-                if _return_ok(ok, residual_bar, residual_topic):
+                if _return_ok(ok, residual_bar, residual_topic, has_asr):
                     ok_run += 1
                     if ok_run >= params.return_confirm_sec:
                         end = k - params.return_confirm_sec + 1
