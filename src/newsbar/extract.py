@@ -40,6 +40,7 @@ def extract_channel(
     workdir: Path,
     sec_offset: int = 0,
     asr=None,
+    ad_library=None,
     start: float = 0.0,
     duration: float | None = None,
     log=print,
@@ -55,6 +56,19 @@ def extract_channel(
     log(f"[{channel}] 畫面訊號 …")
     sig = visual.analyse(video, cfg, sec_offset=sec_offset, start=start, duration=duration)
     obs = visual.merge(res.obs, sig)
+    log(f"[{channel}] 聲音指紋 …")
+    import numpy as np
+
+    from . import fingerprint
+
+    bits = fingerprint.frame_bits(fingerprint.audio_samples(video, start, duration))
+    np.save(work / "audio_fp.npy", bits)
+    if ad_library is not None and len(ad_library.blocks):
+        by_sec = {o.sec: o for o in obs}
+        for s, hit in enumerate(ad_library.match(bits)):
+            o = by_sec.get(s + sec_offset)
+            if o is not None and hit:
+                o.fingerprint_hit = True
     if asr is not None:
         log(f"[{channel}] 語音轉錄 …")
         from .asr import attach

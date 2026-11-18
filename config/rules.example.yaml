@@ -21,6 +21,9 @@ segmenter:
   visual_window_sec: 5
 
 labeler:
+  generator: rule
+  model: qwen2.5:7b-instruct
+  allow_external: false   # NFR-19：外部 LLM 只送 bar 文字與 200 字內語音節錄
   min_len: 4
   max_len: 6
   retries: 1
@@ -30,3 +33,12 @@ output:
   weather_label: 氣象
   outage_label: 訊號中斷
   multi_sep: /
+
+fingerprint:
+  library: data/ad_library.npz   # 確認過的廣告聲音會自動加入，下次同一支廣告直接命中（AD-f）
+
+cross_channel:
+  enabled: true
+  window_sec: 900
+
+# labeler.generator: rule（不用 LLM）| ollama（地端，預設建議）| claude（外部，需 allow_external: true）

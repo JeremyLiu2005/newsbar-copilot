@@ -83,6 +83,12 @@ def cmd_calibrate(a: argparse.Namespace) -> int:
             continue
         text, conf = join_lines(backend.read(imgs[0]))
         print(f"{name:15s} {rois[name]}  → {text!r} (conf {conf:.2f})  {imgs[0]}")
+    if a.framed_at is not None:
+        from .visual import save_framed_template
+        roi = [float(x) for x in a.framed_roi.split(",")]
+        out = work.parent / "framed.npy"
+        save_framed_template(Path(a.video), a.framed_at, roi, out)
+        print(f"包框樣板 → {out}\n請在 channels.yaml 該台加上：\n  framed_roi: {roi}\n  framed_ref: {out}")
     return 0
 
 
@@ -91,6 +97,22 @@ def _parse_video(spec: str, default_clock: str | None) -> tuple[str, Path, str |
     ch, rest = spec.split("=", 1)
     path, _, clock = rest.partition("@")
     return ch, Path(path), clock or default_clock
+
+
+def _extract_job(args: tuple) -> tuple:
+    """Runs in a worker process (spawn) so each channel has its own OCR engine."""
+    from . import extract, fingerprint, ingest
+    from .ocr import get_backend
+
+    ch, path, clock, cfg, work, backend_name, asr_name, lib_path, sheet_start, duration = args
+    asr = None
+    if asr_name != "none":
+        from .asr import get_backend as get_asr
+        asr = get_asr(asr_name)
+    offset = ingest.sheet_offset(clock, sheet_start) if clock else 0
+    obs, warns = extract.extract_channel(Path(path), ch, cfg, get_backend(backend_name), Path(work), offset, asr,
+                                         fingerprint.AdLibrary.load(Path(lib_path)), duration=duration)
+    return ch, len(obs), warns
 
 
 def cmd_run(a: argparse.Namespace) -> int:
@@ -104,10 +126,34 @@ def cmd_run(a: argparse.Namespace) -> int:
     work = Path(a.workdir)
     streams, warnings, timings = {}, {}, {}
     backend = asr = None
-    for spec in a.video:
-        ch, path, clock = _parse_video(spec, a.clock)
+    from . import fingerprint
+    lib_path = Path(((rules.get("fingerprint") or {}).get("library")) or work / "ad_library.npz")
+    library = fingerprint.AdLibrary.load(lib_path)
+    specs = [_parse_video(spec, a.clock) for spec in a.video]
+    for ch, _, _ in specs:
         if ch not in cfg:
             raise SystemExit(f"設定檔沒有台別 {ch}")
+    todo = [(ch, p, c) for ch, p, c in specs if not (a.resume and (work / ch / "obs.jsonl").exists())]
+    if a.jobs > 1 and len(todo) > 1:  # four channels in parallel (NFR-01)
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        t0 = time.time()
+        jobs = [(ch, str(p), c, cfg[ch], str(work), a.backend, a.asr, str(lib_path), a.sheet_start, a.duration)
+                for ch, p, c in todo]
+        with ProcessPoolExecutor(max_workers=a.jobs, mp_context=mp.get_context("spawn")) as ex:
+            futs = {ex.submit(_extract_job, j): j[0] for j in jobs}
+            for f in as_completed(futs):
+                ch = futs[f]
+                try:
+                    _, n, warns = f.result()
+                    warnings[ch] = warns
+                except Exception as e:  # NFR-12
+                    warnings.setdefault(ch, []).append(f"處理失敗：{e}")
+                    print(f"✗ [{ch}] {e}")
+        timings["parallel_extract"] = round(time.time() - t0, 1)
+        a.resume = True  # everything extracted above now loads from obs.jsonl
+    for ch, path, clock in specs:
         obs_file = work / ch / "obs.jsonl"
         t0 = time.time()
         try:
@@ -123,7 +169,7 @@ def cmd_run(a: argparse.Namespace) -> int:
                     asr = get_asr(a.asr)
                 offset = ingest.sheet_offset(clock, a.sheet_start) if clock else 0
                 obs, warns = extract.extract_channel(path, ch, cfg[ch], backend, work, offset, asr,
-                                                     duration=a.duration)
+                                                     library, duration=a.duration)
                 streams[ch] = obs
                 warnings[ch] = warns
         except Exception as e:  # NFR-12: one channel failing must not stop the others
@@ -135,7 +181,11 @@ def cmd_run(a: argparse.Namespace) -> int:
         raise SystemExit("沒有任何一台處理成功")
     out = Path(a.out)
     res = pipeline.run(streams, Path(a.template), out, headers, llm.from_rules(rules), rules, a.sheet_start, a.minutes)
+    learned = _learn_ads(streams, work, library)
+    if learned:
+        library.save(lib_path)
     rep = evaluate.processing_report(res["evidence"], warnings, timings)
+    rep["ad_library"] = {"path": str(lib_path), "seconds": int(len(library.blocks)), "learned": learned}
     out.with_suffix(".report.json").write_text(json.dumps(rep, ensure_ascii=False, indent=2), encoding="utf-8")
     review.render(res["evidence"], {k: cfg[k]["name"] for k in headers}, out.with_suffix(".review.html"),
                   a.sheet_start, a.minutes)
@@ -147,6 +197,27 @@ def cmd_run(a: argparse.Namespace) -> int:
             print(f"⚠ [{ch}] {w}")
     print(f"→ {out}\n→ {out.with_suffix('.review.html')}")
     return 0
+
+
+def _learn_ads(streams: dict, work: Path, library) -> int:
+    """FR-22: grow the ad library from breaks confirmed by ≥2 non-fingerprint signals."""
+    import numpy as np
+
+    from . import ad_state, fingerprint
+
+    n = 0
+    for ch, obs in streams.items():
+        fp = work / ch / "audio_fp.npy"
+        if not fp.exists() or not obs:
+            continue
+        bits = np.load(fp)
+        first = min(o.sec for o in obs)
+        for b in ad_state.detect(obs).breaks:
+            if len(set(b.signals) - {"AD-f"}) < 2:
+                continue
+            secs = [s - first for s in range(b.start + 2, b.end - 2)]  # skip the edges
+            n += fingerprint.learn(library, bits, secs)
+    return n
 
 
 def cmd_eval(a: argparse.Namespace) -> int:
@@ -217,6 +288,8 @@ def main(argv: list[str] | None = None) -> int:
             s.add_argument("--duration", type=float)
         else:
             s.add_argument("--at", type=float, default=30.0, help="取第幾秒的畫面")
+            s.add_argument("--framed-at", type=float, help="影片中包框廣告的某一秒，用來存包框樣板")
+            s.add_argument("--framed-roi", default="0.65,0,0.35,0.78", help="包框時固定不變的區域 x,y,w,h")
         s.set_defaults(func=func)
 
     r = sub.add_parser("run", help="四台影片 → 監看表、依據、報告、抽查頁")
@@ -230,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--backend", default="auto", choices=["auto", "vision", "paddle"])
     r.add_argument("--asr", default="none", choices=["none", "auto", "mlx", "faster-whisper"])
     r.add_argument("--resume", action="store_true", help="已有 obs.jsonl 的台別直接沿用")
+    r.add_argument("--jobs", type=int, default=1, help="平行處理台數（建議 4）")
     r.add_argument("--duration", type=float, help="只處理前 N 秒（測試用）")
     r.add_argument("--sheet-start", default="1200")
     r.add_argument("--minutes", type=int, default=60)

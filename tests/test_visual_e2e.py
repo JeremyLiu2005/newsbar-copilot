@@ -47,7 +47,7 @@ def make_framed_video(tmp: Path) -> Path:
     ])
     out = tmp / "framed.mp4"
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                    "-f", "lavfi", "-i", "gradients=s=1280x720:speed=0.01:d=150:r=10",
+                    "-f", "lavfi", "-i", "gradients=s=1280x720:speed=0.01:d=150:r=10:seed=1",
                     "-f", "lavfi", "-i", "sine=f=440:d=150",
                     "-vf", vf, "-af", "volume=enable='between(t,50,50.5)':volume=0",
                     "-pix_fmt", "yuv420p", "-shortest", str(out)], check=True)
@@ -79,9 +79,11 @@ def test_full_run_writes_ad_and_resumes(video, tmp_path):
     cfg = tmp_path / "ch.yaml"
     cfg.write_text(yaml.safe_dump({"channels": {"tvbs": CFG}}, allow_unicode=True), encoding="utf-8")
     tpl = build_template(tmp_path / "tpl.xlsx")
+    rules = tmp_path / "rules.yaml"
+    rules.write_text(yaml.safe_dump({"fingerprint": {"library": str(tmp_path / "ads.npz")}}), encoding="utf-8")
     out = tmp_path / "out" / "12監看_20261106.xlsx"
     args = ["run", "--video", f"tvbs={video}@12:00:00", "--template", str(tpl), "--out", str(out),
-            "--channels", str(cfg), "--workdir", str(tmp_path / "work")]
+            "--channels", str(cfg), "--workdir", str(tmp_path / "work"), "--rules", str(rules)]
     assert main(args) == 0
 
     from newsbar.evaluate import read_sheet
@@ -92,9 +94,47 @@ def test_full_run_writes_ad_and_resumes(video, tmp_path):
 
     rep = json.loads(out.with_suffix(".report.json").read_text(encoding="utf-8"))
     assert rep["channels"]["tvbs"]["ads"] == 1
+    assert rep["ad_library"]["learned"] > 20  # FR-22: the confirmed break was learned
     assert out.with_suffix(".review.html").exists()
 
     # NFR-13: rerun reuses obs.jsonl and gives the same sheet
     out2 = tmp_path / "out" / "rerun.xlsx"
     assert main(args[:5] + ["--out", str(out2)] + args[7:] + ["--resume"]) == 0
     assert read_sheet(out2, {"tvbs": "TVBS-N"})["tvbs"] == v
+
+
+@pytest.mark.parametrize("seed", [3, 5])
+def test_framed_template_catches_low_contrast_frames(tmp_path, seed):
+    """Seeds where the panel edge has little contrast: the template still sees the frame."""
+    import test_visual_e2e as me
+    from newsbar.visual import analyse, save_framed_template
+
+    src = Path(me.__file__).read_text(encoding="utf-8").replace("seed=1", f"seed={seed}")
+    ns: dict = {}
+    exec(compile(src, "t", "exec"), ns)
+    v = ns["make_framed_video"](tmp_path)
+    roi = [0.65, 0.0, 0.35, 0.78]
+    save_framed_template(v, 60, roi, tmp_path / "framed.npy")
+    cfg = {**CFG, "framed_roi": roi, "framed_ref": str(tmp_path / "framed.npy")}
+    by = {s.sec: s for s in analyse(v, cfg)}
+    assert all(by[t].layout_changed for t in range(52, 89)), [t for t in range(52, 89) if not by[t].layout_changed]
+    assert not any(by[t].layout_changed for t in list(range(0, 49)) + list(range(92, 150)))
+
+
+def test_parallel_two_channels(video, tmp_path):
+    pytest.importorskip("Vision")
+    from newsbar.cli import main
+    from newsbar.evaluate import read_sheet
+
+    cfg = tmp_path / "ch.yaml"
+    ettv = {**CFG, "name": "東森", "excel_column_header": "東森"}
+    cfg.write_text(yaml.safe_dump({"channels": {"tvbs": CFG, "ettv": ettv}}, allow_unicode=True), encoding="utf-8")
+    rules = tmp_path / "rules.yaml"
+    rules.write_text(yaml.safe_dump({"fingerprint": {"library": str(tmp_path / "ads.npz")}}), encoding="utf-8")
+    out = tmp_path / "out.xlsx"
+    assert main(["run", "--video", f"tvbs={video}@12:00:00", "--video", f"ettv={video}@12:01:00",
+                 "--template", str(build_template(tmp_path / "t.xlsx")), "--out", str(out), "--channels", str(cfg),
+                 "--rules", str(rules), "--workdir", str(tmp_path / "w"), "--jobs", "2"]) == 0
+    v = read_sheet(out, {"tvbs": "TVBS-N", "ettv": "東森"})
+    assert v["tvbs"]["1200"].endswith("/廣告")
+    assert v["ettv"]["1201"].endswith("/廣告") and "1202" in v["ettv"]  # same video, clock one minute later

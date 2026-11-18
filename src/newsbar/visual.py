@@ -29,7 +29,8 @@ TW, TH = 320, 180  # thumbnail size
 class VisualParams:
     split_x_range: tuple[float, float] = (0.45, 0.9)  # where a framed-ad edge may sit
     edge_min_height: float = 0.7  # fraction of picture height the edge must span
-    edge_strength: float = 40.0  # mean |dI/dx| along the edge column
+    edge_strength: float = 25.0  # |dI/dx| a pixel needs to count as edge
+    framed_corr_min: float = 0.6  # NCC with the channel's framed-ad template
     edge_persist_sec: int = 3
     bar_color_dist: float = 80.0  # RGB distance from configured bar colour
     logo_corr_min: float = 0.5
@@ -147,6 +148,9 @@ def analyse(
     duration: float | None = None,
 ) -> list[SecondSignals]:
     bar_ref = hex_rgb(channel_cfg["bar_color"]) if channel_cfg.get("bar_color") else None
+    framed_ref = None
+    if channel_cfg.get("framed_ref") and channel_cfg.get("framed_roi"):
+        framed_ref = np.load(channel_cfg["framed_ref"])
     out: list[SecondSignals] = []
     logos: list[np.ndarray] = []
     prev: np.ndarray | None = None
@@ -154,6 +158,11 @@ def analyse(
     for i, img in enumerate(iter_thumbs(video, start, duration)):
         s = SecondSignals(sec=i + sec_offset)
         edges.append(vertical_edge(img, p, channel_cfg.get("main_video")))
+        if framed_ref is not None:
+            corr = _ncc(_box(img, channel_cfg["framed_roi"]), framed_ref)
+            s.debug["framed_corr"] = round(corr, 2)
+            if corr >= p.framed_corr_min:
+                s.layout_changed = True
         if bar_ref is not None and channel_cfg.get("main_bar"):
             bar = _box(img, channel_cfg["main_bar"]).reshape(-1, 3).astype(np.float32)
             bg = np.median(bar, axis=0)
@@ -194,6 +203,14 @@ def analyse(
             if t + 1 > a and t < b:
                 s.black = True
     return out
+
+
+def save_framed_template(video, at: float, roi: list[float], out) -> np.ndarray:
+    """Calibration: store the framed-ad layout region at second `at` (AD-a template)."""
+    img = next(iter_thumbs(video, start=at, duration=1.5))
+    ref = _box(img, roi).copy()
+    np.save(out, ref)
+    return ref
 
 
 def merge(obs: list, signals: list[SecondSignals]) -> list:
