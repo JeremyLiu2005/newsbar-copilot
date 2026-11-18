@@ -59,3 +59,16 @@ def test_missing_channel_header_fails(template):
     ws = load_workbook(template)["12監看"]
     with pytest.raises(WriterError, match="找不到台別"):
         locate(ws, {"x": "中視"})
+
+
+def test_round_trip_normalisation_of_real_template_quirks(tmp_path):
+    """11/06 template: wrapText=False comes back as None, widths lose float digits."""
+    from openpyxl.styles import Alignment
+
+    tpl = build_template(tmp_path / "t.xlsx")
+    wb = load_workbook(tpl)
+    ws = wb["12監看"]
+    ws["F3"].alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+    ws.column_dimensions["B"].width = 18.290000915527344
+    wb.save(tpl)
+    write(tpl, tmp_path / "out.xlsx", sample_cells(), CHANNEL_HEADERS)  # must not raise

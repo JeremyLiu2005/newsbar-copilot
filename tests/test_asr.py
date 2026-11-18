@@ -35,3 +35,21 @@ def test_attach_fills_seconds():
     assert by[-5].asr_text == STORY_A[0].text
     assert by[-5].topic == by[12].topic != by[14].topic
     assert not any(o.ad_speech for o in obs)
+
+
+def voice(f0, seconds=2.0, sr=16000):
+    import numpy as np
+    t = np.arange(int(seconds * sr)) / sr
+    return sum(np.sin(2 * np.pi * f0 * k * t) / k for k in range(1, 6)).astype("float32") * 0.2
+
+
+def test_speaker_change_by_pitch():
+    import numpy as np
+    from newsbar.asr import assign_speakers, segment_pitch
+
+    sr = 16000
+    pcm = np.concatenate([voice(120), voice(125), voice(230), voice(225)])
+    segs = [AsrSegment(i * 2, i * 2 + 2, "x") for i in range(4)]
+    pitches = [segment_pitch(pcm, sr, s) for s in segs]
+    assert abs(pitches[0] - 120) < 6 and abs(pitches[2] - 230) < 10
+    assert assign_speakers(pitches) == ["spk0", "spk0", "spk1", "spk1"]

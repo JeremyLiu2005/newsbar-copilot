@@ -31,6 +31,7 @@ class VisualParams:
     edge_min_height: float = 0.7  # fraction of picture height the edge must span
     edge_strength: float = 25.0  # |dI/dx| a pixel needs to count as edge
     framed_corr_min: float = 0.6  # NCC with the channel's framed-ad template
+    anchor_corr_min: float = 0.6  # NCC with one of the channel's anchor-shot templates
     edge_persist_sec: int = 3
     bar_color_dist: float = 80.0  # RGB distance from configured bar colour
     logo_corr_min: float = 0.5
@@ -49,6 +50,7 @@ class SecondSignals:
     logo_missing: bool = False
     black: bool = False
     shot_cut: bool = False
+    anchor_shot: bool = False
     debug: dict = field(default_factory=dict)
 
 
@@ -151,6 +153,7 @@ def analyse(
     framed_ref = None
     if channel_cfg.get("framed_ref") and channel_cfg.get("framed_roi"):
         framed_ref = np.load(channel_cfg["framed_ref"])
+    anchor_refs = [np.load(p) for p in channel_cfg.get("anchor_refs", [])] if channel_cfg.get("anchor_roi") else []
     out: list[SecondSignals] = []
     logos: list[np.ndarray] = []
     prev: np.ndarray | None = None
@@ -163,6 +166,11 @@ def analyse(
             s.debug["framed_corr"] = round(corr, 2)
             if corr >= p.framed_corr_min:
                 s.layout_changed = True
+        if anchor_refs:  # NEW-2b: studio/anchor-desk shot, one template per set-up
+            box = _box(img, channel_cfg["anchor_roi"])
+            corr = max(_ncc(box, ref) for ref in anchor_refs)
+            s.debug["anchor_corr"] = round(corr, 2)
+            s.anchor_shot = corr >= p.anchor_corr_min
         if bar_ref is not None and channel_cfg.get("main_bar"):
             bar = _box(img, channel_cfg["main_bar"]).reshape(-1, 3).astype(np.float32)
             bg = np.median(bar, axis=0)
@@ -225,4 +233,5 @@ def merge(obs: list, signals: list[SecondSignals]) -> list:
         o.logo_missing = s.logo_missing
         o.black = s.black
         o.shot_cut = s.shot_cut
+        o.anchor_shot = s.anchor_shot
     return obs

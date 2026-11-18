@@ -135,6 +135,8 @@ class SecondObs:
             "AD-d": self.black,
             "AD-e": self.ad_speech,
             "AD-f": self.fingerprint_hit,
+            # AD-g: every news overlay gone (no main bar, no ticker) — full-screen commercial.
+            "AD-g": self.bar_text is None and self.ticker_text is None and self.frame is not None,
         }
         return [k for k, v in names.items() if v]
 

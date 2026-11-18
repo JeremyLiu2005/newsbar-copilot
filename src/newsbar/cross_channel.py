@@ -23,12 +23,17 @@ def _terms(text: str) -> set[str]:
     return out
 
 
-def same_event(a: Event, b: Event, min_shared: int = 2, min_ratio: float = 0.35) -> bool:
-    ta = (a.source.bar_text or "") + " " + (a.source.asr_text or "")
-    tb = (b.source.bar_text or "") + " " + (b.source.asr_text or "")
-    shared = _terms(ta) & _terms(tb)
-    ratio = SequenceMatcher(None, a.source.bar_text or "", b.source.bar_text or "").ratio()
-    return len(shared) >= min_shared and (ratio >= min_ratio or len(shared) >= 4)
+_GENERIC = {"今天", "台灣", "民眾", "記者", "表示", "不過", "因為", "所以", "一個", "我們", "他們", "這個", "沒有"}
+
+
+def same_event(a: Event, b: Event, min_shared: int = 3, min_ratio: float = 0.35) -> bool:
+    """Titles only: long speech transcripts share generic words with everything (11/06 run)."""
+    ta, tb = a.source.bar_text or "", b.source.bar_text or ""
+    if not ta or not tb:
+        return False
+    shared = (_terms(ta) & _terms(tb)) - _GENERIC
+    ratio = SequenceMatcher(None, ta, tb).ratio()
+    return len(shared) >= min_shared or (len(shared) >= 2 and ratio >= min_ratio)
 
 
 def unify(events: list[Event], window_sec: int = 15 * 60) -> list[Event]:
@@ -41,7 +46,7 @@ def unify(events: list[Event], window_sec: int = 15 * 60) -> list[Event]:
                 continue
             if prev.label == ev.label or not same_event(prev, ev):
                 continue
-            src = LabelSource([ev.source.bar_text] if ev.source.bar_text else [], ev.source.asr_text or "")
+            src = LabelSource([ev.source.bar_text] if ev.source.bar_text else [], "")
             if validate(prev.label, src):  # X-2: must be backed by this channel's own source
                 continue
             ev.signals.setdefault("ids", []).append(f"X-1:{prev.channel}")

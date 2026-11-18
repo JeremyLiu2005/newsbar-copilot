@@ -1,0 +1,44 @@
+# 11/06 實跑用。門檻與權重。用 12:00–12:20 調參，12:20–13:00 只測試、不再修改。
+version: 0.1
+
+ocr:
+  # min_conf: 0.6   # 不設定時依後端：PaddleOCR 0.6、Apple Vision 0.3（Vision 信心值只有 0.3/0.5/1.0 三級）
+  vote_window_sec: 5
+
+ad_state:
+  min_signals: 2
+  min_duration_sec: 10
+  return_confirm_sec: 5
+  outage_black_sec: 30
+  layout_sim_threshold: 0.55
+
+segmenter:
+  bar_change_jaccard: 0.5
+  same_story_cosine: 0.75
+  weights: { bar: 0.5, asr: 0.3, visual: 0.2 }
+  threshold: 0.6
+  asr_window_sec: 20
+  visual_window_sec: 5
+
+labeler:
+  generator: rule
+  model: qwen2.5:7b-instruct
+  allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
+  min_len: 4
+  max_len: 6
+  retries: 1
+
+output:
+  ad_label: 廣告
+  weather_label: 氣象
+  outage_label: 訊號中斷
+  multi_sep: /
+
+fingerprint:
+  library: data/ad_library_1106.npz   # 確認過的廣告聲音會自動加入，下次同一支廣告直接命中（AD-f）
+
+cross_channel:
+  enabled: true
+  window_sec: 900
+
+# labeler.generator: rule（不用 LLM）| ollama（地端，預設建議）| claude（外部，需 allow_external: true）

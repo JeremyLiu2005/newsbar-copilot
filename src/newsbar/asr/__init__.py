@@ -101,6 +101,41 @@ def assign_topics(segs: list[AsrSegment], window: int = 3, threshold: float = 0.
     return topics
 
 
+def segment_pitch(samples, sr: int, seg: AsrSegment) -> float | None:
+    """Median fundamental frequency (Hz) of voiced 40 ms frames via autocorrelation."""
+    import numpy as np
+
+    a, b = int(seg.start * sr), int(seg.end * sr)
+    x = np.asarray(samples[a:b], dtype=np.float32)
+    n = int(0.04 * sr)
+    lo, hi = int(sr / 400), int(sr / 70)  # 70–400 Hz
+    f0s = []
+    for i in range(0, len(x) - n, n):
+        fr = x[i : i + n] - x[i : i + n].mean()
+        if fr.std() < 0.01:
+            continue
+        ac = np.correlate(fr, fr, "full")[n - 1 :]
+        lag = lo + int(np.argmax(ac[lo:hi]))
+        if ac[lag] > 0.3 * ac[0]:
+            f0s.append(sr / lag)
+    return float(np.median(f0s)) if len(f0s) >= 3 else None
+
+
+def assign_speakers(pitches: list[float | None], ratio: float = 1.25) -> list[str | None]:
+    """NEW-2c: a new speaker id whenever the pitch jumps by more than `ratio`."""
+    out: list[str | None] = []
+    sid, last = 0, None
+    for p in pitches:
+        if p is None:
+            out.append(None)
+            continue
+        if last is not None and max(p, last) / min(p, last) > ratio:
+            sid += 1
+        last = p
+        out.append(f"spk{sid}")
+    return out
+
+
 def attach(
     obs: list[SecondObs],
     backend: AsrBackend,
@@ -111,13 +146,23 @@ def attach(
     segments: list[AsrSegment] | None = None,
 ) -> list[AsrSegment]:
     """Fill asr_text / topic / ad_speech on obs (in place). Pass `segments` to skip ASR."""
+    speakers: list[str | None] = []
     if segments is None:
+        import wave
+
+        import numpy as np
+
         with tempfile.TemporaryDirectory() as d:
             wav = extract_audio(video, Path(d) / "a.wav", start, duration)  # type: ignore[arg-type]
             segments = backend.transcribe(wav)
+            with wave.open(str(wav)) as w:
+                sr = w.getframerate()
+                pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
+            speakers = assign_speakers([segment_pitch(pcm, sr, s) for s in segments])
     topics = assign_topics(segments)
+    speakers = speakers or [None] * len(segments)
     by_sec = {o.sec: o for o in obs}
-    for seg, topic in zip(segments, topics):
+    for seg, topic, spk in zip(segments, topics, speakers):
         ad = is_ad_speech(seg.text)
         for t in range(int(seg.start), int(math.ceil(seg.end)) or int(seg.start) + 1):
             o = by_sec.get(t + sec_offset)
@@ -125,5 +170,6 @@ def attach(
                 continue
             o.asr_text = seg.text
             o.topic = topic
+            o.speaker = spk
             o.ad_speech = o.ad_speech or ad
     return segments

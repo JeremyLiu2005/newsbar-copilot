@@ -77,6 +77,8 @@ def cmd_calibrate(a: argparse.Namespace) -> int:
     dirs = ingest.extract_rois(Path(a.video), rois, work, start=a.at, duration=1)
     backend = get_backend(a.backend)
     print(f"整張畫面：{frame}")
+    from .calibrate_ui import render as render_ui
+    print(f"圖形化校正頁：{render_ui(frame, a.channel, ch, work / 'roi.html')}")
     for name, d in dirs.items():
         imgs = sorted(d.glob("*.jpg"))
         if not imgs:

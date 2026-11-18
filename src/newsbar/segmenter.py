@@ -173,7 +173,9 @@ def segment(
             open_seg(Segment(t, EventType.NEWS, signals=["NEW-2a"], confidence=Confidence.LOW.value, fallback="FB-3"))
             return
         sigs = evidence(t)
-        low = len(sigs) == 1
+        # NEW-2c (speaker change) is recorded but not sufficient alone: interviews switch
+        # speakers inside one story all the time (11/06 TVBS SOTs).
+        low = not any(x in sigs for x in ("NEW-2a", "NEW-2b", "NEW-2d"))
         if low and has_asr and params.asr_veto and cur is not None and cur.type is EventType.NEWS:
             cur.bar_texts.append(text)  # SAME-6: speech topic unchanged, no credit, no anchor → same story
             cur.signals.append("SAME-6")

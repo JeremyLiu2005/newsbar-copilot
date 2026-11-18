@@ -112,7 +112,10 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
             strong = 0
             entered_at = None
             while j < n and obs[j].ad_signals() and states[obs[j].sec] != OUTAGE:
-                strong = strong + 1 if len(obs[j].ad_signals()) >= params.min_signals else 0
+                # The news ticker still on screen means the channel's overlay is live: a news
+                # graphic can hide the logo and draw a frame edge (11/06 TVBS), so ask for one more.
+                need = params.min_signals + (1 if obs[j].ticker_text else 0)
+                strong = strong + 1 if len(obs[j].ad_signals()) >= need else 0
                 if strong >= params.min_duration_sec:
                     entered_at = j
                     break

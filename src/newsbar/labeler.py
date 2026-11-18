@@ -83,7 +83,9 @@ def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) 
     if not (rules.min_len <= n <= rules.max_len):
         errors.append("LBL-5")
     # SRC-2 / SRC-3 / LBL-2 / LBL-3: every content character must come from the source.
-    src_chars = set(src)
+    # With a title on screen the label must come from the title itself; a long speech
+    # transcript contains nearly every common character and would let anything pass.
+    src_chars = set(" ".join(source.bar_texts)) if source.bar_texts else set(src)
     for ch in _CJK.findall(label):
         if ch not in src_chars and ch not in FUNCTION_CHARS:
             errors.append("SRC-2")
@@ -100,8 +102,12 @@ def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) 
     return sorted(set(errors))
 
 
+_CLAUSE = re.compile(r"[!?！？,，。:：;；、\s「」『』\"'()（）\[\]【】…]+")
+
+
 def rule_label(source: LabelSource, rules: LabelRules = LabelRules()) -> str:
-    """FB-4: copy-only label = place + core verb, or the head of the bar text."""
+    """FB-4: copy-only label = place + core verb for social news, otherwise the first
+    clause of the title that is long enough (digits kept: 月薪5萬, 僅1師帶隊)."""
     text = source.bar_texts[0] if source.bar_texts else source.asr_text
     clean = _PUNCT.sub("", text)
     places = places_in(clean)
@@ -115,9 +121,21 @@ def rule_label(source: LabelSource, rules: LabelRules = LabelRules()) -> str:
                 if label_length(cand) >= rules.min_len:
                     return cand
                 break
+
+    def cut(clause: str, n: int) -> str:
+        out, units = "", 0
+        for tok in re.findall(r"[A-Za-z0-9]+|[\u4e00-\u9fff]", clause):
+            if units == n:
+                break
+            out += tok
+            units += 1
+        return out
+
+    for clause in _CLAUSE.split(text):
+        cand = cut(clause, 5)
+        if label_length(cand) >= rules.min_len:
+            return cand
     cjk = "".join(_CJK.findall(clean))
-    if len(cjk) >= rules.min_len:
-        return cjk[:5]
     return (cjk or clean)[: rules.max_len] or "新聞"
 
 

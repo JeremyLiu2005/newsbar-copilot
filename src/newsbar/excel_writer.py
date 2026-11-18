@@ -83,6 +83,12 @@ def locate(ws: Worksheet, channel_headers: dict[str, str]) -> Layout:
     return Layout(hr, tc, minute_rows, channel_cols)
 
 
+def _norm_style(obj) -> tuple:
+    """openpyxl writes boolean style flags back as None when they equal the
+    default (False); treat the two as the same so a plain round-trip passes."""
+    return tuple((k, False if v is None else v) for k, v in sorted(vars(obj).items()) if not k.startswith("_"))
+
+
 def _fingerprint(ws: Worksheet, skip: set[tuple[int, int]]) -> str:
     h = hashlib.sha256()
     for row in ws.iter_rows():
@@ -98,14 +104,14 @@ def _fingerprint(ws: Worksheet, skip: set[tuple[int, int]]) -> str:
                         c.font,
                         c.fill,
                         c.border,
-                        c.alignment,
-                        c.protection,
+                        _norm_style(c.alignment),
+                        _norm_style(c.protection),
                     )
                 ).encode()
             )
     h.update(repr(sorted(str(r) for r in ws.merged_cells.ranges)).encode())
     for key, dim in sorted(ws.column_dimensions.items()):
-        h.update(repr((key, dim.width, dim.hidden)).encode())
+        h.update(repr((key, None if dim.width is None else round(dim.width, 4), dim.hidden)).encode())
     return h.hexdigest()
 
 
