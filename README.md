@@ -25,12 +25,21 @@
 ## 開發
 
 ```bash
-uv sync --python 3.11
-uv run pytest            # 規格 §11 的 T01–T24 全部有對應測試
+uv sync --python 3.11 --extra mac   # mac = Apple Vision OCR
+uv run pytest                        # 規格 §11 的 T01–T24 全部有對應測試，另含合成影片 OCR 端到端測試
+
+# 1. 檢查 ROI：取第 30 秒畫面，印出每個區域 OCR 讀到的字
+uv run newsbar calibrate --video data/tvbs.mp4 --channel tvbs --channels config/channels.yaml
+# 2. 影片 → 主 bar 文字流（--clock = 影片第 0 秒的實際時刻）
+uv run newsbar ocr --video data/tvbs.mp4 --channel tvbs --channels config/channels.yaml --clock 11:59:50
+# 3. 事件 → 12監看 xlsx
 uv run newsbar write-sheet --events events.jsonl --template 範本.xlsx --out out/12監看_20261106.xlsx
 ```
 
+實測（M4、合成 720p 影片）：Apple Vision 每張 ROI 約 45 ms；一小時一台只讀主 bar 約 3 分鐘，四台循序約 11 分鐘；ROI 截圖每台每小時約 60 MB。
+
 已實作：從每秒觀測值（`SecondObs`）到 Excel 的整段決策邏輯——廣告狀態機、換題判定、五字標校驗與 fallback、秒轉分鐘、寫表、證據包。
-未實作：影片抽取端（OCR、ASR、畫面訊號），以及 LLM 產生器（目前以規則擷取代替）。
+已實作抽取端：ingest（ffprobe、校時、每秒裁 ROI）、OCR（Apple Vision／PaddleOCR 介面、5 秒投票、雜訊吸附、跑馬燈防呆）。
+未實作：ASR、畫面訊號（版面、台徽、黑場）、音訊指紋，以及 LLM 產生器（目前以規則擷取代替）。
 
 影片與中間產物放在 `data/`，不進版本控制。

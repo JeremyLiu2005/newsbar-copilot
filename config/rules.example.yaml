@@ -2,7 +2,7 @@
 version: 0.1
 
 ocr:
-  min_conf: 0.6
+  # min_conf: 0.6   # 不設定時依後端：PaddleOCR 0.6、Apple Vision 0.3（Vision 信心值只有 0.3/0.5/1.0 三級）
   vote_window_sec: 5
 
 ad_state:

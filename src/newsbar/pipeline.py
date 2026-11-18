@@ -30,7 +30,7 @@ def run_channel(
             if seg.reuse_of is not None and seg.reuse_of in seg_event:
                 prev = seg_event[seg.reuse_of]
                 ev = Event(channel, seg.start, EventType.NEWS, prev.label, prev.story_id,
-                           seg.confidence, Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text),
+                           seg.confidence, Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame),
                            sigs, seg.fallback)
             else:
                 src = labeler.LabelSource(seg.bar_texts, seg.asr_text)
@@ -38,10 +38,10 @@ def run_channel(
                 fb = ",".join(f for f in (seg.fallback, res.fallback) if f) or None
                 ev = Event(channel, seg.start, EventType.NEWS, res.label, f"{channel}-{i}",
                            "low" if fb else seg.confidence,
-                           Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text), sigs, fb)
+                           Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame), sigs, fb)
         else:
             ev = Event(channel, seg.start, seg.type, confidence=seg.confidence,
-                       source=Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text),
+                       source=Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame),
                        signals=sigs, fallback=seg.fallback)
         seg_event[i] = ev
         events.append(ev)

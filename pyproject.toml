@@ -11,6 +11,11 @@ dependencies = [
 [project.scripts]
 newsbar = "newsbar.cli:main"
 
+[project.optional-dependencies]
+mac = [
+    "pyobjc-framework-vision>=10",
+]
+
 [dependency-groups]
 dev = ["pytest>=8"]
 

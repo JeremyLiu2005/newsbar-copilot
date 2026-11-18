@@ -22,7 +22,7 @@ _STOPWORDS = {"新北", "台北", "台灣", "全台", "民眾", "今天", "記�
 
 @dataclass(frozen=True)
 class SegParams:
-    min_conf: float = 0.6  # TXT-4
+    min_conf: float = 0.0  # TXT-4 is applied in ocr.stream; raise only for un-voted input
     stable_sec: int = 3  # TIME-1
     asr_window_sec: int = 20  # NEW-2a
     visual_window_sec: int = 5  # NEW-2b, NEW-2c
@@ -30,9 +30,8 @@ class SegParams:
     @classmethod
     def from_rules(cls, rules: dict | None) -> "SegParams":
         r = (rules or {}).get("segmenter", {})
-        o = (rules or {}).get("ocr", {})
         return cls(
-            min_conf=o.get("min_conf", cls.min_conf),
+            min_conf=cls.min_conf,
             stable_sec=r.get("stable_sec", cls.stable_sec),
             asr_window_sec=r.get("asr_window_sec", cls.asr_window_sec),
             visual_window_sec=r.get("visual_window_sec", cls.visual_window_sec),
@@ -79,6 +78,7 @@ class Segment:
     confidence: str = Confidence.HIGH.value
     fallback: str | None = None
     reuse_of: int | None = None  # index of an earlier segment this continues (AD-8)
+    frame: str | None = None  # main_bar crop at the start second
 
     @property
     def asr_text(self) -> str:
@@ -134,6 +134,8 @@ def segment(
 
     def open_seg(seg: Segment) -> Segment:
         nonlocal cur, last_news_idx
+        if seg.frame is None and seg.start in idx:
+            seg.frame = obs[idx[seg.start]].frame
         segs.append(seg)
         cur = seg
         if seg.type in (EventType.NEWS, EventType.WEATHER):

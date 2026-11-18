@@ -54,9 +54,10 @@ def test_T10_ticker_changes_never_trigger():
     assert len(segs_of(obs)) == 1
 
 
-def test_low_confidence_ocr_reads_are_ignored():
+def test_low_confidence_ocr_reads_are_ignored_when_asked():
+    from newsbar.segmenter import SegParams
     obs = news(30, 0, "新北土城七旬翁 遭貨車輾亡", "t1") + news(30, 30, "高金素梅共諜案起訴", "t2", bar_conf=0.3)
-    assert len(segs_of(obs)) == 1
+    assert len(segment(obs, detect(obs), SegParams(min_conf=0.6))) == 1
 
 
 def test_T11_weather_in_main_bar_is_weather():
