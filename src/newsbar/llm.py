@@ -1,4 +1,4 @@
-"""LLM label generators (spec §6; NFR-02, NFR-19 data scope).
+"""LLM label generators (spec §6; NFR-07, NFR-14 data scope).
 
 Every generator only proposes; labeler.validate() decides. Two backends:
   * OllamaGenerator  — local model over Ollama's HTTP API (default, data stays in-house)
@@ -31,7 +31,7 @@ FEW_SHOT = [
     ("萬聖節派對後垃圾亂丟 民眾怒批", "萬聖節亂丟"),
 ]
 
-MAX_ASR_CHARS = 200  # NFR-19: never send more speech than needed
+MAX_ASR_CHARS = 200  # NFR-14: never send more speech than needed
 
 
 def build_user_prompt(source: LabelSource, attempt: int) -> str:
@@ -79,7 +79,7 @@ class ClaudeGenerator:
     def __init__(self, model: str = "claude-opus-5-5", allow_external: bool = False, client=None):
         if not allow_external:
             raise ExternalCallNotAllowed(
-                "外部 LLM 預設關閉（NFR-02、NFR-19）。要使用請在 rules.yaml 設 labeler.allow_external: true")
+                "外部 LLM 預設關閉（NFR-14）。要使用請在 rules.yaml 設 labeler.allow_external: true")
         if client is None:
             import anthropic
 

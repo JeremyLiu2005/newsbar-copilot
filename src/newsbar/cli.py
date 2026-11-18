@@ -134,7 +134,7 @@ def cmd_run(a: argparse.Namespace) -> int:
         if ch not in cfg:
             raise SystemExit(f"設定檔沒有台別 {ch}")
     todo = [(ch, p, c) for ch, p, c in specs if not (a.resume and (work / ch / "obs.jsonl").exists())]
-    if a.jobs > 1 and len(todo) > 1:  # four channels in parallel (NFR-01)
+    if a.jobs > 1 and len(todo) > 1:  # four channels in parallel (NFR-05)
         import multiprocessing as mp
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -148,7 +148,7 @@ def cmd_run(a: argparse.Namespace) -> int:
                 try:
                     _, n, warns = f.result()
                     warnings[ch] = warns
-                except Exception as e:  # NFR-12
+                except Exception as e:  # NFR-09
                     warnings.setdefault(ch, []).append(f"處理失敗：{e}")
                     print(f"✗ [{ch}] {e}")
         timings["parallel_extract"] = round(time.time() - t0, 1)
@@ -157,7 +157,7 @@ def cmd_run(a: argparse.Namespace) -> int:
         obs_file = work / ch / "obs.jsonl"
         t0 = time.time()
         try:
-            if a.resume and obs_file.exists():  # NFR-13
+            if a.resume and obs_file.exists():  # NFR-10
                 print(f"[{ch}] 沿用 {obs_file}")
                 streams[ch] = extract.load_obs(obs_file)
             else:
@@ -172,7 +172,7 @@ def cmd_run(a: argparse.Namespace) -> int:
                                                      library, duration=a.duration)
                 streams[ch] = obs
                 warnings[ch] = warns
-        except Exception as e:  # NFR-12: one channel failing must not stop the others
+        except Exception as e:  # NFR-09: one channel failing must not stop the others
             warnings.setdefault(ch, []).append(f"處理失敗：{e}")
             print(f"✗ [{ch}] {e}")
         timings[ch] = round(time.time() - t0, 1)

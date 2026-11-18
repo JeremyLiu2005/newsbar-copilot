@@ -97,7 +97,7 @@ def test_full_run_writes_ad_and_resumes(video, tmp_path):
     assert rep["ad_library"]["learned"] > 20  # FR-22: the confirmed break was learned
     assert out.with_suffix(".review.html").exists()
 
-    # NFR-13: rerun reuses obs.jsonl and gives the same sheet
+    # NFR-10: rerun reuses obs.jsonl and gives the same sheet
     out2 = tmp_path / "out" / "rerun.xlsx"
     assert main(args[:5] + ["--out", str(out2)] + args[7:] + ["--resume"]) == 0
     assert read_sheet(out2, {"tvbs": "TVBS-N"})["tvbs"] == v

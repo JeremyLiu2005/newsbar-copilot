@@ -1,7 +1,7 @@
 """Video ingest: probe, clock alignment, per-second ROI crops (architecture §4.1).
 
 Only the configured regions are written to disk (JPEG), one image per second,
-so a 1-hour channel costs ~100 MB instead of full frames (NFR-04).
+so a 1-hour channel costs ~100 MB instead of full frames (NFR-08).
 """
 
 from __future__ import annotations

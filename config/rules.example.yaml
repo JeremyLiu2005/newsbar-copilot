@@ -23,7 +23,7 @@ segmenter:
 labeler:
   generator: rule
   model: qwen2.5:7b-instruct
-  allow_external: false   # NFR-19：外部 LLM 只送 bar 文字與 200 字內語音節錄
+  allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
   min_len: 4
   max_len: 6
   retries: 1

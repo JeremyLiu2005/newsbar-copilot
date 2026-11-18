@@ -1,4 +1,4 @@
-"""Evaluation (spec §11 metrics; FR-23, FR-30, NFR-26).
+"""Evaluation (spec §11 metrics; FR-23, FR-26, NFR-21).
 
 Gold standard = a 12監看-shaped xlsx (or {channel: {minute: value}} dict)
 filled by two annotators and reconciled. Metrics:

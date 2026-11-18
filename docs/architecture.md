@@ -1,6 +1,6 @@
 # NewsBar Copilot 系統架構
 
-> 版本 v0.2（2026-11-18）｜狀態：設計稿，尚未實作
+> 版本 v0.3（2026-11-18）｜狀態：決策邏輯與抽取端已實作（98 個自動測試），尚未用真實側錄驗證
 > 對應提案：UNEXT AI 企業創新實戰營 S36「新聞監看全自動填表」
 > **需求來源：[requirements.md](requirements.md)**（Contextual Design 工作模型 → 親和圖 → UED → 需求清單）。本文件的每個模組都標出它實現的需求 ID。
 
@@ -79,16 +79,16 @@ flowchart LR
 
 | 模組 | 實現的需求 |
 |---|---|
-| ingest | FR-01、FR-20、NFR-04 |
-| ocr | FR-02、NFR-05 |
+| ingest | FR-01、FR-20、FR-24、NFR-08 |
+| ocr | FR-02、NFR-22 |
 | asr、visual | FR-03、FR-04 |
-| ad_state | FR-04、FR-05、FR-14、NFR-07 |
-| segmenter | FR-03、FR-06、NFR-07 |
+| ad_state | FR-04、FR-05、FR-14、NFR-18 |
+| segmenter | FR-03、FR-06、NFR-18 |
 | labeler | FR-08、FR-10、FR-13 |
 | cross_channel | FR-19 |
 | minute_mapper | FR-06、FR-07、FR-09、FR-13、FR-14、C-01 |
 | excel_writer | FR-11、C-02、C-03 |
-| evidence（新增） | FR-12、NFR-06 |
+| evidence（新增） | FR-12、NFR-13 |
 | ui：抽查台、ROI 校正、日報 | FR-15、FR-16、FR-17、FR-18 |
 | eval | FR-23 |
 | fingerprint | FR-22 |
@@ -239,7 +239,7 @@ flowchart LR
 - 寫入前後對**非目標儲存格**計算雜湊值，必須完全相同，確保只動到該動的格子。
 - 輸出 `out/12監看_{date}.xlsx`；旁檔 `out/run_report.csv` 記錄每格的來源 bar 原文、秒級時間、信心、判斷依據。
 
-### 4.12 evidence：每格的證據包（FR-12、NFR-06）
+### 4.12 evidence：每格的證據包（FR-12、NFR-13）
 
 每個寫進表的格子都對應一筆證據，抽查台與評估都讀它：
 
@@ -373,17 +373,19 @@ flowchart LR
 
 ## 11. 待決事項
 
-見 [requirements.md §6.4](requirements.md#64-待決事項)（Q1–Q7），兩邊不重複維護。
+見 [requirements.md §6.5](requirements.md#65-待決事項)（Q1–Q10），兩邊不重複維護。
 
-## 12. 實作順序（依需求優先序 M → S → C）
+## 12. 實作狀態
 
-1. **骨架與契約**（FR-07、FR-09、FR-11、FR-12）：`schemas.py`、`minute_mapper`、`excel_writer`、`evidence` 先做，用手寫的假事件就能產出正確格式的 Excel 與證據包。先把最硬的輸出契約鎖死。
-2. **ingest + ocr + ROI 校正**（FR-01、FR-02、FR-17、NFR-04）：產出四台 bar 文字流。
-3. **ad_state**（FR-04、FR-05、FR-06）：先只用版面訊號 a，再逐步加入 b–e。
-4. **segmenter**（FR-03）：先做單訊號基線，再加 ASR 與視覺融合。
-5. **labeler**（FR-08、FR-10、FR-13）：few-shot + 校驗 + fallback。
-6. **eval + 抽查台 HTML**（FR-23、FR-15 Demo 版）。
-7. **S 級**：FR-14、FR-16、FR-18、FR-19、FR-20。
-8. **C 級**：FR-21、FR-22。
+| 步驟 | 內容 | 狀態 |
+|---|---|---|
+| 1 骨架與契約 | schemas、minute_mapper、excel_writer、evidence | ✅ |
+| 2 抽取端 | ingest、OCR（Apple Vision／PaddleOCR）、投票、跑馬燈防呆、ROI 校正 CLI | ✅ |
+| 3 廣告 | 狀態機、畫面訊號（版面邊界、包框樣板、bar 底色、台徽、黑場、靜音）、聲音指紋庫 | ✅ |
+| 4 換題 | 穩定 bar、同則判斷（字詞基線）、語音主題佐證、OCR 失效改用語音 | ◐ 主播鏡頭偵測、語者切換未做 |
+| 5 五字標 | 校驗器、規則擷取、Ollama／Claude 產生器 | ✅ |
+| 6 評估與抽查 | `newsbar eval`、抽查 HTML、修正版 | ✅ |
+| 7 營運 | `newsbar run`：平行、續跑、單台失敗隔離、處理報告、跨台命名 | ✅ |
+| 8 未做 | 排程佇列、圖形化 ROI 校正、日報寄送、自動退版、歷史檢索、畫面時鐘 OCR | ○ |
 
-開始寫程式前，先做 requirements §7 的「階段 0 自我觀察」，用第一手資料修正推論項。
+**下一步**：拿到 11/06 側錄後依 requirements §7 先做自我觀察與雙人標註，再以 12:00–12:20 調參、12:20–13:00 測試，把 NFR-01–03 的實測值填回需求表。

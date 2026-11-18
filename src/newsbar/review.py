@@ -1,4 +1,4 @@
-"""Review console, demo form (FR-15, FR-16, NFR-06): one static HTML file.
+"""Review console, demo form (FR-15, FR-16, NFR-13): one static HTML file.
 
 Four channels side by side on a minute timeline; cells to check first
 (fallback → low confidence → ad edges) are listed at the top with the bar

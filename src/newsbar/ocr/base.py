@@ -1,4 +1,4 @@
-"""OCR backend interface (NFR-05): backends differ, output does not."""
+"""OCR backend interface (NFR-22): backends differ, output does not."""
 
 from __future__ import annotations
 

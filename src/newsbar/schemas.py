@@ -125,7 +125,7 @@ class SecondObs:
     topic: str | None = None  # ASR topic cluster id
     anchor_shot: bool = False  # camera on the anchor desk
     shot_cut: bool = False
-    frame: str | None = None  # main_bar crop for evidence (NFR-06)
+    frame: str | None = None  # main_bar crop for evidence (FR-12)
 
     def ad_signals(self) -> list[str]:
         names = {
