@@ -109,7 +109,8 @@ def scrolling_spans(reads: list[RawRead], window: int = 10, min_moves: int = 6) 
 
 
 def read_dir(backend: OcrBackend, frames: Path, sec_offset: int = 0, every: int = 1,
-             thumbs: Path | None = None, same_diff: float = 3.0) -> tuple[list[RawRead], int]:
+             thumbs: Path | None = None, same_diff: float = 3.0,
+             only: set[int] | None = None) -> tuple[list[RawRead], int]:
     """OCR one crop per second. Skips work two ways (NFR-05):
     * `every` > 1 reads only every n-th second and forward-fills (ticker presence);
     * `thumbs` (tiny grayscale copies) lets an unchanged crop reuse the previous read —
@@ -131,6 +132,8 @@ def read_dir(backend: OcrBackend, frames: Path, sec_offset: int = 0, every: int 
     last_thumb = None
     for k, img in enumerate(imgs):
         idx = int(img.stem)
+        if only is not None and idx + sec_offset not in only:
+            continue
         reuse = False
         if last is not None and every > 1 and k % every:
             reuse = True
@@ -168,6 +171,17 @@ def ocr_channel(
         params = VoteParams(getattr(backend, "min_conf", 0.6), params.window_sec, params.cluster_ratio, params.snap_ratio)
     voted = vote(raw, params)
     warnings = []
+    # Talk-show style segments (11/06 CTS 說新聞) have no lower bar; the title is the big
+    # graphic at the top. Read alt_bar only for the seconds where the main bar is empty.
+    if "alt_bar" in roi_dirs:
+        blank = {r.sec for r in voted if r.text is None}
+        if blank:
+            a_reads, a_calls = read_dir(backend, roi_dirs["alt_bar"], sec_offset, only=blank)
+            calls += a_calls
+            a_voted = {r.sec: r for r in vote(a_reads, params)}
+            for r in voted:
+                if r.text is None and r.sec in a_voted and a_voted[r.sec].text:
+                    r.text, r.conf = a_voted[r.sec].text, a_voted[r.sec].conf
     spans = scrolling_spans(voted)
     for a, b in spans:
         warnings.append(f"TXT-3: main_bar 在 {a}–{b} 秒文字橫向移動，ROI 可能框到跑馬燈")

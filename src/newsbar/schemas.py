@@ -12,6 +12,17 @@ from enum import Enum
 from typing import Any
 
 
+import re as _re
+
+# Phone numbers and "back after the break" teasers only: news titles themselves carry
+# 折/優惠/買1送1 (11/06 TVBS 旅展 story was misread as an ad).
+_AD_COPY = _re.compile(r"0800|\d{2,4}-\d{3,4}-\d{3,4}|廣告後|立即回到|稍後回來|馬上回來|休息一下")
+
+
+def is_ad_copy(text: str | None) -> bool:
+    return bool(text) and bool(_AD_COPY.search(text))  # type: ignore[arg-type]
+
+
 class EventType(str, Enum):
     NEWS = "news"
     AD = "ad"
@@ -126,6 +137,7 @@ class SecondObs:
     anchor_shot: bool = False  # camera on the anchor desk
     shot_cut: bool = False
     frame: str | None = None  # main_bar crop for evidence (FR-12)
+    clock_ok: bool | None = None  # on-screen clock readable (None = not measured)
 
     def ad_signals(self) -> list[str]:
         names = {
@@ -135,8 +147,14 @@ class SecondObs:
             "AD-d": self.black,
             "AD-e": self.ad_speech,
             "AD-f": self.fingerprint_hit,
-            # AD-g: every news overlay gone (no main bar, no ticker) — full-screen commercial.
-            "AD-g": self.bar_text is None and self.ticker_text is None and self.frame is not None,
+            # AD-g: the news ticker is gone — every channel keeps it on during news (11/06).
+            "AD-g": self.ticker_text is None and self.frame is not None,
+            # AD-h: the main-bar position shows ad copy or a "back after the break" teaser
+            # (11/06 CTS 固力伸0800-030-031低至72折; FTV 「廣告後立即回到新聞現場」).
+            "AD-h": is_ad_copy(self.bar_text),
+            # AD-j: the channel clock is gone — every channel shows it throughout news,
+            # a full-screen commercial covers it (11/06 TVBS 12:37:30–12:40:47).
+            "AD-j": self.clock_ok is False,
         }
         return [k for k, v in names.items() if v]
 

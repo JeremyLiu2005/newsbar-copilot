@@ -99,3 +99,27 @@ def test_ocr_missing_falls_back_to_asr_topic():
     segs = segs_of(obs)
     assert [s.start for s in segs] == [0, 30]
     assert all(s.fallback == "FB-3" for s in segs)
+
+
+def test_headline_carousel_is_a_framed_ad_not_stories():
+    """11/06 FTV: 10 teasers × 9 s looped twice while the picture played commercials."""
+    titles = [f"預告標題第{k}則新聞內容" for k in range(7)]
+    obs = news(40, 0, "新北土城七旬翁 遭貨車輾亡", "t1")
+    t = 40
+    for _ in range(2):
+        for x in titles:
+            obs += news(9, t, x, "t1")
+            t += 9
+    obs += news(40, t, "高金素梅共諜案起訴 求刑14年", "t2")
+    segs = segs_of(obs)
+    assert [s.type for s in segs] == [T.NEWS, T.AD, T.NEWS]
+    assert segs[2].bar_texts[0].startswith("高金") and segs[2].start == t
+
+
+def test_ad_copy_in_bar_plus_no_ticker_is_an_ad():
+    from newsbar.schemas import is_ad_copy
+    assert is_ad_copy("固力伸0800-030-031低至72折") and is_ad_copy("廣告後立即回到新聞現場")
+    assert not is_ad_copy("涉收1.7億發展共諜組織遭起訴!檢求刑14年")
+    obs = news(60, 0, "新北土城七旬翁 遭貨車輾亡", "t1", ticker_text="快訊", frame="f.jpg")
+    obs += news(40, 60, "固力伸0800-030-031低至72折", "t9", ticker_text=None, frame="f.jpg")
+    assert detect(obs).breaks and detect(obs).breaks[0].start == 60

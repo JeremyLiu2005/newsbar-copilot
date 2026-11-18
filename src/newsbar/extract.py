@@ -32,6 +32,26 @@ def load_obs(path: Path) -> list[SecondObs]:
     return out
 
 
+def add_clock(obs: list[SecondObs], video: Path, cfg: dict, backend: OcrBackend, workdir: Path,
+              sec_offset: int = 0, start: float = 0.0, duration: float | None = None, every: int = 5) -> int:
+    """Fill clock_ok (AD-j) by reading the clock ROI every `every` seconds."""
+    if not cfg.get("clock"):
+        return 0
+    from .clock import parse_hhmm
+    from .ocr.stream import read_dir
+
+    dirs = ingest.extract_rois(video, {"main_bar": cfg["clock"]}, workdir / "clock_frames", start=start, duration=duration)
+    reads, calls = read_dir(backend, dirs["main_bar"], sec_offset, every=every)
+    import re
+
+    date = re.compile(r"\d{1,2}/\d{1,2}")  # 11/06 FTV alternates the clock with the date
+    ok = {r.sec: parse_hhmm(r.text) is not None or bool(r.text and date.search(r.text)) for r in reads}
+    for o in obs:
+        if o.sec in ok:
+            o.clock_ok = ok[o.sec]
+    return calls
+
+
 def extract_channel(
     video: Path,
     channel: str,
@@ -46,13 +66,15 @@ def extract_channel(
     log=print,
 ) -> tuple[list[SecondObs], list[str]]:
     work = workdir / channel
-    rois = {k: v for k, v in cfg.items() if k in ("main_bar", "ticker")}
+    rois = {k: v for k, v in cfg.items() if k in ("main_bar", "ticker", "alt_bar")}
     log(f"[{channel}] 裁切 ROI …")
     dirs = ingest.extract_rois(video, rois, work / "frames", start=start, duration=duration)
     log(f"[{channel}] OCR …")
     res = ocr_channel(backend, dirs, sec_offset)
     save_jsonl(res.raw, work / "ocr_raw.jsonl")
     save_jsonl(res.voted, work / "ocr.jsonl")
+    log(f"[{channel}] 畫面時鐘 …")
+    add_clock(res.obs, video, cfg, backend, work, sec_offset, start, duration)
     log(f"[{channel}] 畫面訊號 …")
     sig = visual.analyse(video, cfg, sec_offset=sec_offset, start=start, duration=duration)
     obs = visual.merge(res.obs, sig)

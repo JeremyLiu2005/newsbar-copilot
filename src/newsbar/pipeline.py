@@ -23,7 +23,19 @@ def run_channel(
     segs = segmenter.segment(obs, ad, segmenter.SegParams.from_rules(rules))
     events: list[Event] = []
     seg_event: dict[int, Event] = {}
-    retries = ((rules or {}).get("labeler") or {}).get("retries", 1)
+    lab = (rules or {}).get("labeler") or {}
+    retries = lab.get("retries", 1)
+    # Label all new stories up front, several LLM calls at a time (Ollama serves them in parallel).
+    todo = {i: labeler.LabelSource(s.bar_texts, s.asr_text) for i, s in enumerate(segs)
+            if s.type is EventType.NEWS and s.reuse_of is None}
+    workers = max(1, int(lab.get("parallel", 4))) if generator is not None else 1
+    if workers > 1 and len(todo) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            done = dict(zip(todo, ex.map(lambda src: labeler.make_label(src, generator, retries), todo.values())))
+    else:
+        done = {i: labeler.make_label(src, generator, retries) for i, src in todo.items()}
     for i, seg in enumerate(segs):
         sigs = {"ids": seg.signals}
         if seg.type is EventType.NEWS:
@@ -33,8 +45,7 @@ def run_channel(
                            seg.confidence, Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame),
                            sigs, seg.fallback)
             else:
-                src = labeler.LabelSource(seg.bar_texts, seg.asr_text)
-                res = labeler.make_label(src, generator, retries)
+                res = done[i]
                 fb = ",".join(f for f in (seg.fallback, res.fallback) if f) or None
                 ev = Event(channel, seg.start, EventType.NEWS, res.label, f"{channel}-{i}",
                            "low" if fb else seg.confidence,

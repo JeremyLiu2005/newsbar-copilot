@@ -14,7 +14,7 @@ from pathlib import Path
 
 THUMB_W, THUMB_H = 96, 12  # main_bar change detector (one byte per pixel)
 
-ROI_NAMES = ("main_bar", "ticker", "flash", "weather_corner", "logo", "main_video")
+ROI_NAMES = ("main_bar", "alt_bar", "ticker", "flash", "weather_corner", "logo", "main_video")
 
 
 class IngestError(RuntimeError):

@@ -1,0 +1,188 @@
+{
+ "annotator": "研究者初標（依 OCR 標題清單判讀，非獨立標註）",
+ "channel_scope": [
+  "tvbs"
+ ],
+ "items": [
+  {
+   "channel": "tvbs",
+   "sec": -24,
+   "kind": "news",
+   "label": "分局前縱火"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 3,
+   "kind": "news",
+   "label": "台股崩跌"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 135,
+   "kind": "news",
+   "label": "美股崩跌"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 271,
+   "kind": "news",
+   "label": "毒駕撞飛"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 379,
+   "kind": "news",
+   "label": "桃園酒店鬥"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 491,
+   "kind": "news",
+   "label": "載孫撞嬤亡"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 593,
+   "kind": "news",
+   "label": "3童過馬路"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 710,
+   "kind": "news",
+   "label": "銀髮車手"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 823,
+   "kind": "news",
+   "label": "正隆紙廠火"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 924,
+   "kind": "news",
+   "label": "火燒車"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 1011,
+   "kind": "news",
+   "label": "台北兒虐"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 1149,
+   "kind": "news",
+   "label": "沈蔣拜票"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 1274,
+   "kind": "news",
+   "label": "C羅引退"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 1387,
+   "kind": "news",
+   "label": "海光歇業"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 1499,
+   "kind": "news",
+   "label": "台幣重貶"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 1625,
+   "kind": "news",
+   "label": "旅展優惠"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 1758,
+   "kind": "news",
+   "label": "俊傑船長押"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 1891,
+   "kind": "news",
+   "label": "前鎮漁港"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 2021,
+   "kind": "news",
+   "label": "蘇志燮"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 2128,
+   "kind": "news",
+   "label": "玫瑰唱片"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 2250,
+   "kind": "ad",
+   "label": ""
+  },
+  {
+   "channel": "tvbs",
+   "sec": 2474,
+   "kind": "news",
+   "label": "涼圓爆口角"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 2595,
+   "kind": "news",
+   "label": "毒駕撞警車"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 2702,
+   "kind": "news",
+   "label": "東北季風"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 2800,
+   "kind": "ad",
+   "label": ""
+  },
+  {
+   "channel": "tvbs",
+   "sec": 3031,
+   "kind": "news",
+   "label": "法國罷工"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 3142,
+   "kind": "news",
+   "label": "鞋底藏毒"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 3241,
+   "kind": "ad",
+   "label": ""
+  },
+  {
+   "channel": "tvbs",
+   "sec": 3402,
+   "kind": "news",
+   "label": "正隆紙廠火"
+  },
+  {
+   "channel": "tvbs",
+   "sec": 3502,
+   "kind": "news",
+   "label": "蔡阿嘎員工"
+  }
+ ]
+}

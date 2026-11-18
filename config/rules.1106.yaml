@@ -22,6 +22,7 @@ segmenter:
 
 labeler:
   generator: ollama
+  parallel: 4             # 同時送出的 LLM 請求數
   model: qwen2.5:7b-instruct
   allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
   min_len: 4
@@ -42,3 +43,7 @@ cross_channel:
   window_sec: 900
 
 # labeler.generator: rule（不用 LLM）| ollama（地端，預設建議）| claude（外部，需 allow_external: true）
+
+asr:
+  # 準確模式 small（Mac M4 四台一小時約 31–35 分鐘）；快速模式 base（約 10 分鐘，11/06 TVBS 13 分鐘換題 F1 0.94→0.82）
+  model: small

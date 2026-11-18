@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from .ad_state import AD, NEWS, OUTAGE, AdResult
+from .ad_state import AD, NEWS, OUTAGE, AdResult, carousel_seconds
 from .schemas import Confidence, EventType, SecondObs
 
 WEATHER_KEYWORDS = ("天氣", "氣象", "颱風動態", "降雨", "氣溫", "寒流", "鋒面")
@@ -27,6 +27,9 @@ class SegParams:
     credit_max_sec: int = 5  # NEW-2d: a reporter-name credit flashes for ≤5 s …
     credit_window_sec: int = 25  # … and a title starting within 25 s after it is a new story
     asr_veto: bool = True  # SAME-6: with ASR, a new title without any NEW-2 evidence stays in the story
+    carousel_window_sec: int = 120  # CAROUSEL: teaser loop detection
+    carousel_min_titles: int = 6  # normal FTV stories rotate 2–4 titles; teaser loops show 10
+    carousel_max_sec: int = 12
     asr_window_sec: int = 20  # NEW-2a
     visual_window_sec: int = 5  # NEW-2b, NEW-2c
 
@@ -120,6 +123,8 @@ def segment(
     last_news_idx: int | None = None  # last NEWS/WEATHER segment before a break
     breaks = {b.end: b for b in ad.breaks}
     has_asr = any(o.asr_text for o in obs)
+
+    carousel = carousel_seconds(obs, params)
 
     run_text: str | None = None
     run_start = 0
@@ -245,6 +250,9 @@ def segment(
         else:
             run_topic, run_topic_start, run_topic_len = o.topic, o.sec, 1
 
+        if run_text is not None and run_len == params.stable_sec and run_start in carousel:
+            cur.signals.append("CAROUSEL")  # headline teaser loop before a break: no new stories
+            continue
         if run_text is not None and run_len == params.stable_sec:
             if run_text in cur.bar_texts:
                 continue

@@ -138,6 +138,7 @@ def cmd_run(a: argparse.Namespace) -> int:
 
     cfg = _load_yaml(a.channels)["channels"]
     rules = _load_yaml(a.rules)
+    a.asr_model = a.asr_model or (rules.get("asr") or {}).get("model")
     work = Path(a.workdir)
     streams, warnings, timings = {}, {}, {}
     backend = asr = None
