@@ -26,7 +26,7 @@
 
 ```bash
 uv sync --python 3.11 --extra mac   # mac = Apple Vision OCR
-uv run pytest                        # 104 個測試：規格 T01–T24、合成影片 OCR／包框／平行端到端
+uv run pytest                        # 101 個測試：規格 T01–T24、合成影片 OCR／包框／平行端到端
 
 # 1. 檢查 ROI（可順便存包框樣板）
 uv run newsbar calibrate --video data/tvbs.mp4 --channel tvbs --channels config/channels.yaml --at 30
