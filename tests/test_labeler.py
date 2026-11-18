@@ -58,3 +58,13 @@ def test_rule_label_always_passes_validation():
 
 def test_no_generator_uses_rule_fallback():
     assert make_label(GAO, None).fallback == "FB-4"
+
+
+def test_place_only_in_speech_is_not_demanded():
+    src = LabelSource(["男二度毒駕拒檢催油門狂逃下秒遭車撞飛"], "高雄前鎮一名男子毒駕拒檢")
+    assert validate("毒駕遭車撞", src) == []
+    assert "SRC-2" in validate("前鎮毒駕逃", src)  # still may not borrow words from speech
+
+
+def test_stock_slump_is_not_social_news():
+    assert validate("台股崩3737", LabelSource(["史詩崩跌!台股殺3737點台積電聯發科一度跌停"])) == []

@@ -28,6 +28,8 @@ class SegParams:
     credit_window_sec: int = 25  # … and a title starting within 25 s after it is a new story
     asr_veto: bool = True  # SAME-6: with ASR, a new title without any NEW-2 evidence stays in the story
     carousel_window_sec: int = 120  # CAROUSEL: teaser loop detection
+    min_story_before_ad_sec: int = 20
+    recur_window_sec: int = 180
     carousel_min_titles: int = 6  # normal FTV stories rotate 2–4 titles; teaser loops show 10
     carousel_max_sec: int = 12
     asr_window_sec: int = 20  # NEW-2a
@@ -174,6 +176,8 @@ def segment(
             if cur is None or cur.type is not EventType.WEATHER:
                 open_seg(Segment(t, EventType.WEATHER, bar_texts=[text], signals=["TXT-5"]))
             return
+        if text is not None and (is_credit(text) or text.startswith(("主播", "記者"))) and cur is not None:
+            return  # SAME-7: a name card is a boundary hint (NEW-2d), never a story of its own
         if text is None:  # FB-3: OCR missing, ASR topic drives the change
             open_seg(Segment(t, EventType.NEWS, signals=["NEW-2a"], confidence=Confidence.LOW.value, fallback="FB-3"))
             return
@@ -279,4 +283,38 @@ def segment(
             open_story(run_topic_start, None)  # FB-3: topic change with no OCR
             if o.asr_text:
                 cur.asr_texts.append(o.asr_text)  # type: ignore[union-attr]
-    return segs
+    # SAME-8: a title that comes back proves the segments in between were one story
+    # (11/06 TVBS 法國罷工: 巴黎鐵塔關 → 封路生封校 → 百姓入不敷出 → 巴黎鐵塔關).
+    def _sim(a: str, b: str) -> bool:
+        from difflib import SequenceMatcher
+        return a == b or SequenceMatcher(None, a, b).ratio() >= 0.8
+
+    k = 0
+    while k < len(segs):
+        sj = segs[k]
+        if sj.type is EventType.NEWS and sj.bar_texts:
+            for i in range(k - 1, -1, -1):
+                si = segs[i]
+                if si.type is not EventType.NEWS or sj.start - si.start > params.recur_window_sec:
+                    break
+                if si.bar_texts and any(_sim(a, b) for a in si.bar_texts for b in sj.bar_texts) and i < k - 1:
+                    for m in range(i + 1, k + 1):
+                        si.bar_texts += [t for t in segs[m].bar_texts if t not in si.bar_texts]
+                        si.asr_texts += segs[m].asr_texts
+                    si.signals.append("SAME-8")
+                    del segs[i + 1 : k + 1]
+                    k = i
+                    break
+        k += 1
+
+    # Ad copy just before a break (11/06: "watsog", "001536") opens a short pseudo-story
+    # that the break then cuts off; anything under min_story_before_ad_sec merges into the ad.
+    out: list[Segment] = []
+    for k, sg in enumerate(segs):
+        nxt = segs[k + 1] if k + 1 < len(segs) else None
+        if (sg.type is EventType.NEWS and nxt is not None and nxt.type is EventType.AD
+                and nxt.start - sg.start < params.min_story_before_ad_sec and sg.reuse_of is None
+                and out):
+            continue
+        out.append(sg)
+    return out

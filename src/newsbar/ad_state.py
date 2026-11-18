@@ -22,6 +22,7 @@ class AdParams:
     return_timeout_sec: int = 60  # AD-9
     outage_black_sec: int = 30  # FB-6
     merge_gap_sec: int = 8
+    min_break_sec: int = 25  # real breaks run ≥30 s; the 13 s programme intro at 12:00 is not one
 
     @classmethod
     def from_rules(cls, rules: dict | None) -> "AdParams":
@@ -194,7 +195,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                     layout_back_since = k if layout_back_since is None else layout_back_since
                 else:
                     layout_back_since = None
-                if _return_ok(ok, residual_bar, residual_topic, has_asr) and "AD-i" not in sigs_of(ok):
+                if _return_ok(ok, residual_bar, residual_topic, has_asr) and len(sigs_of(ok)) + ("AD-i" in sigs_of(ok)) < params.min_signals:
                     ok_run += 1
                     if ok_run >= params.return_confirm_sec:
                         end = k - params.return_confirm_sec + 1
@@ -238,4 +239,12 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
             merged[-1].signals = sorted(set(merged[-1].signals) | set(b.signals))
         else:
             merged.append(b)
-    return AdResult(states=states, breaks=merged)
+    kept = []
+    for b in merged:
+        if b.end - b.start < params.min_break_sec:
+            for s in range(b.start, b.end):
+                if states.get(s) == AD:
+                    states[s] = NEWS
+        else:
+            kept.append(b)
+    return AdResult(states=states, breaks=kept)

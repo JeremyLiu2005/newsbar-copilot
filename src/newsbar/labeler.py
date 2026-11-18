@@ -15,7 +15,7 @@ from typing import Protocol
 FUNCTION_CHARS = set("中了再又仍已遭被將要的與和")
 
 SOCIAL_KEYWORDS = (
-    "輾", "撞", "死", "亡", "傷", "砍", "殺", "毆", "火警", "火災", "墜", "溺",
+    "輾", "撞", "死", "亡", "傷", "砍殺", "殺人", "刺殺", "殺害", "毆", "火警", "火災", "墜", "溺",
     "竊", "偷", "搶", "詐", "毒駕", "酒駕", "車禍", "槍", "命案", "失蹤",
 )
 
@@ -94,9 +94,11 @@ def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) 
         if word.lower() not in src.lower():
             errors.append("SRC-2")
             break
-    # LBL-4: social news must carry a place that is in the source.
-    if is_social(src):
-        src_places = places_in(src)
+    # LBL-4: social news must carry a place that is in the source — the title when one was
+    # read (a place mentioned only in speech, e.g. 前鎮, cannot be demanded of a title label).
+    basis = " ".join(source.bar_texts) if source.bar_texts else src
+    if is_social(basis):
+        src_places = places_in(basis)
         if src_places and not any(p in label for p in src_places):
             errors.append("LBL-4")
     return sorted(set(errors))

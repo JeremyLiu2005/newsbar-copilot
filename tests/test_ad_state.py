@@ -61,3 +61,11 @@ def test_FB6_long_black_is_outage_not_ad():
     res = detect(obs)
     assert states_between(res, 10, 50) == {OUTAGE}
     assert res.breaks == []
+
+
+def test_breaks_shorter_than_25_seconds_are_dropped():
+    # 11/06 TVBS: 13 s programme intro (no clock, no ticker) at 11:59:47 is not an ad break
+    obs = news(60, 0, "甲則新聞標題", "t1", ticker_text="快訊", frame="f")
+    obs += stream(13, 60, ticker_text=None, frame="f", clock_ok=False)
+    obs += news(60, 73, "乙則新聞標題", "t2", ticker_text="快訊", frame="f")
+    assert detect(obs).breaks == []

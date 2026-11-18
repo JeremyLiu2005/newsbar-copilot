@@ -19,7 +19,7 @@ from .labeler import LabelSource
 SYSTEM = """你是台灣電視新聞監看員，要替一則新聞寫「五字標」，讓看監看表的人認得是哪則新聞。
 規則：
 1. 4–6 個字（英文專有名詞算一個字），只輸出五字標本身，不要解釋、不要標點、不要引號。
-2. 只能用來源文字裡出現過的人名、地名、事物與動作；不得補造地點、人名、數字或動作。
+2. 只能用主標題裡出現過的字（人名、地名、事物、動作、數字）；不得補造，也不要用標題以外的地名。
 3. 社會事件（車禍、命案、竊盜、火警等）一定要含地點，地點必須出現在來源中，優先用較小的地名（例：新北土城→土城）。
 4. 來源只說「起訴」「求刑」「疑似」時，不得寫成「判刑」「確定」等定論。
 5. 人名可以只取名字（張俊傑→俊傑），機構可用常見簡稱。"""
@@ -35,8 +35,11 @@ MAX_ASR_CHARS = 200  # NFR-14: never send more speech than needed
 
 
 def build_user_prompt(source: LabelSource, attempt: int) -> str:
-    bar = " / ".join(source.bar_texts) or "（主標題讀不到）"
-    asr = (source.asr_text or "")[:MAX_ASR_CHARS]
+    # The label must be built from the on-screen title; speech is offered only when no
+    # title was read (FB-3). With speech in the prompt the model borrowed places and
+    # verbs that are not in the title and failed validation (11/06 run: 49/91 cells).
+    bar = " / ".join(source.bar_texts[:2]) or "（主標題讀不到）"
+    asr = "" if source.bar_texts else (source.asr_text or "")[:MAX_ASR_CHARS]
     retry = "\n上一次的答案沒有通過檢查（可能用了來源沒有的字，或缺地點），請只用來源裡的字重寫。" if attempt else ""
     return f"主標題：{bar}\n主播與記者語音節錄：{asr or '（無）'}{retry}\n五字標："
 

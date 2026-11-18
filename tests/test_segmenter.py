@@ -123,3 +123,25 @@ def test_ad_copy_in_bar_plus_no_ticker_is_an_ad():
     obs = news(60, 0, "新北土城七旬翁 遭貨車輾亡", "t1", ticker_text="快訊", frame="f.jpg")
     obs += news(40, 60, "固力伸0800-030-031低至72折", "t9", ticker_text=None, frame="f.jpg")
     assert detect(obs).breaks and detect(obs).breaks[0].start == 60
+
+
+def test_anchor_name_card_is_not_a_story():
+    obs = news(30, 0, "新北土城七旬翁 遭貨車輾亡", "t1") + news(8, 30, "主播古彩彥", "t1") + news(40, 38, "史詩崩跌台股殺3737點台積電一度跌停", "t2")
+    texts = [s.bar_texts[0] for s in segs_of(obs)]
+    assert "主播古彩彥" not in texts and texts[-1].startswith("史詩崩跌")
+
+
+def test_short_ad_copy_before_a_break_merges_into_the_ad():
+    obs = news(60, 0, "新北土城七旬翁 遭貨車輾亡", "t1", ticker_text="快訊", frame="f")
+    obs += news(9, 60, "watsog買一送一", "t9", ticker_text="快訊", frame="f")
+    obs += news(60, 69, "固力伸0800-030-031低至72折", "t9", ticker_text=None, frame="f", clock_ok=False)
+    obs += news(60, 129, "高金素梅共諜案起訴 求刑14年", "t2", ticker_text="快訊", frame="f")
+    segs = segs_of(obs)
+    assert [s.type for s in segs] == [T.NEWS, T.AD, T.NEWS]
+
+
+def test_SAME8_returning_title_merges_the_split_story():
+    a, b, c = "法國再陷入動亂各城罷工罷課巴黎鐵塔又關", "燒垃圾桶封路窩中生封校爆發警民推擠", "物價飛漲老百姓到月底根本入不敷出"
+    obs = news(30, 0, a, "t1") + news(15, 30, b, "t2", anchor_shot=True) + news(15, 45, c, "t3", anchor_shot=True) + news(20, 60, a, "t4")
+    segs = segs_of(obs)
+    assert len(segs) == 1 and "SAME-8" in segs[0].signals and set(segs[0].bar_texts) >= {a, b, c}

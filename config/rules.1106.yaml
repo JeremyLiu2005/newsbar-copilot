@@ -23,6 +23,7 @@ segmenter:
 labeler:
   generator: ollama
   parallel: 4             # 同時送出的 LLM 請求數
+  host: http://127.0.0.1:11435   # 專用 Ollama：OLLAMA_NUM_PARALLEL=4（預設 App 只開 1 槽，請求會排隊）
   model: qwen2.5:7b-instruct
   allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
   min_len: 4
