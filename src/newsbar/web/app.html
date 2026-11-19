@@ -16,7 +16,7 @@
   --warn:#F07D90; --warn-soft:#4A2029; --ok:#6CC495; --ok-soft:#1C3A2A; color-scheme:dark}}
 *{box-sizing:border-box} [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);padding:16px 16px 40px}
-.wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
 .banner{background:var(--ok-soft);color:var(--ok);border-radius:8px;padding:10px 14px;font-size:14px}
 .steps{display:flex;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--mute)}
 .steps span{padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel)}
@@ -46,6 +46,14 @@ pre.log{background:var(--bg);border:1px solid var(--line);border-radius:6px;padd
 .seg .t{font:13px var(--mono);color:var(--mute)} .seg.ad{background:var(--ad-soft)} .seg.ad .lbl{color:var(--ad);font-weight:700}
 .pill{font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn)}
 .note{color:var(--mute);font-size:13px}
+.resgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:16px;align-items:start}
+@media (max-width:860px){.resgrid{grid-template-columns:1fr}}
+.seg{cursor:pointer} .seg:hover{background:var(--accent-soft)} .seg.sel{outline:2px solid var(--accent);outline-offset:-2px}
+.ev{border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:10px;position:sticky;top:12px}
+.ev img{width:100%;border-radius:4px;border:1px solid var(--line);background:#000;min-height:40px}
+.ev .k{font-size:12px;color:var(--mute);margin-bottom:2px}
+.ev .v{font-size:14px;white-space:pre-wrap}
+.ev .sig{font-size:13px} .ev .sig code{font:12px var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-right:6px}
 .checks div::before{content:"✓";color:var(--ok);font-weight:700;margin-right:8px}
 .preview{overflow:auto;border:1px solid var(--line);border-radius:8px;max-height:360px}
 table{border-collapse:collapse;width:100%;font-size:13px}
@@ -80,7 +88,7 @@ thead th{position:sticky;top:0;background:var(--panel)} td.adc{background:var(--
     <h1>分析結果</h1>
     <div class="tabs" id="tabs"></div>
     <div class="stats" id="stats"></div>
-    <div class="list" id="segs"></div>
+    <div class="resgrid"><div class="list" id="segs"></div><div class="ev" id="ev"><p class="note">點左邊任一則，看系統判斷的依據：當下畫面、主 bar 讀到的字、語音辨識結果。</p></div></div>
     <p class="note">「列入抽查」的格照常填進表裡，只另外排進抽查清單，不留白、不寫「待確認」。</p>
     <div class="btns"><button id="toDone">下一步：取得 Excel</button><a class="btn ghost" id="review" target="_blank">開啟抽查頁</a></div>
   </section>
@@ -101,6 +109,13 @@ thead th{position:sticky;top:0;background:var(--panel)} td.adc{background:var(--
 <script>
 const NAMES={tvbs:'TVBS-N',ettv:'東森',ftv:'民視',cts:'華視'};
 const CHS=['ftv','tvbs','ettv','cts'];
+const SIG={'NEW-1':'主 bar 出現新標題，且穩定 7 秒以上','NEW-2a':'語音主題改變','NEW-2b':'畫面切回主播台','NEW-2c':'說話的人換了','NEW-2d':'出現記者名條',
+ 'SAME-6':'有語音卻沒有其他佐證，視為同一則輪播','SAME-7':'名條不自成一則','SAME-8':'3 分鐘內同一標題輪回，併回原則','CAROUSEL':'主 bar 在輪播頭條預告',
+ 'AD-a':'主畫面版面改變（包框）','AD-b':'主 bar 底色改變','AD-c':'台徽消失','AD-d':'黑畫面或靜音','AD-e':'語音是廣告詞','AD-f':'聲音指紋命中廣告庫',
+ 'AD-g':'跑馬列消失','AD-h':'主 bar 出現電話或「廣告後立即回到」','AD-i':'主 bar 輪播頭條預告','AD-j':'畫面時鐘消失','AD-7':'包框殘留標題，不採用','AD-8':'包框殘留標題，不採用',
+ 'AD-9':'版面已恢復但等不到新讀數，逾時回新聞','TXT-5':'天氣新聞，記「氣象」'};
+const FB={'FB-1':'換題佐證不足：照常填寫，列入抽查','FB-3':'標題讀不到，改用語音','FB-4':'LLM 寫的標沒通過逐字校驗，改用規則從標題擷取'};
+const clock=s=>{const t=12*3600+s,h=Math.floor(t/3600),m=Math.floor(t%3600/60),x=t%60;return `${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}`};
 const ORDER=['畫面時鐘','裁切 ROI','OCR','畫面訊號','聲音指紋','語音轉錄'];
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -150,8 +165,20 @@ async function tick(){
 $('#toResult').onclick=async()=>{RES=await api(`/api/jobs/${JOB.id}/result`); cur=CHS.find(c=>RES.cells.some(x=>x.ch===c))||'ftv'; renderResult(); show('result')};
 function segsOf(ch){
   const out=[];
-  RES.cells.filter(c=>c.ch===ch).forEach(c=>c.items.forEach(i=>out.push([i.start??(+c.m.slice(2))*60,i.type,i.label||'廣告',c.conf==='low'])));
+  RES.cells.filter(c=>c.ch===ch).forEach(c=>c.items.forEach(i=>out.push([i.start??(+c.m.slice(2))*60,i.type,i.label||'廣告',c.conf==='low',i,c])));
   out.sort((a,b)=>a[0]-b[0]); return out.filter((s,k)=>!k||s[2]!==out[k-1][2]||s[1]!==out[k-1][1]);
+}
+function evidence(seg){
+  const [start,type,label,low,i,c]=seg, ch=cur, base=`/api/jobs/${JOB.id}`;
+  const sigs=[...new Set(c.sig||[])].map(x=>`<div class="sig"><code>${esc(x)}</code>${esc(SIG[x]||'')}</div>`).join('');
+  const fbs=String(c.fb||'').split(',').filter(Boolean).map(x=>`<div class="sig"><code>${esc(x)}</code>${esc(FB[x]||'')}</div>`).join('');
+  $('#ev').innerHTML=`<div><div class="k">${NAMES[ch]}・從 ${clock(Math.max(start,0))} 起・寫在 ${c.m} 這一格</div><b style="font-size:20px">${esc(label)}</b>
+      ${low?' <span class="pill">列入抽查</span>':''}</div>
+    ${i.idx!=null?`<div><div class="k">當下畫面（從原始側錄即時截取）</div><img src="${base}/frame/${ch}/${i.idx}" alt="${NAMES[ch]} ${clock(Math.max(start,0))} 畫面"></div>
+    <div><div class="k">主 bar 裁切（OCR 實際讀的區域）</div><img src="${base}/bar/${ch}/${i.idx}" alt="主 bar"></div>`:'<p class="note">這一段沒有對應的畫面。</p>'}
+    <div><div class="k">主 bar 讀到的字</div><div class="v">${esc(i.bar||'—')}</div></div>
+    <div><div class="k">語音辨識結果</div><div class="v">${esc(i.asr||'—')}</div></div>
+    <div><div class="k">判斷依據</div>${sigs||'<div class="v">—</div>'}${fbs}</div>`;
 }
 function renderResult(){
   const chs=CHS.filter(c=>RES.cells.some(x=>x.ch===c));
@@ -159,8 +186,13 @@ function renderResult(){
   document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.c;renderResult()});
   const segs=segsOf(cur), rep=RES.report[cur]||{};
   $('#stats').innerHTML=`<div><b>${segs.filter(s=>s[1]!=='ad').length}</b>則新聞</div><div><b>${segs.filter(s=>s[1]==='ad').length}</b>段廣告</div><div><b>${rep.cells??'—'}</b>格寫入</div><div><b>${rep.low_conf??'—'}</b>格列入抽查</div>`;
-  $('#segs').innerHTML=segs.map((s,i)=>{const end=i+1<segs.length?segs[i+1][0]:3600;return `<div class="seg${s[1]==='ad'?' ad':''}"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${s[3]?'<span class="pill">列入抽查</span>':'<span></span>'}</div>`}).join('');
+  $('#segs').innerHTML=segs.map((s,i)=>{const end=i+1<segs.length?segs[i+1][0]:3600;return `<div class="seg${s[1]==='ad'?' ad':''}" data-k="${i}" tabindex="0"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${s[3]?'<span class="pill">列入抽查</span>':'<span></span>'}</div>`}).join('');
   $('#review').href=`/api/jobs/${JOB.id}/review`;
+  document.querySelectorAll('.seg').forEach(el=>{
+    const go=()=>{document.querySelectorAll('.seg.sel').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');evidence(segs[+el.dataset.k])};
+    el.onclick=go; el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go()}};
+  });
+  if(segs.length){document.querySelector('.seg').click()}
 }
 $('#toDone').onclick=()=>{
   const r=Object.values(RES.report), cells=r.reduce((a,x)=>a+(x.cells||0),0), low=r.reduce((a,x)=>a+(x.low_conf||0),0);

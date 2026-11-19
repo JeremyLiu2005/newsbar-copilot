@@ -20,7 +20,8 @@ print('[tvbs] 語音轉錄 …', flush=True)
 out.write_bytes(b'PK-fake-xlsx')
 out.with_suffix('.evidence.jsonl').write_text(json.dumps({'channel': 'tvbs', 'minute': '1200', 'value': '土城翁輾亡',
     'confidence': 'high', 'fallback': None, 'signals': ['NEW-1'],
-    'items': [{'type': 'news', 'label': '土城翁輾亡', 'start_sec': 5, 'bar_text': '新北土城一七旬老翁'}]}, ensure_ascii=False) + '\n')
+    'items': [{'type': 'news', 'label': '土城翁輾亡', 'start_sec': 5, 'bar_text': '新北土城一七旬老翁',
+    'asr_text': '新北土城一名七旬老翁', 'frame': 'data/work/tvbs/frames/main_bar/00019.jpg'}]}, ensure_ascii=False) + '\n')
 out.with_suffix('.report.json').write_text(json.dumps({'channels': {'tvbs': {'cells': 1, 'low_conf': 0}}}))
 print('tvbs: 1 格，換題 1，廣告 0，低信心 0', flush=True)
 """
@@ -32,6 +33,9 @@ def app(tmp_path):
     vids.mkdir()
     (vids / "tvbs.ts").write_bytes(b"x")
     (vids / "template.xlsx").write_bytes(b"x")
+    bar = tmp_path / "work" / "tvbs" / "frames" / "main_bar"
+    bar.mkdir(parents=True)
+    (bar / "00019.jpg").write_bytes(b"JPEGBAR")
     script = tmp_path / "fake_run.py"
     script.write_text(FAKE_RUN)
     s = server.Settings(video_dir=vids, template=vids / "template.xlsx", out_dir=tmp_path / "out",
@@ -79,6 +83,15 @@ def test_job_runs_and_serves_result_and_xlsx(app):
     assert res["cells"][0]["v"] == "土城翁輾亡" and res["report"]["tvbs"]["cells"] == 1
     code, ctype, body = get(f"{app}/api/jobs/{job['id']}/xlsx")
     assert body == b"PK-fake-xlsx" and "spreadsheetml" in ctype
+    item = res["cells"][0]["items"][0]
+    assert item["asr"] == "新北土城一名七旬老翁" and item["idx"] == 19
+    code, ctype, body = get(f"{app}/api/jobs/{job['id']}/bar/tvbs/19")
+    assert body == b"JPEGBAR" and ctype == "image/jpeg"
+    try:
+        get(f"{app}/api/jobs/{job['id']}/bar/ftv/19")
+        raise AssertionError("expected 404")
+    except urllib.error.HTTPError as e:
+        assert e.code == 404
 
 
 def test_rejects_files_outside_the_video_folder(app):

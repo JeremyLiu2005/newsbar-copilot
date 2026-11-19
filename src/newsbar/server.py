@@ -40,6 +40,7 @@ class Job:
     stages: dict[str, str] = field(default_factory=dict)
     returncode: int | None = None
     finished: float | None = None
+    videos: dict[str, Path] = field(default_factory=dict)
 
     def feed(self, line: str) -> None:
         line = line.rstrip()
@@ -74,6 +75,10 @@ class Jobs:
 
     def start(self, cmd: list[str], out: Path) -> Job:
         job = Job(uuid.uuid4().hex[:8], cmd, out)
+        for k, v in zip(cmd, cmd[1:]):
+            if k == "--video" and "=" in v:
+                ch, path = v.split("=", 1)
+                job.videos[ch] = Path(path.split("@")[0])
         with self.lock:
             self.items[job.id] = job
 
@@ -146,8 +151,26 @@ def read_result(out: Path) -> dict:
     return {"cells": [{"ch": c["channel"], "m": c["minute"], "v": c["value"], "conf": c.get("confidence"),
                        "fb": c.get("fallback"), "sig": c.get("signals", []),
                        "items": [{"type": i["type"], "label": i.get("label"), "start": i.get("start_sec"),
-                                  "bar": i.get("bar_text")} for i in c.get("items", [])]} for c in cells],
+                                  "bar": i.get("bar_text"), "asr": (i.get("asr_text") or "")[:400] or None,
+                                  "idx": _frame_index(i.get("frame"))} for i in c.get("items", [])]} for c in cells],
             "report": report.get("channels", {}), "timings": report.get("timings_sec", {})}
+
+
+def _frame_index(frame: str | None) -> int | None:
+    """Evidence frames are named by the recording's second (…/main_bar/00123.jpg)."""
+    m = re.search(r"(\d+)\.jpg$", frame or "")
+    return int(m[1]) if m else None
+
+
+def full_frame(video: Path, idx: int, cache: Path) -> Path:
+    """One full picture at second `idx` of the recording, cut on demand and kept beside the job."""
+    out = cache / f"{video.stem}_{idx:05d}.jpg"
+    if not out.exists():
+        cache.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", str(idx + 0.5), "-i", str(video),
+                        "-frames:v", "1", "-vf", "scale=960:-2", "-q:v", "4", str(out)],
+                       check=True, timeout=60)
+    return out
 
 
 def make_handler(s: Settings, jobs: Jobs):
@@ -180,6 +203,24 @@ def make_handler(s: Settings, jobs: Jobs):
                 return self.send(200, (WEB / "app.html").read_bytes(), "text/html; charset=utf-8")
             if path == "/api/inputs":
                 return self.json(list_inputs(s))
+            m = re.fullmatch(r"/api/jobs/([0-9a-f]{8})/(bar|frame)/([a-z0-9_]+)/(\d{1,6})", path)
+            if m:
+                job = self.job_or_404(m[1])
+                if job is None:
+                    return None
+                ch, idx = m[3], int(m[4])
+                if ch not in job.videos:
+                    return self.json({"error": "這個工作沒有這一台"}, 404)
+                if m[2] == "bar":
+                    img = s.workdir / ch / "frames" / "main_bar" / f"{idx:05d}.jpg"
+                else:
+                    try:
+                        img = full_frame(job.videos[ch], idx, job.out.parent / "frames")
+                    except (subprocess.SubprocessError, OSError) as e:
+                        return self.json({"error": f"截圖失敗：{e}"}, 500)
+                if not img.exists():
+                    return self.json({"error": "沒有這一秒的畫面"}, 404)
+                return self.send(200, img.read_bytes(), "image/jpeg")
             m = re.fullmatch(r"/api/jobs/([0-9a-f]{8})(/result|/xlsx|/review)?", path)
             if not m:
                 return self.json({"error": "not found"}, 404)
