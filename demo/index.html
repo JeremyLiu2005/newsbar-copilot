@@ -213,8 +213,8 @@ function panel(c){
      <div><span class="pill ${i.type==='ad'?'p-ad':'p-news'}">${i.type==='ad'?'廣告':i.type==='weather'?'氣象':'新聞'}</span>
        ${i.label?`<b style="margin-left:6px">${esc(i.label)}</b>`:''}
        ${i.start!=null?`<span class="meta" style="margin-left:6px">從 ${clock(i.start)} 起</span>`:''}</div>
-     ${i.img?`<img src="${i.img}" alt="${D.channels[c.ch]} ${clock(i.start??0)} 主 bar 畫面" loading="lazy">`:''}
-     ${i.img&&i.type==='ad'?`<div class="meta">廣告開始那一秒的主 bar；包框期間殘留的字一律不採用</div>`:''}
+     ${i.full?`<div class="meta">完整畫面・${clock(i.shot??i.start??0)}${i.type==='ad'?'（破口開始後數秒）':'（主 bar 穩定顯示這個標題的時刻）'}</div><img src="${i.full}" alt="${D.channels[c.ch]} ${clock(i.shot??0)} 完整畫面" loading="lazy">`:''}
+     ${i.img?`<div class="meta">主 bar 位置裁切（OCR 讀的區域；標題若出現在其他位置，以完整畫面為準）</div><img src="${i.img}" alt="${D.channels[c.ch]} 主 bar" loading="lazy">`:''}
      ${i.bar?`<div class="field"><b>主 bar 讀到</b>${esc(i.bar)}</div>`:''}
      ${i.asr?`<div class="field"><b>語音節錄</b>${esc(i.asr)}…</div>`:''}
    </div>`).join('');

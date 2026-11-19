@@ -143,16 +143,54 @@ def build_cmd(s: Settings, req: dict, out: Path) -> list[str]:
     return cmd
 
 
-def read_result(out: Path) -> dict:
+def _steady_seconds(workdir: Path, ch: str) -> list[tuple[int, int, str]]:
+    """(sec, frame index, bar text) per second from the job's obs.jsonl, for picking screenshots."""
+    f = workdir / ch / "obs.jsonl"
+    if not f.exists():
+        return []
+    rows = []
+    for line in f.read_text().splitlines():
+        o = json.loads(line)
+        if (idx := _frame_index(o.get("frame"))) is not None:
+            rows.append((o["sec"], idx, (o.get("bar_text") or "").strip()))
+    return rows
+
+
+def shot_index(rows: list[tuple[int, int, str]], item: dict, end: int) -> int | None:
+    """The second worth showing: the title held on the bar for 3 s (not the switch-over
+    second, which is often blank); a few seconds into an ad break."""
+    start = item.get("start_sec") or 0
+    win = [r for r in rows if start <= r[0] < end]
+    if not win:
+        return _frame_index(item.get("frame"))
+    if item.get("type") == "ad":
+        return win[min(8, len(win) - 1)][1]
+    want = (item.get("bar_text") or "").strip()
+    for k in range(len(win) - 2):
+        t = win[k][2]
+        if t and win[k + 1][2] == t and win[k + 2][2] == t and (not want or t == want):
+            return win[k + 1][1]
+    return next((r[1] for r in win if r[2] and r[2] == want), _frame_index(item.get("frame")))
+
+
+def read_result(out: Path, workdir: Path | None = None) -> dict:
     ev = out.with_suffix(".evidence.jsonl")
     rep = out.with_suffix(".report.json")
     cells = [json.loads(l) for l in ev.read_text().splitlines() if l.strip()] if ev.exists() else []
     report = json.loads(rep.read_text()) if rep.exists() else {}
+    rows = {ch: _steady_seconds(workdir, ch) for ch in {c["channel"] for c in cells}} if workdir else {}
+    starts = {ch: sorted(i.get("start_sec") or 0 for c in cells if c["channel"] == ch for i in c.get("items", []))
+              for ch in rows}
+    for c in cells:
+        for i in c.get("items", []):
+            s0 = i.get("start_sec") or 0
+            end = next((x for x in starts.get(c["channel"], []) if x > s0), 10**6)
+            i["_idx"] = shot_index(rows.get(c["channel"], []), i, end) if rows else _frame_index(i.get("frame"))
     return {"cells": [{"ch": c["channel"], "m": c["minute"], "v": c["value"], "conf": c.get("confidence"),
                        "fb": c.get("fallback"), "sig": c.get("signals", []),
                        "items": [{"type": i["type"], "label": i.get("label"), "start": i.get("start_sec"),
                                   "bar": i.get("bar_text"), "asr": (i.get("asr_text") or "")[:400] or None,
-                                  "idx": _frame_index(i.get("frame"))} for i in c.get("items", [])]} for c in cells],
+                                  "idx": i.get("_idx")} for i in c.get("items", [])]} for c in cells],
             "report": report.get("channels", {}), "timings": report.get("timings_sec", {})}
 
 
@@ -232,7 +270,7 @@ def make_handler(s: Settings, jobs: Jobs):
             if job.state != "done":
                 return self.json({"error": "工作尚未完成"}, 409)
             if m[2] == "/result":
-                return self.json(read_result(job.out))
+                return self.json(read_result(job.out, s.workdir))
             if m[2] == "/xlsx":
                 return self.send(200, job.out.read_bytes(),
                                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

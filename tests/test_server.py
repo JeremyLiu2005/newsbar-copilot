@@ -108,3 +108,10 @@ def test_stage_parsing():
     assert j.stages["ftv"] == "語音轉錄"
     j.feed("ftv: 20 格，換題 18")
     assert j.stages["ftv"] == "完成"
+
+
+def test_screenshot_second_skips_blank_switch_over():
+    rows = [(5, 19, ""), (6, 20, "新北土城一七旬老翁"), (7, 21, "新北土城一七旬老翁"), (8, 22, "新北土城一七旬老翁")]
+    item = {"type": "news", "start_sec": 5, "bar_text": "新北土城一七旬老翁", "frame": "x/00019.jpg"}
+    assert server.shot_index(rows, item, 100) == 21
+    assert server.shot_index([], item, 100) == 19

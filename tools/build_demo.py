@@ -22,26 +22,63 @@ rules = yaml.safe_load(open("config/rules.1106.yaml"))
 (OUT / "img").mkdir(parents=True, exist_ok=True)
 
 
-def crop(src: str, name: str) -> str | None:
-    p = Path(src)
-    if not p.exists():
-        return None
-    im = Image.open(p).convert("RGB")
-    if im.width > 640:
-        im = im.resize((640, round(im.height * 640 / im.width)))
-    im.save(OUT / "img" / name, "JPEG", quality=70)
-    return f"img/{name}"
+import subprocess
+import re
+
+OBS = {ch: load_obs(Path(f"data/work_full/{ch}/obs.jsonl")) for ch in CH}
+IDX = {ch: {o.sec: int(re.search(r"(\d+)\.jpg$", o.frame).group(1)) for o in obs if o.frame} for ch, obs in OBS.items()}
 
 
+def pick_second(ch: str, it: dict, end: int) -> int:
+    """The second to show: the title steadily on the bar, not the switch-over second.
+    For an ad, a few seconds into the break."""
+    s = it.get("start_sec") or 0
+    if it["type"] == "ad":
+        return min(s + 8, end - 1)
+    want = (it.get("bar_text") or "").strip()
+    obs = [o for o in OBS[ch] if s <= o.sec < end]
+    for k, o in enumerate(obs):  # first second where the read title holds for 3 s
+        win = obs[k:k + 3]
+        if len(win) == 3 and all(w.bar_text and w.bar_text == o.bar_text for w in win) and (not want or o.bar_text == want):
+            return win[1].sec
+    for o in obs:
+        if o.bar_text and o.bar_text == want:
+            return o.sec
+    return s
+
+
+def shots(ch: str, sec: int, name: str) -> tuple[str | None, str | None]:
+    idx = IDX[ch].get(sec)
+    if idx is None:
+        return None, None
+    bar = Path(f"data/work_full/{ch}/frames/main_bar/{idx:05d}.jpg")
+    bar_out = None
+    if bar.exists():
+        im = Image.open(bar).convert("RGB")
+        if im.width > 640:
+            im = im.resize((640, round(im.height * 640 / im.width)))
+        im.save(OUT / "img" / f"{name}_bar.jpg", "JPEG", quality=72)
+        bar_out = f"img/{name}_bar.jpg"
+    full = OUT / "img" / f"{name}_full.jpg"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", str(idx + 0.5), "-i", f"data/raw/{ch}.ts",
+                    "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "5", str(full)], check=True)
+    return bar_out, f"img/{full.name}"
+
+
+evid = [json.loads(line) for line in open("out/12監看_20261106.evidence.jsonl")]
+starts = {ch: sorted(it.get("start_sec") or 0 for d in evid if d["channel"] == ch for it in d["items"]) for ch in CH}
 cells = []
-for line in open("out/12監看_20261106.evidence.jsonl"):
-    d = json.loads(line)
+for d in evid:
+    ch = d["channel"]
     items = []
     for k, it in enumerate(d["items"]):
-        img = crop(it["frame"], f"{d['channel']}_{d['minute']}_{k}.jpg") if it.get("frame") else None
+        s = it.get("start_sec") or 0
+        end = next((x for x in starts[ch] if x > s), 3600)
+        sec = pick_second(ch, it, end)
+        bar, full = shots(ch, sec, f"{ch}_{d['minute']}_{k}")
         items.append({
-            "type": it["type"], "label": it.get("label"), "start": it.get("start_sec"),
-            "bar": it.get("bar_text"), "asr": (it.get("asr_text") or "")[:160] or None, "img": img,
+            "type": it["type"], "label": it.get("label"), "start": s, "shot": sec,
+            "bar": it.get("bar_text"), "asr": (it.get("asr_text") or "")[:160] or None, "img": bar, "full": full,
         })
     cells.append({
         "ch": d["channel"], "m": d["minute"], "v": d["value"], "items": items,
@@ -79,5 +116,5 @@ data = {
     "report": report["channels"],
 }
 json.dump(data, open(OUT / "data.json", "w"), ensure_ascii=False)
-print(len(cells), "cells;", sum(1 for c in cells for i in c["items"] if i["img"]), "crops;",
+print(len(cells), "cells;", sum(1 for c in cells for i in c["items"] if i["full"]), "full frames;",
       {k: len(v) for k, v in timeline.items()}, "runs")
