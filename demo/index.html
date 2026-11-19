@@ -63,6 +63,14 @@ td.ad{background:var(--ad-soft);color:var(--ad);font-weight:700}
 td.fb{box-shadow:inset 3px 0 0 var(--warn)}
 td.low{box-shadow:inset 3px 0 0 var(--ad)}
 td.sel{outline:2px solid var(--sel);outline-offset:-2px}
+td.fixd{box-shadow:inset 0 -3px 0 var(--ok)}
+.fix{border-top:1px solid var(--line);margin-top:12px;padding-top:12px;display:flex;flex-direction:column;gap:8px}
+.fix .row2{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:14px}
+.fix input[type=text],.fix select,#reviewer{font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0}
+.fix input[type=text]{flex:1;min-width:9em}
+.fix button,.tools button{font:inherit;font-size:14px;font-weight:700;border-radius:6px;padding:6px 14px;border:1px solid var(--news);background:var(--news);color:var(--panel);cursor:pointer}
+.fix button.ghost,.tools button.ghost{background:transparent;color:var(--news)}
+.err{color:var(--warn);font-size:13px;margin:0}
 td.gold{color:var(--mute);cursor:default;font-size:13px}
 td.err{background:var(--warn-soft)}
 td.hit{background:var(--ok-soft)}
@@ -116,12 +124,16 @@ footer{color:var(--mute);font-size:13px}
     <h2>「12監看」分鐘表</h2>
     <div class="tools">
       <label for="gold"><input type="checkbox" id="gold"> 對照研究者初標（TVBS）</label>
+      <label for="reviewer">審核者 <input id="reviewer" placeholder="姓名或代號" size="10"></label>
+      <span class="hint" id="fixcount" style="margin:0"></span>
+      <button class="ghost" id="export" hidden>匯出修正紀錄</button>
     </div>
     <div class="sheetwrap"><table id="sheet"></table></div>
     <div class="legend">
       <span><i class="sw" style="background:var(--ad-soft)"></i>廣告</span>
       <span><i class="sw" style="background:var(--ad)"></i>低信心（照常填，列入抽查）</span>
       <span><i class="sw" style="background:var(--warn)"></i>五字標改用規則擷取</span>
+      <span><i class="sw" style="background:var(--ok)"></i>已人工複查</span>
       <span id="goldlegend" hidden><i class="sw" style="background:var(--ok-soft)"></i>與初標相符　<i class="sw" style="background:var(--warn-soft)"></i>漏記／多記</span>
     </div>
     <div id="errs" hidden></div>
@@ -141,7 +153,8 @@ const SIG={
  'AD-e':'語音是廣告詞','AD-f':'聲音指紋命中廣告庫','AD-g':'跑馬列消失','AD-h':'主 bar 出現電話或「廣告後立即回到」','AD-i':'主 bar 輪播頭條預告',
  'AD-j':'畫面時鐘消失','AD-7':'包框殘留標題，凍結不採用','AD-8':'包框殘留標題，凍結不採用','AD-9':'版面已恢復但等不到新讀數，逾時回新聞','TXT-5':'天氣新聞，記「氣象」'};
 const FB={'FB-1':'換題佐證不足：照常填寫，列入抽查','FB-3':'標題讀不到，改用語音','FB-4':'LLM 寫的標沒通過逐字校驗，改用規則從標題擷取'};
-let D, sel=null, showGold=false;
+let D, sel=null, showGold=false, DB=null, FIX={};
+const ETYPES=['漏換題','過度換題','包框誤判','角落廣告誤判','標不可辨認','捏造','格式錯誤','其他'];
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const clock=sec=>{const t=12*3600+sec, h=Math.floor(t/3600), m=Math.floor(t%3600/60), s=t%60;return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`};
@@ -190,6 +203,7 @@ function sheet(){
       if((c.fb||'').includes('FB-4')) cls.push('fb'); else if(c.conf==='low') cls.push('low');
       if(showGold&&ch==='tvbs') cls.push(errs[m]?'err':(gold[m]?'hit':''));
       if(sel&&sel.ch===ch&&sel.m===m) cls.push('sel');
+      if(FIX[ch+'_'+m]) cls.push('fixd');
       h+=`<td class="${cls.join(' ')}" tabindex="0" data-ch="${ch}" data-m="${m}">${esc(c.v)}</td>`;
     }
     if(showGold) h+=`<td class="gold${errs[m]?' err':''}">${esc(gold[m]||'')}</td>`;
@@ -225,7 +239,66 @@ function panel(c){
   const fbs=(c.fb||'').split(',').filter(Boolean).map(f=>`<div class="sig"><code>${esc(f)}</code>${esc(FB[f]||'')}</div>`).join('');
   p.innerHTML=`<div class="cellhead"><div><div class="meta">${D.channels[c.ch]}・${c.m.slice(0,2)}:${c.m.slice(2)}</div><div class="val">${esc(c.v)}</div></div>
     <span class="pill ${c.conf==='low'?'p-low':'p-high'}">${c.conf==='low'?'低信心・列入抽查':'高信心'}</span></div>
-    <div class="sigs"><div class="meta">判斷依據</div>${sigs}${fbs}</div>${items}`;
+    <div class="sigs"><div class="meta">判斷依據</div>${sigs}${fbs}</div>${items}${fixForm(c)}`;
+  wireFix(c);
+}
+
+function fixForm(c){
+  const f=FIX[c.ch+'_'+c.m];
+  if(!DB) return `<div class="fix"><div class="meta">人工複查</div><p class="hint" style="margin:0">登入 claude.ai 並取得這個頁面的編輯或參與權限後，可以在這裡標記對錯、修改這一格。</p></div>`;
+  return `<div class="fix"><div class="meta">人工複查：${c.m.slice(0,2)}:${c.m.slice(2)} 這一格目前寫「<b>${esc(c.v)||'（空白）'}</b>」</div>
+    <div class="row2"><label><input type="radio" name="vd" value="ok" ${f?.verdict==='ok'?'checked':''}> 對</label>
+      <label><input type="radio" name="vd" value="fix" ${f?.verdict==='fix'?'checked':''}> 錯，改成</label>
+      <input type="text" id="fx-val" value="${esc(f?.correct??c.v)}" placeholder="正確寫法（空白＝這格不該填）"></div>
+    <div class="row2"><select id="fx-type"><option value="">錯誤類型</option>${ETYPES.map(t=>`<option ${f?.error_type===t?'selected':''}>${t}</option>`).join('')}</select>
+      <input type="text" id="fx-note" placeholder="備註（選填）" value="${esc(f?.note||'')}">
+      <button id="fx-save">儲存</button>${f?'<button class="ghost" id="fx-del">撤銷</button>':''}</div>
+    <p class="err" id="fx-err" hidden></p>
+    ${f?`<p class="hint" style="margin:0">${esc(f.reviewer)}・${esc(String(f.reviewed_at).replace('T',' ').slice(0,16))}：${f.verdict==='fix'?'錯，改成「'+esc(f.correct||'（空白）')+'」（'+esc(f.error_type)+'）':'確認無誤'}</p>`:''}</div>`;
+}
+
+function wireFix(c){
+  if(!DB||!$('#fx-save')) return;
+  const err=m=>{$('#fx-err').textContent=m;$('#fx-err').hidden=false};
+  const ref=DB.doc('corrections/'+c.ch+'_'+c.m);
+  $('#fx-save').onclick=async()=>{
+    const vd=document.querySelector('input[name=vd]:checked')?.value, rv=$('#reviewer').value.trim();
+    if(!rv) return err('請先在上方填審核者');
+    if(!vd) return err('請先選「對」或「錯」');
+    if(vd==='fix'&&!$('#fx-type').value) return err('請選錯誤類型');
+    try{localStorage.setItem('nb-reviewer',rv)}catch(e){}
+    $('#fx-save').disabled=true;
+    try{await ref.set({channel:c.ch,minute:c.m,verdict:vd,correct:vd==='fix'?$('#fx-val').value.trim():null,
+      error_type:vd==='fix'?$('#fx-type').value:null,note:$('#fx-note').value.trim()||null,original:c.v,
+      reviewer:rv,reviewed_at:new Date().toISOString()})}
+    catch(e){err(e.code==='permission_denied'||e.code==='not_granted'?'你沒有寫入權限，請向頁面擁有者要編輯或參與權限。':'儲存失敗：'+(e.message||e.code))}
+    finally{if($('#fx-save'))$('#fx-save').disabled=false}
+  };
+  if($('#fx-del')) $('#fx-del').onclick=async()=>{try{await ref.delete()}catch(e){err('撤銷失敗：'+(e.message||e.code))}};
+}
+
+function fixCount(){
+  const all=Object.values(FIX), n=all.length, k=all.filter(f=>f.verdict==='fix').length;
+  $('#fixcount').textContent=n?`已複查 ${n} 格，改正 ${k} 格`:'';
+  $('#export').hidden=!n;
+}
+
+async function startDb(){
+  try{$('#reviewer').value=localStorage.getItem('nb-reviewer')||''}catch(e){}
+  const use=window.claude?.use; if(!use) return;
+  DB=await window.claude.use('db').catch(()=>null);
+  if(!DB){ if(sel) panel(D.cells.find(c=>c.ch===sel.ch&&c.m===sel.m)); return }
+  const t=setTimeout(()=>{$('#fixcount').textContent='修正紀錄載入逾時'},10000);
+  DB.collection('corrections').onSnapshot(snap=>{
+    clearTimeout(t); FIX={}; snap.docs.forEach(d=>{const v=d.data(); if(v) FIX[d.id]=v});
+    fixCount(); sheet(); if(sel) panel(D.cells.find(c=>c.ch===sel.ch&&c.m===sel.m));
+  },()=>{clearTimeout(t);$('#fixcount').textContent='讀不到修正紀錄'});
+  $('#export').onclick=async()=>{
+    const dl=await window.claude.use('downloads').catch(()=>null);
+    const rows=Object.values(FIX).sort((a,b)=>(a.minute+a.channel).localeCompare(b.minute+b.channel));
+    if(!dl){$('#fixcount').textContent='這個檢視不支援下載';return}
+    try{await dl.save({filename:'corrections.json',data:JSON.stringify(rows,null,1)})}catch(e){}
+  };
 }
 
 function pick(ch,m,scroll){
@@ -240,5 +313,6 @@ fetch('data.json').then(r=>r.json()).then(d=>{
   const start=D.cells.find(c=>c.ch===h[0]&&c.m===h[1])||D.cells.find(c=>c.ch==='ettv'&&c.m==='1234')||D.cells[0];
   pick(start.ch,start.m);
   $('#gold').addEventListener('change',e=>{showGold=e.target.checked;sheet()});
+  startDb();
 }).catch(()=>{$('#panel').innerHTML='<p class="empty">資料載入失敗，請重新整理頁面。</p>'});
 </script>

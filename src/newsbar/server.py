@@ -222,6 +222,61 @@ def full_frame(video: Path, idx: int, cache: Path) -> Path:
     return out
 
 
+ERROR_TYPES = ["漏換題", "過度換題", "包框誤判", "角落廣告誤判", "標不可辨認", "捏造", "格式錯誤", "其他"]
+
+
+def corrections_path(job: Job) -> Path:
+    return job.out.parent / "corrections.json"
+
+
+def load_corrections(job: Job) -> list[dict]:
+    p = corrections_path(job)
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
+
+
+def save_correction(job: Job, req: dict) -> list[dict]:
+    """One record per (channel, minute); the newest review of a cell replaces the older one.
+    Same fields as the review page's export, so `newsbar apply-corrections` reads it too."""
+    ch, minute = str(req.get("channel", "")), str(req.get("minute", ""))
+    if ch not in job.videos or not re.fullmatch(r"\d{4}", minute):
+        raise ValueError("台別或分鐘不正確")
+    reviewer = str(req.get("reviewer") or "").strip()
+    if not reviewer:
+        raise ValueError("請先填審核者")
+    verdict = req.get("verdict")
+    rows = [c for c in load_corrections(job) if (c["channel"], c["minute"]) != (ch, minute)]
+    if verdict in ("ok", "fix"):
+        correct = str(req.get("correct") or "").strip() if verdict == "fix" else None
+        if verdict == "fix" and req.get("error_type") not in ERROR_TYPES:
+            raise ValueError("請選錯誤類型")
+        rows.append({"channel": ch, "minute": minute, "verdict": verdict, "correct": correct,
+                     "error_type": req.get("error_type") if verdict == "fix" else None,
+                     "original": req.get("original"), "note": str(req.get("note") or "")[:200] or None,
+                     "reviewer": reviewer, "reviewed_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+    elif verdict != "remove":
+        raise ValueError("verdict 只能是 ok、fix 或 remove")
+    rows.sort(key=lambda c: (c["minute"], c["channel"]))
+    corrections_path(job).write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+    return rows
+
+
+def write_corrected(job: Job, s: Settings) -> Path:
+    """FR-16: a separate corrected sheet; the delivered one is never edited."""
+    import yaml
+
+    from . import evaluate, excel_writer, review
+    from .schemas import Cell
+
+    cfg = yaml.safe_load(s.channels.read_text(encoding="utf-8"))["channels"]
+    headers = {k: v["excel_column_header"] for k, v in cfg.items() if k in job.videos}
+    cells = evaluate.read_sheet(job.out, headers)
+    fixed = review.apply_corrections(cells, load_corrections(job))
+    as_cells = {ch: {m: Cell(ch, m, v, []) for m, v in col.items() if v} for ch, col in fixed.items()}
+    out = job.out.with_name(job.out.stem + ".修正版.xlsx")
+    excel_writer.write(s.template, out, as_cells, {k: headers[k] for k in as_cells})
+    return out
+
+
 def make_handler(s: Settings, jobs: Jobs):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):  # keep the console for job output
@@ -270,6 +325,19 @@ def make_handler(s: Settings, jobs: Jobs):
                 if not img.exists():
                     return self.json({"error": "沒有這一秒的畫面"}, 404)
                 return self.send(200, img.read_bytes(), "image/jpeg")
+            m = re.fullmatch(r"/api/jobs/([0-9a-f]{8})/(corrections|corrected\.xlsx)", path)
+            if m:
+                job = self.job_or_404(m[1])
+                if job is None:
+                    return None
+                if m[2] == "corrections":
+                    return self.json({"items": load_corrections(job), "error_types": ERROR_TYPES})
+                fixed = job.out.with_name(job.out.stem + ".修正版.xlsx")
+                if not fixed.exists():
+                    return self.json({"error": "還沒產出修正版"}, 404)
+                return self.send(200, fixed.read_bytes(),
+                                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                 {"Content-Disposition": f"attachment; filename=\"corrected.xlsx\"; filename*=UTF-8''{_q(fixed.name)}"})
             m = re.fullmatch(r"/api/jobs/([0-9a-f]{8})(/result|/xlsx|/review)?", path)
             if not m:
                 return self.json({"error": "not found"}, 404)
@@ -292,6 +360,21 @@ def make_handler(s: Settings, jobs: Jobs):
             return self.send(200, review.read_bytes(), "text/html; charset=utf-8")
 
         def do_POST(self):
+            m = re.fullmatch(r"/api/jobs/([0-9a-f]{8})/(corrections|corrected)", self.path)
+            if m:
+                job = self.job_or_404(m[1])
+                if job is None:
+                    return None
+                if job.state != "done":
+                    return self.json({"error": "工作尚未完成"}, 409)
+                try:
+                    if m[2] == "corrections":
+                        req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                        return self.json({"items": save_correction(job, req)})
+                    out = write_corrected(job, s)
+                    return self.json({"file": out.name, "count": len(load_corrections(job))})
+                except (ValueError, json.JSONDecodeError) as e:
+                    return self.json({"error": str(e)}, 400)
             if self.path != "/api/jobs":
                 return self.json({"error": "not found"}, 404)
             try:

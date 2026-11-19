@@ -54,6 +54,13 @@ pre.log{background:var(--bg);border:1px solid var(--line);border-radius:6px;padd
 .ev .k{font-size:12px;color:var(--mute);margin-bottom:2px}
 .ev .v{font-size:14px;white-space:pre-wrap}
 .strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px} .strip figure{margin:0} .strip figcaption{font:12px var(--mono);color:var(--mute)}
+.fix{border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.fix .row2{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.fix input[type=text],.fix select,.rv input{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.fix input[type=text]{flex:1;min-width:10em}
+.fix button{padding:6px 14px}
+.done-tag{font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--ok-soft);color:var(--ok)}
+.rv{display:flex;gap:8px;align-items:center;font-size:14px;flex-wrap:wrap}
 .ev .sig{font-size:13px} .ev .sig code{font:12px var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-right:6px}
 .checks div::before{content:"✓";color:var(--ok);font-weight:700;margin-right:8px}
 .preview{overflow:auto;border:1px solid var(--line);border-radius:8px;max-height:360px}
@@ -87,6 +94,7 @@ thead th{position:sticky;top:0;background:var(--panel)} td.adc{background:var(--
 
   <section class="card" id="result" hidden>
     <h1>分析結果</h1>
+    <div class="rv"><label for="reviewer">審核者</label><input id="reviewer" placeholder="姓名或代號"><span class="note" id="fixcount"></span></div>
     <div class="tabs" id="tabs"></div>
     <div class="stats" id="stats"></div>
     <div class="resgrid"><div class="list" id="segs"></div><div class="ev" id="ev"><p class="note">點左邊任一則，看系統判斷的依據：當下畫面、主 bar 讀到的字、語音辨識結果。</p></div></div>
@@ -102,7 +110,9 @@ thead th{position:sticky;top:0;background:var(--panel)} td.adc{background:var(--
       <div>廣告破口的第一分鐘填「廣告」，包框殘留的標題不採用</div>
       <div id="lowline"></div>
     </div>
-    <div class="btns"><button class="ghost" id="prev">預覽 Excel</button><a class="btn" id="dl">下載 Excel</a></div>
+    <div class="btns"><button class="ghost" id="prev">預覽 Excel</button><a class="btn" id="dl">下載 Excel（系統原始輸出）</a></div>
+    <div class="btns"><button id="mkfix">依人工複查產出修正版 Excel</button><a class="btn ghost" id="dlfix" hidden>下載修正版</a></div>
+    <p class="note" id="fixnote">修正版另存成新檔，系統原始輸出不會被改動；兩份都保留，方便對照。</p>
     <div class="preview" id="preview" hidden></div>
     <div class="btns"><button class="ghost" id="restart">再跑一次</button></div>
   </section>
@@ -121,7 +131,10 @@ const ORDER=['畫面時鐘','裁切 ROI','OCR','畫面訊號','聲音指紋','�
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hm=s=>{const t=12*60+Math.floor(Math.max(s,0)/60);return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`};
-let JOB=null, RES=null, cur='ftv', poll=null;
+let JOB=null, RES=null, cur='ftv', poll=null, FIX={}, ETYPES=[];
+async function loadFix(){const r=await api(`/api/jobs/${JOB.id}/corrections`);FIX={};r.items.forEach(c=>FIX[c.channel+c.minute]=c);ETYPES=r.error_types;
+  const n=Object.keys(FIX).length;$('#fixcount').textContent=n?`已複查 ${n} 格（${Object.values(FIX).filter(c=>c.verdict==='fix').length} 格改正）`:''}
+
 
 function show(id){
   ['pick','progress','result','done'].forEach(x=>$('#'+x).hidden=x!==id);
@@ -163,7 +176,8 @@ async function tick(){
   if(j.state==='failed'){clearInterval(poll); $('#jerr').textContent=`執行失敗（結束碼 ${j.returncode}），請看上方紀錄。`; $('#jerr').hidden=false}
 }
 
-$('#toResult').onclick=async()=>{RES=await api(`/api/jobs/${JOB.id}/result`); cur=CHS.find(c=>RES.cells.some(x=>x.ch===c))||'ftv'; renderResult(); show('result')};
+$('#toResult').onclick=async()=>{RES=await api(`/api/jobs/${JOB.id}/result`); await loadFix();
+  try{$('#reviewer').value=localStorage.getItem('nb-reviewer')||''}catch(e){} cur=CHS.find(c=>RES.cells.some(x=>x.ch===c))||'ftv'; renderResult(); show('result')};
 function segsOf(ch){
   const out=[];
   RES.cells.filter(c=>c.ch===ch).forEach(c=>c.items.forEach(i=>out.push([i.start??(+c.m.slice(2))*60,i.type,i.label||'廣告',c.conf==='low',i,c])));
@@ -180,7 +194,24 @@ function evidence(seg){
     <div><div class="k">主 bar 裁切（OCR 實際讀的區域）</div><img src="${base}/bar/${ch}/${i.idx}" alt="主 bar"></div>`:'<p class="note">這一段沒有對應的畫面。</p>'}
     <div><div class="k">主 bar 讀到的字</div><div class="v">${esc(i.bar||'—')}</div></div>
     <div><div class="k">語音辨識結果</div><div class="v">${esc(i.asr||'—')}</div></div>
-    <div><div class="k">判斷依據</div>${sigs||'<div class="v">—</div>'}${fbs}</div>`;
+    <div><div class="k">判斷依據</div>${sigs||'<div class="v">—</div>'}${fbs}</div>
+    <div class="fix"><div class="k">人工複查：${c.m.slice(0,2)}:${c.m.slice(2)} 這一格目前寫「<b>${esc(c.v)||'（空白）'}</b>」</div>
+      <div class="row2"><label><input type="radio" name="vd" value="ok"> 對</label><label><input type="radio" name="vd" value="fix"> 錯，改成</label>
+        <input type="text" id="fx-val" value="${esc(FIX[ch+c.m]?.correct??c.v)}" placeholder="正確寫法（空白＝這格不該填）"></div>
+      <div class="row2"><select id="fx-type"><option value="">錯誤類型</option>${ETYPES.map(t=>`<option ${FIX[ch+c.m]?.error_type===t?'selected':''}>${esc(t)}</option>`).join('')}</select>
+        <input type="text" id="fx-note" placeholder="備註（選填）" value="${esc(FIX[ch+c.m]?.note||'')}">
+        <button id="fx-save">儲存</button>${FIX[ch+c.m]?'<button class="ghost" id="fx-del">撤銷</button>':''}</div>
+      <p class="err" id="fx-err" hidden></p>
+      ${FIX[ch+c.m]?`<p class="note">已由 ${esc(FIX[ch+c.m].reviewer)} 於 ${esc(FIX[ch+c.m].reviewed_at.replace('T',' ').slice(0,16))} 標為「${FIX[ch+c.m].verdict==='fix'?'錯，改成 '+(FIX[ch+c.m].correct||'（空白）'):'對'}」</p>`:''}</div>`;
+  const prev=FIX[ch+c.m]; if(prev) document.querySelector(`input[name=vd][value=${prev.verdict}]`).checked=true;
+  const send=async body=>{
+    try{const rv=$('#reviewer').value.trim(); try{localStorage.setItem('nb-reviewer',rv)}catch(e){}
+      await api(`/api/jobs/${JOB.id}/corrections`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:ch,minute:c.m,original:c.v,reviewer:rv,...body})});
+      await loadFix(); const k=document.querySelector('.seg.sel')?.dataset.k; renderResult(); if(k!=null){const el=document.querySelector(`.seg[data-k="${k}"]`); if(el) el.click()}
+    }catch(e){$('#fx-err').textContent=e.message;$('#fx-err').hidden=false}};
+  $('#fx-save').onclick=()=>{const vd=document.querySelector('input[name=vd]:checked')?.value; if(!vd){$('#fx-err').textContent='請先選「對」或「錯」';$('#fx-err').hidden=false;return}
+    send(vd==='ok'?{verdict:'ok'}:{verdict:'fix',correct:$('#fx-val').value,error_type:$('#fx-type').value,note:$('#fx-note').value})};
+  if($('#fx-del')) $('#fx-del').onclick=()=>send({verdict:'remove'});
 }
 function renderResult(){
   const chs=CHS.filter(c=>RES.cells.some(x=>x.ch===c));
@@ -188,7 +219,7 @@ function renderResult(){
   document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.c;renderResult()});
   const segs=segsOf(cur), rep=RES.report[cur]||{};
   $('#stats').innerHTML=`<div><b>${segs.filter(s=>s[1]!=='ad').length}</b>則新聞</div><div><b>${segs.filter(s=>s[1]==='ad').length}</b>段廣告</div><div><b>${rep.cells??'—'}</b>格寫入</div><div><b>${rep.low_conf??'—'}</b>格列入抽查</div>`;
-  $('#segs').innerHTML=segs.map((s,i)=>{const end=i+1<segs.length?segs[i+1][0]:3600;return `<div class="seg${s[1]==='ad'?' ad':''}" data-k="${i}" tabindex="0"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${s[3]?'<span class="pill">列入抽查</span>':'<span></span>'}</div>`}).join('');
+  $('#segs').innerHTML=segs.map((s,i)=>{const end=i+1<segs.length?segs[i+1][0]:3600;return `<div class="seg${s[1]==='ad'?' ad':''}" data-k="${i}" tabindex="0"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${FIX[cur+s[5].m]?`<span class="done-tag">${FIX[cur+s[5].m].verdict==='fix'?'已改正':'已確認'}</span>`:s[3]?'<span class="pill">列入抽查</span>':'<span></span>'}</div>`}).join('');
   $('#review').href=`/api/jobs/${JOB.id}/review`;
   document.querySelectorAll('.seg').forEach(el=>{
     const go=()=>{document.querySelectorAll('.seg.sel').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');evidence(segs[+el.dataset.k])};
@@ -208,6 +239,9 @@ $('#prev').onclick=()=>{
   $('#preview').innerHTML='<table><thead><tr><th>時間</th>'+chs.map(c=>`<th>${NAMES[c]}</th>`).join('')+'</tr></thead><tbody>'+rows.map(m=>`<tr><th>${m}</th>${chs.map(c=>{const v=by[c+m]||'';return `<td class="${v==='廣告'?'adc':''}">${esc(v)}</td>`}).join('')}</tr>`).join('')+'</tbody></table>';
   $('#preview').hidden=false;
 };
+$('#mkfix').onclick=async()=>{
+  try{const r=await api(`/api/jobs/${JOB.id}/corrected`,{method:'POST'}); $('#dlfix').href=`/api/jobs/${JOB.id}/corrected.xlsx`; $('#dlfix').hidden=false;
+    $('#fixnote').textContent=`已依 ${r.count} 筆複查產出 ${r.file}；系統原始輸出不變。`}catch(e){$('#fixnote').textContent='產出失敗：'+e.message}};
 $('#restart').onclick=()=>show('pick');
 loadInputs().catch(e=>{$('#perr').textContent='讀不到後端：'+e.message;$('#perr').hidden=false});
 show('pick');

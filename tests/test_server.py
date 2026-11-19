@@ -121,3 +121,25 @@ def test_ad_break_gets_four_pictures_across_it():
     rows = [(s, s + 14, "") for s in range(100, 200)]
     strip = server.ad_strip(rows, 100, 200)
     assert len(strip) == 4 and strip[0][0] == 105 and strip[-1][0] == 195
+
+
+def test_manual_review_saves_and_replaces_corrections(app):
+    _, job = post(app + "/api/jobs", {"videos": {"tvbs": "tvbs.ts"}})
+    for _ in range(50):
+        if json.loads(get(f"{app}/api/jobs/{job['id']}")[2])["state"] != "running":
+            break
+        time.sleep(0.1)
+    url = f"{app}/api/jobs/{job['id']}/corrections"
+    code, err = post(url, {"channel": "tvbs", "minute": "1200", "verdict": "fix", "correct": "土城翁輾亡"})
+    assert code == 400 and "審核者" in err["error"]
+    code, err = post(url, {"channel": "tvbs", "minute": "1200", "verdict": "fix", "correct": "x", "reviewer": "A"})
+    assert code == 400 and "錯誤類型" in err["error"]
+    code, r = post(url, {"channel": "tvbs", "minute": "1200", "verdict": "fix", "correct": "",
+                         "error_type": "包框誤判", "reviewer": "A", "original": "廣告"})
+    assert code == 200 and r["items"][0]["correct"] == "" and r["items"][0]["original"] == "廣告"
+    code, r = post(url, {"channel": "tvbs", "minute": "1200", "verdict": "ok", "reviewer": "B"})
+    assert len(r["items"]) == 1 and r["items"][0]["verdict"] == "ok" and r["items"][0]["reviewer"] == "B"
+    code, r = post(url, {"channel": "tvbs", "minute": "1200", "verdict": "remove", "reviewer": "B"})
+    assert r["items"] == []
+    code, err = post(url, {"channel": "cts", "minute": "1200", "verdict": "ok", "reviewer": "B"})
+    assert code == 400
