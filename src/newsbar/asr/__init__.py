@@ -111,7 +111,11 @@ def segment_pitch(samples, sr: int, seg: AsrSegment) -> float | None:
     n = int(0.04 * sr)
     lo, hi = int(sr / 400), int(sr / 70)  # 70–400 Hz
     f0s = []
-    for i in range(0, len(x) - n, n):
+    starts = range(0, max(0, len(x) - n), n)
+    if len(starts) > 25:  # 25 evenly spaced 40 ms frames are plenty for a median pitch
+        step = len(starts) / 25
+        starts = [starts[int(k * step)] for k in range(25)]
+    for i in starts:
         fr = x[i : i + n] - x[i : i + n].mean()
         if fr.std() < 0.01:
             continue
@@ -137,6 +141,48 @@ def assign_speakers(pitches: list[float | None], ratio: float = 1.25) -> list[st
     return out
 
 
+def _transcribe_job(backend_name: str, model: str | None, device: str, wav: str):
+    if backend_name == "faster-whisper":
+        from .faster_whisper_backend import FasterWhisperBackend
+        b = FasterWhisperBackend(model, device=device)
+    else:
+        b = get_backend(backend_name, model)
+    return [(s.start, s.end, s.text) for s in b.transcribe(Path(wav))]
+
+
+def transcribe_guarded(backend: "AsrBackend", wav: Path, audio_sec: float, log=print) -> list[AsrSegment] | None:
+    """Run ASR in a child process with a deadline (NFR-09/NFR-12).
+
+    CTranslate2's MPS backend is experimental: on 11/06 one Whisper call sat in its
+    generation loop for 11 hours. Deadline = max(300 s, audio length × 0.5); on timeout
+    retry once on CPU, then give up and let the channel continue without speech.
+    """
+    import multiprocessing as mp
+    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures import TimeoutError as FTimeout
+
+    name = getattr(backend, "name", "")
+    model = getattr(backend, "model_name", None)
+    if name != "faster-whisper":  # other backends (and test fakes) run in-process
+        return backend.transcribe(wav)
+    deadline = max(300.0, audio_sec * 0.5)
+    for device in ("auto", "cpu"):
+        ex = ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"))
+        fut = ex.submit(_transcribe_job, name, model, device, str(wav))
+        try:
+            rows = fut.result(timeout=deadline if device == "auto" else deadline * 4)
+            ex.shutdown()
+            return [AsrSegment(a, b, t) for a, b, t in rows]
+        except FTimeout:
+            log(f"⚠ 語音轉錄超過 {int(deadline)} 秒（{device}），強制停止" + ("，改用 CPU 重試" if device == "auto" else ""))
+        except Exception as e:  # noqa: BLE001
+            log(f"⚠ 語音轉錄失敗（{device}）：{e}")
+        for p in list(getattr(ex, "_processes", {}).values()):
+            p.kill()
+        ex.shutdown(wait=False, cancel_futures=True)
+    return None
+
+
 def attach(
     obs: list[SecondObs],
     backend: AsrBackend,
@@ -155,7 +201,11 @@ def attach(
 
         with tempfile.TemporaryDirectory() as d:
             wav = extract_audio(video, Path(d) / "a.wav", start, duration)  # type: ignore[arg-type]
-            segments = backend.transcribe(wav)
+            with wave.open(str(wav)) as w0:
+                audio_sec = w0.getnframes() / w0.getframerate()
+            segments = transcribe_guarded(backend, wav, audio_sec)
+            if segments is None:
+                return []  # NFR-12: continue without speech; OCR + picture still decide
             with wave.open(str(wav)) as w:
                 sr = w.getframerate()
                 pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768

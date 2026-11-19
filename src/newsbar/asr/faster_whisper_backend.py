@@ -19,6 +19,8 @@ class FasterWhisperBackend:
         # small/MPS float16 ≈ 0.13× real time. GPU server: "large-v3-turbo" on CUDA.
         import sys
 
+        self.model_name = model
+
         if device == "auto" and sys.platform == "darwin":
             try:
                 self._m = WhisperModel(model or "small", device="mps", compute_type="float16")

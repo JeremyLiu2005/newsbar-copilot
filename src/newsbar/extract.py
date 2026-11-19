@@ -95,6 +95,17 @@ def extract_channel(
         log(f"[{channel}] 語音轉錄 …")
         from .asr import attach
 
-        attach(obs, asr, video, sec_offset, start, duration)
+        # One ASR at a time: four Whisper processes on one Apple GPU slowed each other down
+        # so much that a 2.5-min-per-channel job took 33 min (11/06 fast run). OCR and visual
+        # work keep running in parallel; only this step queues.
+        import fcntl
+
+        lock = open(workdir / ".asr.lock", "w")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            attach(obs, asr, video, sec_offset, start, duration)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            lock.close()
     save_obs(obs, work / "obs.jsonl")
     return obs, res.warnings

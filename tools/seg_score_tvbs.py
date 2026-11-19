@@ -7,7 +7,12 @@ from newsbar.extract import load_obs
 from newsbar.minute_mapper import map_events
 from newsbar.schemas import Event, EventType
 from newsbar.segmenter import segment
+import sys
 obs = load_obs(Path("data/work_full/tvbs/obs.jsonl"))
+if "--no-asr" in sys.argv:
+    for o in obs:
+        o.asr_text = o.topic = o.speaker = None
+        o.ad_speech = False
 segs = segment(obs, detect(obs))
 evs = [Event("tvbs", s.start, s.type, (s.bar_texts[0][:5] if s.bar_texts else f"x{i}") if s.type is EventType.NEWS else None, f"s{i}") for i, s in enumerate(segs)]
 for e in evs:

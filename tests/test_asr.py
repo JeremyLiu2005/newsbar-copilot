@@ -53,3 +53,15 @@ def test_speaker_change_by_pitch():
     pitches = [segment_pitch(pcm, sr, s) for s in segs]
     assert abs(pitches[0] - 120) < 6 and abs(pitches[2] - 230) < 10
     assert assign_speakers(pitches) == ["spk0", "spk0", "spk1", "spk1"]
+
+
+def test_guard_runs_fake_backends_in_process():
+    from pathlib import Path
+    from newsbar.asr import transcribe_guarded
+
+    class Fake:
+        name = "fake"
+        def transcribe(self, wav):
+            return [AsrSegment(0, 1, "x")]
+
+    assert transcribe_guarded(Fake(), Path("a.wav"), 10)[0].text == "x"
