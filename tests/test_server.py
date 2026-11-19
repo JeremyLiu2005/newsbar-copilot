@@ -115,3 +115,9 @@ def test_screenshot_second_skips_blank_switch_over():
     item = {"type": "news", "start_sec": 5, "bar_text": "新北土城一七旬老翁", "frame": "x/00019.jpg"}
     assert server.shot_index(rows, item, 100) == 21
     assert server.shot_index([], item, 100) == 19
+
+
+def test_ad_break_gets_four_pictures_across_it():
+    rows = [(s, s + 14, "") for s in range(100, 200)]
+    strip = server.ad_strip(rows, 100, 200)
+    assert len(strip) == 4 and strip[0][0] == 105 and strip[-1][0] == 195

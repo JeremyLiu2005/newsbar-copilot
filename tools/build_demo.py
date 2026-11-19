@@ -47,6 +47,16 @@ def pick_second(ch: str, it: dict, end: int) -> int:
     return s
 
 
+def frame_at(ch: str, sec: int, name: str) -> str | None:
+    idx = IDX[ch].get(sec)
+    if idx is None:
+        return None
+    out = OUT / "img" / f"{name}.jpg"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", str(idx + 0.5), "-i", f"data/raw/{ch}.ts",
+                    "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "5", str(out)], check=True)
+    return f"img/{out.name}"
+
+
 def shots(ch: str, sec: int, name: str) -> tuple[str | None, str | None]:
     idx = IDX[ch].get(sec)
     if idx is None:
@@ -75,10 +85,18 @@ for d in evid:
         s = it.get("start_sec") or 0
         end = next((x for x in starts[ch] if x > s), 3600)
         sec = pick_second(ch, it, end)
-        bar, full = shots(ch, sec, f"{ch}_{d['minute']}_{k}")
+        bar, full = shots(ch, sec, f"{ch}_{d['minute']}_{k}") if it["type"] != "ad" else (None, None)
+        strip = []
+        if it["type"] == "ad":  # an ad break gets four pictures spread across it, not one
+            bar = None
+            for f in (0.05, 0.35, 0.65, 0.95):
+                t = int(s + (end - s) * f)
+                if (src := frame_at(ch, t, f"{ch}_{d['minute']}_{k}_ad{int(f * 100):02d}")):
+                    strip.append({"sec": t, "src": src})
         items.append({
-            "type": it["type"], "label": it.get("label"), "start": s, "shot": sec,
+            "type": it["type"], "label": it.get("label"), "start": s, "end": end, "shot": sec,
             "bar": it.get("bar_text"), "asr": (it.get("asr_text") or "")[:160] or None, "img": bar, "full": full,
+            "strip": strip,
         })
     cells.append({
         "ch": d["channel"], "m": d["minute"], "v": d["value"], "items": items,

@@ -76,6 +76,8 @@ td:focus-visible{outline:2px solid var(--news);outline-offset:-2px}
 .p-high{background:var(--ok-soft);color:var(--ok)} .p-low{background:var(--warn-soft);color:var(--warn)}
 .item{border-top:1px solid var(--line);padding-top:12px;margin-top:12px;display:flex;flex-direction:column;gap:6px}
 .item img{width:100%;border-radius:4px;border:1px solid var(--line);background:#000}
+.strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.strip figure{margin:0} .strip figcaption{font:12px var(--mono);color:var(--mute);margin-top:2px}
 .field{font-size:14px} .field b{color:var(--mute);font-weight:500;margin-right:6px}
 .sigs{display:flex;flex-direction:column;gap:4px;margin-top:10px}
 .sig{font-size:13.5px} .sig code{font:12px var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-right:6px}
@@ -213,7 +215,8 @@ function panel(c){
      <div><span class="pill ${i.type==='ad'?'p-ad':'p-news'}">${i.type==='ad'?'廣告':i.type==='weather'?'氣象':'新聞'}</span>
        ${i.label?`<b style="margin-left:6px">${esc(i.label)}</b>`:''}
        ${i.start!=null?`<span class="meta" style="margin-left:6px">從 ${clock(i.start)} 起</span>`:''}</div>
-     ${i.full?`<div class="meta">完整畫面・${clock(i.shot??i.start??0)}${i.type==='ad'?'（破口開始後數秒）':'（主 bar 穩定顯示這個標題的時刻）'}</div><img src="${i.full}" alt="${D.channels[c.ch]} ${clock(i.shot??0)} 完整畫面" loading="lazy">`:''}
+     ${i.type==='ad'&&i.strip&&i.strip.length?`<div class="meta">破口 ${clock(i.start)}–${clock(i.end)}，從頭到尾平均截 4 張</div><div class="strip">${i.strip.map(x=>`<figure><img src="${x.src}" alt="${D.channels[c.ch]} ${clock(x.sec)} 畫面" loading="lazy"><figcaption>${clock(x.sec)}</figcaption></figure>`).join('')}</div>`
+       :i.full?`<div class="meta">完整畫面・${clock(i.shot??i.start??0)}（主 bar 穩定顯示這個標題的時刻）</div><img src="${i.full}" alt="${D.channels[c.ch]} ${clock(i.shot??0)} 完整畫面" loading="lazy">`:''}
      ${i.img?`<div class="meta">主 bar 位置裁切（OCR 讀的區域；標題若出現在其他位置，以完整畫面為準）</div><img src="${i.img}" alt="${D.channels[c.ch]} 主 bar" loading="lazy">`:''}
      ${i.bar?`<div class="field"><b>主 bar 讀到</b>${esc(i.bar)}</div>`:''}
      ${i.asr?`<div class="field"><b>語音節錄</b>${esc(i.asr)}…</div>`:''}

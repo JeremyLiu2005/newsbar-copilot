@@ -53,6 +53,7 @@ pre.log{background:var(--bg);border:1px solid var(--line);border-radius:6px;padd
 .ev img{width:100%;border-radius:4px;border:1px solid var(--line);background:#000;min-height:40px}
 .ev .k{font-size:12px;color:var(--mute);margin-bottom:2px}
 .ev .v{font-size:14px;white-space:pre-wrap}
+.strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px} .strip figure{margin:0} .strip figcaption{font:12px var(--mono);color:var(--mute)}
 .ev .sig{font-size:13px} .ev .sig code{font:12px var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-right:6px}
 .checks div::before{content:"✓";color:var(--ok);font-weight:700;margin-right:8px}
 .preview{overflow:auto;border:1px solid var(--line);border-radius:8px;max-height:360px}
@@ -174,7 +175,8 @@ function evidence(seg){
   const fbs=String(c.fb||'').split(',').filter(Boolean).map(x=>`<div class="sig"><code>${esc(x)}</code>${esc(FB[x]||'')}</div>`).join('');
   $('#ev').innerHTML=`<div><div class="k">${NAMES[ch]}・從 ${clock(Math.max(start,0))} 起・寫在 ${c.m} 這一格</div><b style="font-size:20px">${esc(label)}</b>
       ${low?' <span class="pill">列入抽查</span>':''}</div>
-    ${i.idx!=null?`<div><div class="k">當下畫面（從原始側錄即時截取）</div><img src="${base}/frame/${ch}/${i.idx}" alt="${NAMES[ch]} ${clock(Math.max(start,0))} 畫面"></div>
+    ${type==='ad'&&i.strip&&i.strip.length?`<div><div class="k">破口從頭到尾平均截 4 張（從原始側錄即時截取）</div><div class="strip">${i.strip.map(([t,ix])=>`<figure><img src="${base}/frame/${ch}/${ix}" alt="${NAMES[ch]} ${clock(t)}"><figcaption>${clock(t)}</figcaption></figure>`).join('')}</div></div>`
+    :i.idx!=null?`<div><div class="k">當下畫面（從原始側錄即時截取）</div><img src="${base}/frame/${ch}/${i.idx}" alt="${NAMES[ch]} ${clock(Math.max(start,0))} 畫面"></div>
     <div><div class="k">主 bar 裁切（OCR 實際讀的區域）</div><img src="${base}/bar/${ch}/${i.idx}" alt="主 bar"></div>`:'<p class="note">這一段沒有對應的畫面。</p>'}
     <div><div class="k">主 bar 讀到的字</div><div class="v">${esc(i.bar||'—')}</div></div>
     <div><div class="k">語音辨識結果</div><div class="v">${esc(i.asr||'—')}</div></div>

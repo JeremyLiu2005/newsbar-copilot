@@ -173,6 +173,16 @@ def shot_index(rows: list[tuple[int, int, str]], item: dict, end: int) -> int | 
     return next((r[1] for r in win if r[2] and r[2] == want), _frame_index(item.get("frame")))
 
 
+def ad_strip(rows: list[tuple[int, int, str]], start: int, end: int) -> list[list[int]]:
+    """Four (sec, frame index) pairs spread across an ad break: one picture can land on the
+    pre-break teaser, four show what the break really was."""
+    win = [r for r in rows if start <= r[0] < end]
+    if not win:
+        return []
+    return [[win[min(int(len(win) * f), len(win) - 1)][0], win[min(int(len(win) * f), len(win) - 1)][1]]
+            for f in (0.05, 0.35, 0.65, 0.95)]
+
+
 def read_result(out: Path, workdir: Path | None = None) -> dict:
     ev = out.with_suffix(".evidence.jsonl")
     rep = out.with_suffix(".report.json")
@@ -186,11 +196,12 @@ def read_result(out: Path, workdir: Path | None = None) -> dict:
             s0 = i.get("start_sec") or 0
             end = next((x for x in starts.get(c["channel"], []) if x > s0), 10**6)
             i["_idx"] = shot_index(rows.get(c["channel"], []), i, end) if rows else _frame_index(i.get("frame"))
+            i["_strip"] = ad_strip(rows.get(c["channel"], []), s0, end) if i.get("type") == "ad" else []
     return {"cells": [{"ch": c["channel"], "m": c["minute"], "v": c["value"], "conf": c.get("confidence"),
                        "fb": c.get("fallback"), "sig": c.get("signals", []),
                        "items": [{"type": i["type"], "label": i.get("label"), "start": i.get("start_sec"),
                                   "bar": i.get("bar_text"), "asr": (i.get("asr_text") or "")[:400] or None,
-                                  "idx": i.get("_idx")} for i in c.get("items", [])]} for c in cells],
+                                  "idx": i.get("_idx"), "strip": i.get("_strip", [])} for i in c.get("items", [])]} for c in cells],
             "report": report.get("channels", {}), "timings": report.get("timings_sec", {})}
 
 
