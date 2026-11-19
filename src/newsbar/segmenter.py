@@ -139,6 +139,10 @@ def segment(
     def text_of(o: SecondObs) -> str | None:
         if o.bar_text is None or o.bar_conf < params.min_conf:
             return None
+        # A Taiwanese news title always has Chinese; a read with fewer than two CJK
+        # characters is OCR noise (11/06 ETTV: "(0UU6" before an ad became a story).
+        if sum(len(r) for r in _CJK.findall(o.bar_text)) < 2:
+            return None
         return o.bar_text
 
     def evidence(t: int) -> list[str]:
@@ -313,8 +317,9 @@ def segment(
     for k, sg in enumerate(segs):
         nxt = segs[k + 1] if k + 1 < len(segs) else None
         if (sg.type is EventType.NEWS and nxt is not None and nxt.type is EventType.AD
-                and nxt.start - sg.start < params.min_story_before_ad_sec and sg.reuse_of is None
-                and out):
+                and (nxt.start - sg.start < params.min_story_before_ad_sec or not sg.bar_texts)
+                and sg.reuse_of is None and out):
+            # a "story" with no title ever read before a break is ad copy (11/06 ETTV 12:35)
             continue
         out.append(sg)
     return out

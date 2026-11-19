@@ -145,3 +145,17 @@ def test_SAME8_returning_title_merges_the_split_story():
     obs = news(30, 0, a, "t1") + news(15, 30, b, "t2", anchor_shot=True) + news(15, 45, c, "t3", anchor_shot=True) + news(20, 60, a, "t4")
     segs = segs_of(obs)
     assert len(segs) == 1 and "SAME-8" in segs[0].signals and set(segs[0].bar_texts) >= {a, b, c}
+
+
+def test_bar_read_without_chinese_is_noise_not_a_story():
+    # 11/06 ETTV 12:35: OCR read "(0UU6" for 25 s before an ad and it became "0UU6/廣告"
+    obs = news(60, 0, "甲則新聞標題", "t1") + news(25, 60, "(0UU6", "t2", speaker="spk1")
+    assert all("0UU6" not in " ".join(s.bar_texts) for s in segs_of(obs))
+
+
+def test_untitled_segment_before_an_ad_merges_into_the_ad():
+    from conftest import framed_ad
+    obs = news(60, 0, "甲則新聞標題", "t1") + news(30, 60, "(0UU6", "t2", speaker="spk1")
+    obs += framed_ad(40, 90, "(0UU6") + news(30, 130, "乙則新聞標題", "t3")
+    segs = segs_of(obs)
+    assert [s.type for s in segs][:2] == [T.NEWS, T.AD]
