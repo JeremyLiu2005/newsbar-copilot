@@ -12,3 +12,4 @@ __pycache__/
 config/channels.yaml
 config/rules.yaml
 .pytest_cache/
+demo/img/

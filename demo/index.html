@@ -1,0 +1,241 @@
+<title>NewsBar Copilot 監看台</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: control-room tool — summary strip, 3600-second timeline, minute sheet beside an evidence panel */
+:root{
+  --bg:#F3F4F6; --panel:#FFFFFF; --ink:#16202E; --mute:#5B6676; --line:#D6DBE2;
+  --news:#2F6FB0; --news-soft:#DCE8F5; --ad:#C9761A; --ad-soft:#F7E3C8;
+  --warn:#B4233C; --warn-soft:#F6DCE1; --ok:#2E7D4F; --ok-soft:#DDEFE3; --sel:#16202E;
+  --sans:'Noto Sans TC',system-ui,'PingFang TC',sans-serif; --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11161D; --panel:#19202A; --ink:#E6EAF0; --mute:#9AA6B6; --line:#2C3644;
+  --news:#6EA6E0; --news-soft:#1E3550; --ad:#E8A04E; --ad-soft:#43301A;
+  --warn:#F07D90; --warn-soft:#4A2029; --ok:#6CC495; --ok-soft:#1C3A2A; --sel:#E6EAF0; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11161D; --panel:#19202A; --ink:#E6EAF0; --mute:#9AA6B6; --line:#2C3644;
+  --news:#6EA6E0; --news-soft:#1E3550; --ad:#E8A04E; --ad-soft:#43301A;
+  --warn:#F07D90; --warn-soft:#4A2029; --ok:#6CC495; --ok-soft:#1C3A2A; --sel:#E6EAF0; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:flex-end}
+h1{font-size:26px;margin:0;text-wrap:balance}
+.sub{color:var(--mute);margin:4px 0 0;font-size:14px}
+.links{display:flex;gap:10px;flex-wrap:wrap}
+.links a{color:var(--news);font-size:14px;text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:var(--panel)}
+.links a:hover,.links a:focus-visible{border-color:var(--news)}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:820px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.tile .k{font-size:13px;color:var(--mute);letter-spacing:.04em}
+.tile .v{font:500 30px/1.2 var(--mono);margin-top:4px}
+.tile .n{font-size:13px;color:var(--mute);margin-top:2px}
+.badge{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;margin-left:6px;vertical-align:middle}
+.b-ok{background:var(--ok-soft);color:var(--ok)} .b-warn{background:var(--warn-soft);color:var(--warn)}
+section.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
+h2{font-size:17px;margin:0 0 10px}
+.hint{color:var(--mute);font-size:13px;margin:0 0 10px}
+.tl{display:grid;grid-template-columns:64px minmax(0,1fr);gap:6px 10px;align-items:center}
+.tl .lab{font-size:13px;color:var(--mute);text-align:right}
+.bar{position:relative;height:22px;border-radius:4px;background:var(--news-soft);overflow:hidden;cursor:pointer}
+.bar span{position:absolute;top:0;bottom:0}
+.bar .ad{background:var(--ad)} .bar .outage{background:var(--mute)}
+.bar .chg{width:2px;background:var(--news);opacity:.75}
+.axis{position:relative;height:18px;font:12px var(--mono);color:var(--mute)}
+.axis span{position:absolute;transform:translateX(-50%)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--mute);margin-top:10px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+.main{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:900px){.main{grid-template-columns:1fr}}
+.tools{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:10px;font-size:14px}
+.tools label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.sheetwrap{overflow:auto;max-height:640px;border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:4px 8px;text-align:left;white-space:nowrap}
+thead th{position:sticky;top:0;background:var(--panel);z-index:1;font-size:13px;color:var(--mute)}
+tbody th{font:13px var(--mono);color:var(--mute);background:var(--panel);position:sticky;left:0}
+td{cursor:pointer;min-width:7em}
+td:empty{cursor:default}
+td.ad{background:var(--ad-soft);color:var(--ad);font-weight:700}
+td.fb{box-shadow:inset 3px 0 0 var(--warn)}
+td.low{box-shadow:inset 3px 0 0 var(--ad)}
+td.sel{outline:2px solid var(--sel);outline-offset:-2px}
+td.gold{color:var(--mute);cursor:default;font-size:13px}
+td.err{background:var(--warn-soft)}
+td.hit{background:var(--ok-soft)}
+td:focus-visible{outline:2px solid var(--news);outline-offset:-2px}
+.panel{position:sticky;top:max(12px,env(safe-area-inset-top,0px))}
+.cellhead{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+.cellhead .val{font-size:24px;font-weight:700}
+.meta{font:13px var(--mono);color:var(--mute)}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px}
+.p-news{background:var(--news-soft);color:var(--news)} .p-ad{background:var(--ad-soft);color:var(--ad)}
+.p-high{background:var(--ok-soft);color:var(--ok)} .p-low{background:var(--warn-soft);color:var(--warn)}
+.item{border-top:1px solid var(--line);padding-top:12px;margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.item img{width:100%;border-radius:4px;border:1px solid var(--line);background:#000}
+.field{font-size:14px} .field b{color:var(--mute);font-weight:500;margin-right:6px}
+.sigs{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.sig{font-size:13.5px} .sig code{font:12px var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-right:6px}
+.empty{color:var(--mute);font-size:14px}
+.errlist{margin:8px 0 0;padding-left:18px;font-size:13.5px;color:var(--mute)}
+footer{color:var(--mute);font-size:13px}
+@media (prefers-reduced-motion:no-preference){td,.bar{transition:background-color .15s}}
+</style>
+
+<div class="wrap">
+<header>
+  <div>
+    <h1>NewsBar Copilot 監看台</h1>
+    <p class="sub">2026/11/06 12:00–12:59・TVBS-N、東森、民視、華視・系統原始輸出，未經人工修改</p>
+  </div>
+  <nav class="links" aria-label="相關連結">
+    <a href="https://docs.google.com/spreadsheets/d/1r0NJTrHSPwxeT5bPlOU8agDoGQBMMMFfeaEerXp3-TE/edit" target="_blank" rel="noopener">Excel 成品（Google 試算表）</a>
+  </nav>
+</header>
+
+<div class="tiles" id="tiles"></div>
+
+<section class="box">
+  <h2>四台一小時：新聞與廣告</h2>
+  <p class="hint">每一條是一台的 3600 秒。橘色是系統判定的廣告破口，細直線是系統判定的換題。點時間軸會跳到那一分鐘。</p>
+  <div class="tl" id="tl"></div>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--news-soft)"></i>新聞</span>
+    <span><i class="sw" style="background:var(--ad)"></i>廣告（含包框）</span>
+    <span><i class="sw" style="background:var(--news)"></i>換題</span>
+  </div>
+</section>
+
+<div class="main">
+  <section class="box">
+    <h2>「12監看」分鐘表</h2>
+    <div class="tools">
+      <label for="gold"><input type="checkbox" id="gold"> 對照研究者初標（TVBS）</label>
+    </div>
+    <div class="sheetwrap"><table id="sheet"></table></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--ad-soft)"></i>廣告</span>
+      <span><i class="sw" style="background:var(--ad)"></i>低信心（照常填，列入抽查）</span>
+      <span><i class="sw" style="background:var(--warn)"></i>五字標改用規則擷取</span>
+      <span id="goldlegend" hidden><i class="sw" style="background:var(--ok-soft)"></i>與初標相符　<i class="sw" style="background:var(--warn-soft)"></i>漏記／多記</span>
+    </div>
+    <div id="errs" hidden></div>
+  </section>
+  <section class="box panel" id="panel" aria-live="polite"></section>
+</div>
+
+<footer>每格判斷依據、截圖與語音節錄都是系統當次的實際輸出。標準答案為研究者初標，正式雙人標註尚未完成。處理環境：Mac M4，四台一小時共 46 分鐘。</footer>
+</div>
+
+<script>
+const CHS=['tvbs','ettv','ftv','cts'];
+const SIG={
+ 'NEW-1':'主 bar 出現新標題，且穩定 7 秒以上','NEW-2a':'語音主題改變','NEW-2b':'畫面切回主播台','NEW-2c':'說話的人換了',
+ 'NEW-2d':'出現記者名條','SAME-6':'有語音卻沒有其他佐證，標題輪播視為同一則','SAME-7':'名條不自成一則','SAME-8':'3 分鐘內同一標題輪回，併回原則',
+ 'CAROUSEL':'主 bar 在輪播頭條預告','AD-a':'主畫面版面改變（包框）','AD-b':'主 bar 底色改變','AD-c':'台徽消失','AD-d':'黑畫面或靜音',
+ 'AD-e':'語音是廣告詞','AD-f':'聲音指紋命中廣告庫','AD-g':'跑馬列消失','AD-h':'主 bar 出現電話或「廣告後立即回到」','AD-i':'主 bar 輪播頭條預告',
+ 'AD-j':'畫面時鐘消失','AD-7':'包框殘留標題，凍結不採用','AD-8':'包框殘留標題，凍結不採用','AD-9':'版面已恢復但等不到新讀數，逾時回新聞','TXT-5':'天氣新聞，記「氣象」'};
+const FB={'FB-1':'換題佐證不足：照常填寫，列入抽查','FB-3':'標題讀不到，改用語音','FB-4':'LLM 寫的標沒通過逐字校驗，改用規則從標題擷取'};
+let D, sel=null, showGold=false;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const clock=sec=>{const t=12*3600+sec, h=Math.floor(t/3600), m=Math.floor(t%3600/60), s=t%60;return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`};
+const minutes=[...Array(60)].map((_,i)=>`12${String(i).padStart(2,'0')}`);
+
+function tiles(){
+  const m=D.metrics, f=x=>x.toFixed(3).replace(/0$/,'');
+  const T=[
+    ['換題起始分鐘 F1',f(m.change.f1),`目標 0.85・測試段 ${f(m.change_test.f1)}`,'達標',true],
+    ['廣告分鐘 F1',f(m.ad.f1),`目標 0.90・${m.ad.tp} 個廣告分鐘全抓到，誤判 ${m.ad.fp} 分鐘`,'達標',true],
+    ['自動填寫率','100%','每一格都由系統填，不需人工補格','達標',true],
+    ['四台一小時處理時間','46 分','目標 15 分鐘・Mac M4 實測','未達標',false]];
+  $('#tiles').innerHTML=T.map(([k,v,n,b,ok])=>`<div class="tile"><div class="k">${k}<span class="badge ${ok?'b-ok':'b-warn'}">${b}</span></div><div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+}
+
+function timeline(){
+  const span=3600, x=s=>Math.max(0,Math.min(100,s/span*100));
+  let h='';
+  for(const ch of CHS){
+    const runs=D.timeline[ch].filter(r=>r[0]!=='news').map(r=>`<span class="${r[0]}" style="left:${x(r[1])}%;width:${x(r[2])-x(r[1])}%" title="${r[0]==='ad'?'廣告':'訊號中斷'} ${clock(r[1])}–${clock(r[2])}"></span>`).join('');
+    const chg=D.cells.filter(c=>c.ch===ch).flatMap(c=>c.items.filter(i=>i.type==='news'&&i.start!=null).map(i=>`<span class="chg" style="left:${x(i.start)}%" title="${esc(i.label)} ${clock(i.start)}"></span>`)).join('');
+    h+=`<div class="lab">${D.channels[ch]}</div><div class="bar" data-ch="${ch}" role="button" tabindex="0" aria-label="${D.channels[ch]} 時間軸">${runs}${chg}</div>`;
+  }
+  h+=`<div></div><div class="axis">${[0,10,20,30,40,50,60].map(m=>`<span style="left:${m/60*100}%">12:${String(m%60).padStart(2,'0')}${m===60?'':''}</span>`).join('').replace('12:00</span>','12:00</span>').replace(/12:00<\/span>$/,'13:00</span>')}</div>`;
+  $('#tl').innerHTML=h;
+  document.querySelectorAll('.bar').forEach(b=>b.addEventListener('click',e=>{
+    const r=b.getBoundingClientRect(), sec=Math.floor((e.clientX-r.left)/r.width*3600);
+    const m=`12${String(Math.min(59,Math.max(0,Math.floor(sec/60)))).padStart(2,'0')}`;
+    const c=D.cells.filter(c=>c.ch===b.dataset.ch&&c.m<=m).pop();
+    if(c) pick(c.ch,c.m,true);
+  }));
+}
+
+function sheet(){
+  const by={}; D.cells.forEach(c=>by[c.ch+c.m]=c);
+  const errs={}; D.errors.forEach(e=>errs[e.minute]=e);
+  const gold=D.gold.tvbs;
+  let h='<thead><tr><th>時間</th>'+CHS.map(c=>`<th>${D.channels[c]}</th>`).join('')+(showGold?'<th>TVBS 初標</th>':'')+'</tr></thead><tbody>';
+  for(const m of minutes){
+    h+=`<tr><th>${m}</th>`;
+    for(const ch of CHS){
+      const c=by[ch+m];
+      if(!c){h+=`<td${showGold&&ch==='tvbs'&&errs[m]?' class="err"':''}></td>`;continue}
+      const cls=[];
+      if(/^廣告$/.test(c.v)||c.items.every(i=>i.type==='ad')) cls.push('ad');
+      if((c.fb||'').includes('FB-4')) cls.push('fb'); else if(c.conf==='low') cls.push('low');
+      if(showGold&&ch==='tvbs') cls.push(errs[m]?'err':(gold[m]?'hit':''));
+      if(sel&&sel.ch===ch&&sel.m===m) cls.push('sel');
+      h+=`<td class="${cls.join(' ')}" tabindex="0" data-ch="${ch}" data-m="${m}">${esc(c.v)}</td>`;
+    }
+    if(showGold) h+=`<td class="gold${errs[m]?' err':''}">${esc(gold[m]||'')}</td>`;
+    h+='</tr>';
+  }
+  $('#sheet').innerHTML=h+'</tbody>';
+  $('#sheet').querySelectorAll('td[data-ch]').forEach(td=>{
+    td.addEventListener('click',()=>pick(td.dataset.ch,td.dataset.m));
+    td.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(td.dataset.ch,td.dataset.m)}});
+  });
+  $('#goldlegend').hidden=!showGold;
+  const el=$('#errs'); el.hidden=!showGold;
+  if(showGold){
+    const mt=D.metrics.change;
+    el.innerHTML=`<ul class="errlist">${D.errors.map(e=>`<li>${e.minute}：${esc(e.type)}${e.gold?`（初標「${esc(e.gold)}」）`:''}${e.system?`（系統「${esc(e.system)}」）`:''}</li>`).join('')}</ul><p class="hint" style="margin-top:8px">TVBS 換題：命中 ${mt.tp}、漏記 ${mt.fn}、多記 ${mt.fp}（容許誤差 ±1 分鐘）。</p>`;
+  }
+}
+
+function panel(c){
+  const p=$('#panel');
+  if(!c){p.innerHTML='<p class="empty">點分鐘表上的任一格，看系統為什麼這樣填。</p>';return}
+  const items=c.items.map(i=>`<div class="item">
+     <div><span class="pill ${i.type==='ad'?'p-ad':'p-news'}">${i.type==='ad'?'廣告':i.type==='weather'?'氣象':'新聞'}</span>
+       ${i.label?`<b style="margin-left:6px">${esc(i.label)}</b>`:''}
+       ${i.start!=null?`<span class="meta" style="margin-left:6px">從 ${clock(i.start)} 起</span>`:''}</div>
+     ${i.img?`<img src="${i.img}" alt="${D.channels[c.ch]} ${clock(i.start??0)} 主 bar 畫面" loading="lazy">`:''}
+     ${i.img&&i.type==='ad'?`<div class="meta">廣告開始那一秒的主 bar；包框期間殘留的字一律不採用</div>`:''}
+     ${i.bar?`<div class="field"><b>主 bar 讀到</b>${esc(i.bar)}</div>`:''}
+     ${i.asr?`<div class="field"><b>語音節錄</b>${esc(i.asr)}…</div>`:''}
+   </div>`).join('');
+  const sigs=[...new Set(c.sig)].map(s=>`<div class="sig"><code>${esc(s)}</code>${esc(SIG[s]||'')}</div>`).join('');
+  const fbs=(c.fb||'').split(',').filter(Boolean).map(f=>`<div class="sig"><code>${esc(f)}</code>${esc(FB[f]||'')}</div>`).join('');
+  p.innerHTML=`<div class="cellhead"><div><div class="meta">${D.channels[c.ch]}・${c.m.slice(0,2)}:${c.m.slice(2)}</div><div class="val">${esc(c.v)}</div></div>
+    <span class="pill ${c.conf==='low'?'p-low':'p-high'}">${c.conf==='low'?'低信心・列入抽查':'高信心'}</span></div>
+    <div class="sigs"><div class="meta">判斷依據</div>${sigs}${fbs}</div>${items}`;
+}
+
+function pick(ch,m,scroll){
+  sel={ch,m}; sheet(); panel(D.cells.find(c=>c.ch===ch&&c.m===m));
+  try{history.replaceState(null,'',`#${ch}-${m}`)}catch(e){}
+  const td=$(`#sheet td[data-ch="${ch}"][data-m="${m}"]`); if(td&&scroll) td.scrollIntoView({block:'center',behavior:'smooth'});
+}
+
+fetch('data.json').then(r=>r.json()).then(d=>{
+  D=d; tiles(); timeline();
+  const h=(location.hash||'').slice(1).split('-');
+  const start=D.cells.find(c=>c.ch===h[0]&&c.m===h[1])||D.cells.find(c=>c.ch==='ettv'&&c.m==='1234')||D.cells[0];
+  pick(start.ch,start.m);
+  $('#gold').addEventListener('change',e=>{showGold=e.target.checked;sheet()});
+}).catch(()=>{$('#panel').innerHTML='<p class="empty">資料載入失敗，請重新整理頁面。</p>'});
+</script>
