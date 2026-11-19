@@ -5,7 +5,28 @@
 - 需求分析（Contextual Design）：[docs/requirements.md](docs/requirements.md)
 - 功能規格（痛點 → 規則 → 測試案例）：[docs/spec.md](docs/spec.md)
 - 系統架構：[docs/architecture.md](docs/architecture.md)
-- 狀態：設計稿（需求 v0.1、規格 v0.1、架構 v0.2），尚未實作
+- 要問業師的問題：[docs/mentor-questions.md](docs/mentor-questions.md)
+
+## 成果（2026/11/06 12:00–13:00，四台實跑）
+
+| 指標 | 目標 | 實測 |
+|---|---|---|
+| 換題起始分鐘 F1（容許 ±1 分鐘，TVBS 對照研究者初標） | ≥0.85 | 0.885（未調參測試段 0.867） |
+| 廣告分鐘 F1 | ≥0.90 | 0.95 |
+| 自動填寫率 | 100% | 100% |
+| 四台一小時處理時間（Mac M4） | ≤15 分鐘 | 46 分鐘（瓶頸：語音轉錄一次只能一台） |
+
+- 監看台網頁（每格判斷依據、主 bar 截圖、廣告時間軸、TVBS 對照）：https://claude.ai/artifact/8P4J7qDJsnfJyGeUFKCcJ2
+- Excel 成品：Google 試算表「12監看_20261106」（需權限）
+- 標準答案目前是研究者初標，正式雙人標註尚未完成
+
+## 影片從哪裡來
+
+四台側錄影片（民視、TVBS、東森、華視）由課程提供，版權屬各電視台，**不放進這個 repo**。
+要重跑請向課程取得影片，放到 `data/raw/{tvbs,ettv,ftv,cts}.ts`，再照下面「開發」的指令執行。
+沒有影片也能跑 `uv run pytest`：測試用的是程式合成的新聞畫面，不需要真實側錄。
+
+執行環境：macOS（Apple Vision OCR）、Python 3.11、FFmpeg、Ollama（`qwen2.5:7b-instruct`）。
 
 ## 核心流程
 
@@ -26,7 +47,7 @@
 
 ```bash
 uv sync --python 3.11 --extra mac   # mac = Apple Vision OCR
-uv run pytest                        # 101 個測試：規格 T01–T24、合成影片 OCR／包框／平行端到端
+uv run pytest                        # 132 個測試：規格 T01–T24、合成影片 OCR／包框／平行端到端
 
 # 1. 檢查 ROI（可順便存包框樣板）
 uv run newsbar calibrate --video data/tvbs.mp4 --channel tvbs --channels config/channels.yaml --at 30
