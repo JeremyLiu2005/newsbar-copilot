@@ -13,3 +13,4 @@ config/channels.yaml
 config/rules.yaml
 .pytest_cache/
 demo/img/
+docs/demo/*.mp4

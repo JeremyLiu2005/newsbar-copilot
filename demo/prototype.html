@@ -1,0 +1,191 @@
+<title>NewsBar Copilot 操作原型</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: four-step operator flow (upload → progress → result → download) in one centered work column */
+:root{
+  --bg:#F3F4F6; --panel:#FFFFFF; --ink:#16202E; --mute:#5B6676; --line:#D6DBE2;
+  --accent:#2F6FB0; --accent-soft:#DCE8F5; --ad:#C9761A; --ad-soft:#F7E3C8;
+  --warn:#B4233C; --warn-soft:#F6DCE1; --ok:#2E7D4F; --ok-soft:#DDEFE3; --proto:#7A4FB5; --proto-soft:#ECE3F7;
+  --sans:'Noto Sans TC',system-ui,'PingFang TC',sans-serif; --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11161D; --panel:#19202A; --ink:#E6EAF0; --mute:#9AA6B6; --line:#2C3644;
+  --accent:#6EA6E0; --accent-soft:#1E3550; --ad:#E8A04E; --ad-soft:#43301A;
+  --warn:#F07D90; --warn-soft:#4A2029; --ok:#6CC495; --ok-soft:#1C3A2A; --proto:#B99BE6; --proto-soft:#2E2442; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11161D; --panel:#19202A; --ink:#E6EAF0; --mute:#9AA6B6; --line:#2C3644;
+  --accent:#6EA6E0; --accent-soft:#1E3550; --ad:#E8A04E; --ad-soft:#43301A;
+  --warn:#F07D90; --warn-soft:#4A2029; --ok:#6CC495; --ok-soft:#1C3A2A; --proto:#B99BE6; --proto-soft:#2E2442; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 40px}
+.wrap{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.banner{background:var(--proto-soft);color:var(--proto);border-radius:8px;padding:10px 14px;font-size:14px}
+.banner b{font-weight:700}
+.steps{display:flex;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--mute)}
+.steps span{padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel)}
+.steps span.on{border-color:var(--accent);color:var(--accent);font-weight:700}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:18px}
+h1{font-size:24px;margin:0;text-wrap:balance}
+h2{font-size:17px;margin:0}
+.sub{color:var(--mute);margin:-10px 0 0;font-size:14px}
+.row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:640px){.row{grid-template-columns:1fr}}
+.field{display:flex;flex-direction:column;gap:4px;font-size:14px}
+.field label{color:var(--mute);font-size:13px}
+.box{border:1px dashed var(--line);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:14px;min-width:0}
+.box .fn{font:13px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.box .ok{color:var(--ok);font-size:13px;white-space:nowrap}
+input[type=text]{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.btns{display:flex;gap:10px;flex-wrap:wrap}
+button,.btn{font:inherit;font-weight:700;border-radius:8px;padding:10px 18px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
+button.ghost,.btn.ghost{background:transparent;color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,.btn:focus-visible,.tab:focus-visible{outline:3px solid var(--accent-soft);outline-offset:2px}
+.chan{display:grid;grid-template-columns:72px minmax(0,1fr) 120px;gap:10px;align-items:center;font-size:14px}
+.track{height:10px;border-radius:5px;background:var(--accent-soft);overflow:hidden}
+.track i{display:block;height:100%;background:var(--accent);width:0}
+.stage{color:var(--mute);font-size:13px;text-align:right}
+.note{color:var(--mute);font-size:13px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{font:inherit;font-weight:500;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer}
+.tab.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.stats{display:flex;gap:18px;flex-wrap:wrap;font-size:14px}
+.stats b{font:500 22px var(--mono);display:block}
+.list{border:1px solid var(--line);border-radius:8px;max-height:420px;overflow:auto}
+.seg{display:grid;grid-template-columns:118px minmax(0,1fr) auto;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:14px;align-items:center}
+.seg:last-child{border-bottom:0}
+.seg .t{font:13px var(--mono);color:var(--mute)}
+.seg.ad{background:var(--ad-soft)} .seg.ad .lbl{color:var(--ad);font-weight:700}
+.pill{font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.p-low{background:var(--warn-soft);color:var(--warn)}
+.checks{display:flex;flex-direction:column;gap:8px;font-size:15px}
+.checks div::before{content:"✓";color:var(--ok);font-weight:700;margin-right:8px}
+.preview{overflow:auto;border:1px solid var(--line);border-radius:8px;max-height:360px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:3px 8px;text-align:left;white-space:nowrap}
+thead th{position:sticky;top:0;background:var(--panel)}
+td.adc{background:var(--ad-soft);color:var(--ad);font-weight:700}
+@media (prefers-reduced-motion:no-preference){.track i{transition:width .25s linear}}
+</style>
+
+<div class="wrap">
+  <div class="banner"><b>操作原型</b>：展示未來監看員怎麼使用，畫面流程尚未串接後端。結果頁與預覽的資料，是後端 11/06 12:00–12:59 實跑的真實輸出。</div>
+  <nav class="steps" id="steps" aria-label="流程"><span data-s="upload">1 上傳</span><span data-s="progress">2 分析</span><span data-s="result">3 結果</span><span data-s="done">4 下載</span></nav>
+
+  <section class="card" id="upload">
+    <h1>NewsBar Copilot：新聞監看自動填表</h1>
+    <p class="sub">放入四台側錄與乾淨版範本，系統自動判斷換題與廣告、寫五字標、填回「12監看」。</p>
+    <div class="row">
+      <div class="field"><label for="d">監看日期</label><input type="text" id="d" value="2026/11/06"></div>
+      <div class="field"><label for="slot">監看時段</label><input type="text" id="slot" value="12:00–13:00"></div>
+    </div>
+    <div class="field"><label>四台側錄影片</label>
+      <div class="row" id="vids"></div></div>
+    <div class="field"><label>乾淨版 Excel 範本</label>
+      <div class="box"><span class="fn">12監看_範本.xlsx</span><span class="ok">已選擇</span></div></div>
+    <p class="note">正式環境由三立內部側錄每小時自動放入，不需要手動上傳；這一步只在補跑或測試時使用。</p>
+    <div class="btns"><button id="go">開始分析</button></div>
+  </section>
+
+  <section class="card" id="progress" hidden>
+    <h1>正在分析四台影片</h1>
+    <p class="sub">四台同時處理，一台出錯不影響其他台。進度條依 11/06 實跑各階段的時間比例播放。</p>
+    <div id="chans" style="display:flex;flex-direction:column;gap:12px"></div>
+    <div class="btns"><button id="toResult" disabled>查看結果</button></div>
+  </section>
+
+  <section class="card" id="result" hidden>
+    <h1>分析結果</h1>
+    <div class="tabs" id="tabs" role="tablist"></div>
+    <div class="stats" id="stats"></div>
+    <div class="list" id="segs"></div>
+    <p class="note">「列入抽查」的段落照常填進表裡，只另外排進抽查清單，不會留白或寫「待確認」。</p>
+    <div class="btns"><button id="toDone">下一步：產出 Excel</button><a class="btn ghost" href="https://claude.ai/artifact/8P4J7qDJsnfJyGeUFKCcJ2" target="_blank" rel="noopener">查看每格判斷依據</a></div>
+  </section>
+
+  <section class="card" id="done" hidden>
+    <h1>監看表已自動填寫完成</h1>
+    <div class="checks">
+      <div>保留原「12監看」分頁的格式，只寫入四台五字標欄</div>
+      <div>換題那分鐘填標、延續留白、同分鐘多則用「/」</div>
+      <div>廣告破口的第一分鐘填「廣告」，包框殘留的標題不採用</div>
+      <div id="lowline"></div>
+    </div>
+    <div class="btns"><button id="prev" class="ghost">預覽 Excel</button><a class="btn" href="https://docs.google.com/spreadsheets/d/1r0NJTrHSPwxeT5bPlOU8agDoGQBMMMFfeaEerXp3-TE/edit" target="_blank" rel="noopener">開啟 Excel 成品</a></div>
+    <p class="note">原型不提供下載；「開啟 Excel 成品」連到後端實跑產出的 Google 試算表。</p>
+    <div class="preview" id="preview" hidden></div>
+    <div class="btns"><button class="ghost" id="restart">回到第一步</button></div>
+  </section>
+</div>
+
+<script>
+const D={"tvbs": {"segs": [[0, "news", "分局前縱火", false], [3, "news", "台股崩跌點", false], [271, "news", "毒駕遭車撞飛", false], [379, "news", "桃園警開槍", false], [544, "news", "路中轉向卸", true], [593, "news", "幼童過馬路", true], [710, "news", "車手銀髮族", false], [823, "news", "紙廠起火燒", false], [1011, "news", "稱台北兒虐", true], [1149, "news", "沈伯洋拜票", false], [1274, "news", "C羅宣布引退", false], [1387, "news", "高雄老店歇", true], [1447, "ad", "廣告", true], [1476, "news", "海光熄燈", true], [1499, "news", "股匯雙殺", true], [1625, "news", "旅展促鍆餐", false], [1758, "news", "涉助共諜案", true], [2021, "news", "對不起我愛你", false], [2248, "ad", "廣告", false], [2499, "news", "單口味涼圓", true], [2595, "news", "毒駕遭包圍", false], [2702, "news", "連2波東北", true], [2818, "ad", "廣告", false], [3032, "news", "巴黎罷工動亂", true], [3132, "news", "通膨物價飆", true], [3184, "news", "運毒報酬", false], [3228, "ad", "廣告", false], [3403, "news", "紙廠起火燒", false], [3502, "news", "蔡阿嘎起訴", false]], "cells": 24, "low": 9, "ads": 4}, "ettv": {"segs": [[0, "news", "台積電拉回", true], [50, "news", "德州新州長", true], [94, "news", "0050爆量股", false], [107, "news", "陳奕光估反彈", false], [159, "news", "台股急跌點", false], [221, "news", "股匯雙殺", false], [267, "news", "台股崩股民", false], [429, "news", "台股107預言", false], [560, "news", "惡火燒原料", false], [692, "news", "女毒犯遭制伏", false], [950, "news", "警察鳴槍散", false], [974, "news", "同桌變亂鬥", false], [1017, "news", "太挺遭帶回", false], [1038, "news", "酒店互嗆助陣", false], [1059, "news", "沈護妻不掃", false], [1162, "news", "蔣辦大遊行", false], [1199, "news", "豐原拜票", false], [1711, "news", "牛埔霸佔", false], [1851, "news", "滅火器爆炸", false], [2086, "ad", "廣告", false], [2324, "news", "蘇賴再戰", true], [2430, "news", "綠喊戒慎恐", true], [2449, "news", "福建艦入列", true], [2569, "ad", "廣告", false], [2610, "news", "龍捲風狂吹", true], [2632, "ad", "廣告", true], [2847, "news", "巴黎鐵塔關閉", true], [2954, "ad", "廣告", false], [3045, "news", "被嫌太老", true], [3157, "news", "陳妮絲遭詐騙", false], [3268, "news", "休旅車爆炸", false], [3460, "news", "幼童過馬摔", false], [3526, "news", "10童僅1師", true], [3563, "news", "學童跌倒稽查", false]], "cells": 27, "low": 7, "ads": 4}, "ftv": {"segs": [[0, "news", "車燃起火災", true], [318, "news", "汽油彈燒警車", false], [453, "news", "張俊傑偷渡", false], [490, "news", "滿瑞富6號案", false], [584, "news", "沈伯洋簽名", false], [760, "news", "請益陳健治", false], [1034, "news", "樹林武林國", true], [1367, "news", "潘尼亞遭彈劾", false], [1673, "news", "夜市口角擋車", false], [1760, "news", "李多慧慶味", true], [1896, "news", "海光中歇業", false], [2006, "news", "冷空氣報到", false], [2121, "ad", "廣告", false], [2448, "news", "台北兒虐事件", true], [2690, "news", "81億元整建", true], [2824, "news", "機器狗登泰山", false], [2918, "ad", "廣告", false], [3161, "news", "深圳禁按喇叭", false], [3251, "news", "菜刀鎖鏈", false], [3286, "ad", "廣告", false], [3577, "news", "苑裡貨車翻車", true]], "cells": 20, "low": 6, "ads": 3}, "cts": {"segs": [[0, "news", "堆高機撞婦亡", true], [19, "news", "幼童過馬路摔", true], [141, "news", "住宅區鳴槍", false], [340, "news", "張俊傑詭助逃", false], [467, "news", "台股崩跌戰", false], [665, "news", "小水滴熱情", true], [1305, "news", "范斯切割川普", false], [1427, "news", "河口湖命案", false], [1548, "news", "待宰豬變醫", false], [1959, "ad", "廣告", false], [2119, "news", "武嶺重機違停", true], [2258, "news", "屏東火車站", false], [2394, "ad", "廣告", false], [2573, "news", "柯志恩固椿", true], [2730, "news", "10天內3度", true], [2854, "ad", "廣告", false], [3014, "news", "東部降溫", true], [3064, "news", "C羅歸還7號", false], [3194, "ad", "廣告", false], [3478, "news", "海光人力短缺", true]], "cells": 19, "low": 7, "ads": 4}, "sheet": {"tvbs": ["分局前縱火/台股崩跌點", "", "", "", "毒駕遭車撞飛", "", "桃園警開槍", "", "", "路中轉向卸/幼童過馬路", "", "車手銀髮族", "", "紙廠起火燒", "", "", "稱台北兒虐", "", "", "沈伯洋拜票", "", "C羅宣布引退", "", "高雄老店歇", "廣告/海光熄燈/股匯雙殺", "", "", "旅展促鍆餐", "", "涉助共諜案", "", "", "", "對不起我愛你", "", "", "", "廣告", "", "", "", "單口味涼圓", "", "毒駕遭包圍", "", "連2波東北", "廣告", "", "", "", "巴黎罷工動亂", "", "通膨物價飆", "運毒報酬/廣告", "", "", "紙廠起火燒", "", "蔡阿嘎起訴", ""], "ettv": ["台積電拉回/德州新州長", "0050爆量股/陳奕光估反彈", "台股急跌點", "股匯雙殺", "台股崩股民", "", "", "台股107預言", "", "惡火燒原料", "", "女毒犯遭制伏", "", "", "", "警察鳴槍散", "同桌變亂鬥/太挺遭帶回", "酒店互嗆助陣/沈護妻不掃", "", "蔣辦大遊行/豐原拜票", "", "", "", "", "", "", "", "", "牛埔霸佔", "", "滅火器爆炸", "", "", "", "廣告", "", "", "", "蘇賴再戰", "", "綠喊戒慎恐/福建艦入列", "", "廣告", "龍捲風狂吹/廣告", "", "", "", "巴黎鐵塔關閉", "", "廣告", "被嫌太老", "", "陳妮絲遭詐騙", "", "休旅車爆炸", "", "", "幼童過馬摔", "10童僅1師", "學童跌倒稽查"], "ftv": ["車燃起火災", "", "", "", "", "汽油彈燒警車", "", "張俊傑偷渡", "滿瑞富6號案", "沈伯洋簽名", "", "", "請益陳健治", "", "", "", "", "樹林武林國", "", "", "", "", "潘尼亞遭彈劾", "", "", "", "", "夜市口角擋車", "", "李多慧慶味", "", "海光中歇業", "", "冷空氣報到", "", "廣告", "", "", "", "", "台北兒虐事件", "", "", "", "81億元整建", "", "", "機器狗登泰山", "廣告", "", "", "", "深圳禁按喇叭", "", "菜刀鎖鏈/廣告", "", "", "", "", "苑裡貨車翻車"], "cts": ["堆高機撞婦亡/幼童過馬路摔", "", "住宅區鳴槍", "", "", "張俊傑詭助逃", "", "台股崩跌戰", "", "", "", "小水滴熱情", "", "", "", "", "", "", "", "", "", "范斯切割川普", "", "河口湖命案", "", "待宰豬變醫", "", "", "", "", "", "", "廣告", "", "", "武嶺重機違停", "", "屏東火車站", "", "廣告", "", "", "柯志恩固椿", "", "", "10天內3度", "", "廣告", "", "", "東部降溫", "C羅歸還7號", "", "廣告", "", "", "", "海光人力短缺", "", ""]}};
+const NAMES={tvbs:'TVBS-N',ettv:'東森',ftv:'民視',cts:'華視'};
+const CHS=['ftv','tvbs','ettv','cts'];
+const STAGES=[['畫面時鐘校時',.02],['裁切主 bar 與畫面',.06],['主 bar OCR',.10],['畫面訊號與廣告指紋',.12],['語音轉錄',.62],['判定換題與廣告',.04],['五字標生成與校驗',.04]];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hm=s=>{const t=12*60+Math.floor(s/60);return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`};
+let cur='ftv', timer=null;
+
+function show(id){
+  ['upload','progress','result','done'].forEach(x=>$('#'+x).hidden=x!==id);
+  document.querySelectorAll('#steps span').forEach(s=>s.classList.toggle('on',s.dataset.s===id));
+  try{history.replaceState(null,'','#'+id)}catch(e){}
+  if(id==='progress') runProgress();
+  if(id==='result') renderResult();
+  if(id==='done') renderDone();
+}
+
+$('#vids').innerHTML=CHS.map(c=>`<div class="box"><span><b>${NAMES[c]}</b>　<span class="fn">${c}_20261106_1200.ts</span></span><span class="ok">已選擇</span></div>`).join('');
+
+function runProgress(){
+  clearInterval(timer);
+  $('#chans').innerHTML=CHS.map((c,i)=>`<div class="chan"><b>${NAMES[c]}</b><div class="track"><i id="bar-${c}"></i></div><div class="stage" id="st-${c}">排隊中</div></div>`).join('');
+  $('#toResult').disabled=true;
+  const off={ftv:0,tvbs:.04,ettv:.08,cts:.12}; let t=0;
+  timer=setInterval(()=>{
+    t+=.02; let all=true;
+    for(const c of CHS){
+      const p=Math.max(0,Math.min(1,(t-off[c])/0.9)); if(p<1) all=false;
+      $('#bar-'+c).style.width=(p*100)+'%';
+      let acc=0, name='完成';
+      if(p<1){for(const [n,w] of STAGES){acc+=w; if(p<acc){name=n+'中';break}}}
+      $('#st-'+c).textContent=p<=0?'排隊中':name;
+    }
+    if(all){clearInterval(timer);$('#toResult').disabled=false}
+  },100);
+}
+
+function renderResult(){
+  $('#tabs').innerHTML=CHS.map(c=>`<button class="tab${c===cur?' on':''}" role="tab" aria-selected="${c===cur}" data-c="${c}">${NAMES[c]}</button>`).join('');
+  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.c;renderResult()});
+  const d=D[cur], segs=d.segs;
+  const news=segs.filter(s=>s[1]!=='ad').length, ads=segs.filter(s=>s[1]==='ad').length, low=segs.filter(s=>s[3]).length;
+  $('#stats').innerHTML=`<div><b>${news}</b>則新聞</div><div><b>${ads}</b>段廣告</div><div><b>${d.cells}</b>格寫入</div><div><b>${low}</b>段列入抽查</div>`;
+  $('#segs').innerHTML=segs.map((s,i)=>{
+    const end=i+1<segs.length?segs[i+1][0]:3600;
+    return `<div class="seg${s[1]==='ad'?' ad':''}"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${s[3]?'<span class="pill p-low">列入抽查</span>':'<span></span>'}</div>`}).join('');
+}
+
+function renderDone(){
+  const low=CHS.reduce((a,c)=>a+D[c].low,0), cells=CHS.reduce((a,c)=>a+D[c].cells,0);
+  $('#lowline').textContent=`四台共寫入 ${cells} 格；其中 ${low} 格信心較低，照常填寫並另列抽查清單`;
+  $('#preview').hidden=true;
+}
+
+$('#prev').onclick=()=>{
+  const rows=[...Array(60)].map((_,i)=>`12${String(i).padStart(2,'0')}`);
+  $('#preview').innerHTML='<table><thead><tr><th>時間</th><th>TVBS-N</th><th>東森</th><th>民視</th><th>華視</th></tr></thead><tbody>'+rows.map(m=>`<tr><th>${m}</th>${['tvbs','ettv','ftv','cts'].map(c=>{const v=D.sheet[c][rows.indexOf(m)]||'';return `<td class="${v==='廣告'?'adc':''}">${esc(v)}</td>`}).join('')}</tr>`).join('')+'</tbody></table>';
+  $('#preview').hidden=false;
+};
+$('#go').onclick=()=>show('progress');
+$('#toResult').onclick=()=>show('result');
+$('#toDone').onclick=()=>show('done');
+$('#restart').onclick=()=>show('upload');
+const start=(location.hash||'').slice(1);
+show(['upload','progress','result','done'].includes(start)?start:'upload');
+</script>

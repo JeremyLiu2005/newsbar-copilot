@@ -7,6 +7,17 @@
 - 系統架構：[docs/architecture.md](docs/architecture.md)
 - 要問業師的問題：[docs/mentor-questions.md](docs/mentor-questions.md)
 
+## 系統狀態
+
+後端核心流程已用 11/06 四台一小時真實側錄驗證：主 bar OCR、換題判定、廣告狀態機、五字標生成與校驗、寫回「12監看」Excel。執行方式是命令列 `newsbar run`（地端，Mac M4）。
+
+前端兩個網頁，用途不同：
+
+- **監看台網頁**：後端實跑結果的瀏覽器，資料全是真實輸出（[demo/index.html](demo/index.html)）。
+- **操作原型**：展示監看員未來的操作流程（上傳 → 分析 → 結果 → 下載），**尚未串接後端**；結果頁資料取自同一次實跑（[demo/prototype.html](demo/prototype.html)，線上版 https://claude.ai/artifact/RL2VhX96ci22nN5znaiBSK ）。
+
+設計上系統跑在三立內部，側錄影片與監看資料不出內網；正式上線時前端會接上這套地端後端。
+
 ## 成果（2026/11/06 12:00–13:00，四台實跑）
 
 | 指標 | 目標 | 實測 |
