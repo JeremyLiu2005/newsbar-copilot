@@ -83,3 +83,41 @@ def test_from_rules():
     assert isinstance(from_rules({"labeler": {"generator": "ollama"}}), OllamaGenerator)
     with pytest.raises(ExternalCallNotAllowed):
         from_rules({"labeler": {"generator": "claude"}})
+
+
+def test_ollama_request_is_deterministic():
+    import json
+    from newsbar.labeler import LabelSource
+    from newsbar.llm import OllamaGenerator
+
+    sent = {}
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def read(self): return json.dumps({"message": {"content": "土城翁輾亡"}}).encode()
+
+    def opener(req, timeout):
+        sent.update(json.loads(req.data))
+        return Resp()
+
+    g = OllamaGenerator()
+    g.opener = opener
+    g.generate(LabelSource(["新北土城一七旬老翁 轉彎不慎遭貨車輾亡"]), 0)
+    assert sent["options"]["temperature"] == 0 and "seed" in sent["options"]
+
+
+def test_cached_generator_replays_answers(tmp_path):
+    from newsbar.labeler import LabelSource
+    from newsbar.llm import CachedGenerator
+
+    class Count:
+        n = 0
+        def generate(self, source, attempt):
+            Count.n += 1
+            return f"答{Count.n}"
+
+    src = LabelSource(["新北土城一七旬老翁 轉彎不慎遭貨車輾亡"])
+    first = CachedGenerator(Count(), tmp_path / "c.json").generate(src, 0)
+    again = CachedGenerator(Count(), tmp_path / "c.json").generate(src, 0)
+    assert first == again == "答1" and Count.n == 1

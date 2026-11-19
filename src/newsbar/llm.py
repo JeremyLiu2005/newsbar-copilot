@@ -64,7 +64,7 @@ class OllamaGenerator:
                      {"role": "assistant", "content": a}]
         msgs.append({"role": "user", "content": build_user_prompt(source, attempt)})
         body = json.dumps({"model": self.model, "messages": msgs, "stream": False,
-                           "options": {"temperature": 0.2}}).encode()
+                           "options": {"temperature": 0, "seed": 42}}).encode()  # same video, same sheet
         req = urllib.request.Request(f"{self.host}/api/chat", data=body,
                                      headers={"Content-Type": "application/json"})
         with self.opener(req, timeout=self.timeout) as r:
@@ -109,6 +109,34 @@ class ClaudeGenerator:
             return ""  # validator rejects → retry → rule fallback (FB-4)
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         return clean_output(text)
+
+
+class CachedGenerator:
+    """Remember each answer by its exact prompt so the same video gives the same sheet.
+
+    temperature 0 alone is not enough: Ollama batches parallel requests and one label in
+    240 still changed between identical runs (11/06). The cache also skips repeat calls.
+    """
+
+    def __init__(self, inner, path):
+        import threading
+        from pathlib import Path
+
+        self.inner, self.path = inner, Path(path)
+        self._lock = threading.Lock()
+        self._cache: dict[str, str] = json.loads(self.path.read_text()) if self.path.exists() else {}
+
+    def generate(self, source: LabelSource, attempt: int) -> str:
+        key = f"{getattr(self.inner, 'model', '')}|{attempt}|{build_user_prompt(source, attempt)}"
+        with self._lock:
+            if key in self._cache:
+                return self._cache[key]
+        out = self.inner.generate(source, attempt)
+        with self._lock:
+            self._cache[key] = out
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps(self._cache, ensure_ascii=False, indent=0))
+        return out
 
 
 def from_rules(rules: dict | None):

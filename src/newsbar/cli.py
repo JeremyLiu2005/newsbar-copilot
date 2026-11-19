@@ -197,7 +197,10 @@ def cmd_run(a: argparse.Namespace) -> int:
     if not headers:
         raise SystemExit("沒有任何一台處理成功")
     out = Path(a.out)
-    res = pipeline.run(streams, Path(a.template), out, headers, llm.from_rules(rules), rules, a.sheet_start, a.minutes)
+    gen = llm.from_rules(rules)
+    if gen is not None:
+        gen = llm.CachedGenerator(gen, work / "label_cache.json")
+    res = pipeline.run(streams, Path(a.template), out, headers, gen, rules, a.sheet_start, a.minutes)
     learned = _learn_ads(streams, work, library)
     if learned:
         library.save(lib_path)
