@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NewsBar Copilot 監看台</title>
+<style>
+/* Layout: four-step operator flow (select → progress → result → download), one centered work column */
+:root{
+  --bg:#F3F4F6; --panel:#FFFFFF; --ink:#16202E; --mute:#5B6676; --line:#D6DBE2;
+  --accent:#2F6FB0; --accent-soft:#DCE8F5; --ad:#C9761A; --ad-soft:#F7E3C8;
+  --warn:#B4233C; --warn-soft:#F6DCE1; --ok:#2E7D4F; --ok-soft:#DDEFE3;
+  --sans:system-ui,'PingFang TC','Noto Sans TC',sans-serif; --mono:ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#11161D; --panel:#19202A; --ink:#E6EAF0; --mute:#9AA6B6; --line:#2C3644;
+  --accent:#6EA6E0; --accent-soft:#1E3550; --ad:#E8A04E; --ad-soft:#43301A;
+  --warn:#F07D90; --warn-soft:#4A2029; --ok:#6CC495; --ok-soft:#1C3A2A; color-scheme:dark}}
+*{box-sizing:border-box} [hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);padding:16px 16px 40px}
+.wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.banner{background:var(--ok-soft);color:var(--ok);border-radius:8px;padding:10px 14px;font-size:14px}
+.steps{display:flex;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--mute)}
+.steps span{padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel)}
+.steps span.on{border-color:var(--accent);color:var(--accent);font-weight:700}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:16px}
+h1{font-size:24px;margin:0} .sub{color:var(--mute);margin:-8px 0 0;font-size:14px}
+.row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:640px){.row{grid-template-columns:1fr}}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mute)}
+select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px}
+.opt{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.btns{display:flex;gap:10px;flex-wrap:wrap}
+button,.btn{font:inherit;font-weight:700;border-radius:8px;padding:10px 18px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;text-decoration:none}
+.ghost{background:transparent!important;color:var(--accent)!important}
+button:disabled{opacity:.45;cursor:not-allowed}
+.err{color:var(--warn);font-size:14px}
+.chan{display:grid;grid-template-columns:72px minmax(0,1fr) 180px;gap:10px;align-items:center;font-size:14px}
+.track{height:10px;border-radius:5px;background:var(--accent-soft);overflow:hidden} .track i{display:block;height:100%;background:var(--accent);width:0;transition:width .4s}
+.stage{color:var(--mute);font-size:13px;text-align:right}
+pre.log{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;font:12px/1.5 var(--mono);max-height:220px;overflow:auto;white-space:pre-wrap;margin:0}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{font:inherit;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer;font-weight:500}
+.tab.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.stats{display:flex;gap:18px;flex-wrap:wrap;font-size:14px} .stats b{font:500 22px var(--mono);display:block}
+.list{border:1px solid var(--line);border-radius:8px;max-height:420px;overflow:auto}
+.seg{display:grid;grid-template-columns:118px minmax(0,1fr) auto;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:14px;align-items:center}
+.seg .t{font:13px var(--mono);color:var(--mute)} .seg.ad{background:var(--ad-soft)} .seg.ad .lbl{color:var(--ad);font-weight:700}
+.pill{font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn)}
+.note{color:var(--mute);font-size:13px}
+.checks div::before{content:"✓";color:var(--ok);font-weight:700;margin-right:8px}
+.preview{overflow:auto;border:1px solid var(--line);border-radius:8px;max-height:360px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:3px 8px;text-align:left;white-space:nowrap}
+thead th{position:sticky;top:0;background:var(--panel)} td.adc{background:var(--ad-soft);color:var(--ad);font-weight:700}
+</style></head><body>
+<div class="wrap">
+  <div class="banner">已串接地端後端：按「開始分析」會在這台電腦執行 <code>newsbar run</code>，影片與表格不離開本機。</div>
+  <nav class="steps" id="steps"><span data-s="pick">1 選影片</span><span data-s="progress">2 分析</span><span data-s="result">3 結果</span><span data-s="done">4 下載</span></nav>
+
+  <section class="card" id="pick">
+    <h1>NewsBar Copilot：新聞監看自動填表</h1>
+    <p class="sub">選四台側錄，系統自動判斷換題與廣告、寫五字標、填回「12監看」。</p>
+    <div class="row" id="vids"></div>
+    <p class="note" id="tpl"></p>
+    <label class="opt"><input type="checkbox" id="fast"> 快速模式：語音轉錄用較小的模型，處理較快，換題略少抓幾則</label>
+    <label class="opt"><input type="checkbox" id="resume"> 沿用上次已抽取的資料：跳過 OCR 與語音轉錄，只重跑判定與寫表（約 3 分鐘內完成，適合現場展示）</label>
+    <div class="btns"><button id="go">開始分析</button></div>
+    <p class="err" id="perr" hidden></p>
+  </section>
+
+  <section class="card" id="progress" hidden>
+    <h1>正在分析</h1>
+    <p class="sub" id="elapsed"></p>
+    <div id="chans" style="display:flex;flex-direction:column;gap:12px"></div>
+    <pre class="log" id="log"></pre>
+    <div class="btns"><button id="toResult" disabled>查看結果</button></div>
+    <p class="err" id="jerr" hidden></p>
+  </section>
+
+  <section class="card" id="result" hidden>
+    <h1>分析結果</h1>
+    <div class="tabs" id="tabs"></div>
+    <div class="stats" id="stats"></div>
+    <div class="list" id="segs"></div>
+    <p class="note">「列入抽查」的格照常填進表裡，只另外排進抽查清單，不留白、不寫「待確認」。</p>
+    <div class="btns"><button id="toDone">下一步：取得 Excel</button><a class="btn ghost" id="review" target="_blank">開啟抽查頁</a></div>
+  </section>
+
+  <section class="card" id="done" hidden>
+    <h1>監看表已自動填寫完成</h1>
+    <div class="checks" style="display:flex;flex-direction:column;gap:8px">
+      <div>保留原「12監看」分頁的格式，只寫入四台五字標欄</div>
+      <div>換題那分鐘填標、延續留白、同分鐘多則用「/」</div>
+      <div>廣告破口的第一分鐘填「廣告」，包框殘留的標題不採用</div>
+      <div id="lowline"></div>
+    </div>
+    <div class="btns"><button class="ghost" id="prev">預覽 Excel</button><a class="btn" id="dl">下載 Excel</a></div>
+    <div class="preview" id="preview" hidden></div>
+    <div class="btns"><button class="ghost" id="restart">再跑一次</button></div>
+  </section>
+</div>
+<script>
+const NAMES={tvbs:'TVBS-N',ettv:'東森',ftv:'民視',cts:'華視'};
+const CHS=['ftv','tvbs','ettv','cts'];
+const ORDER=['畫面時鐘','裁切 ROI','OCR','畫面訊號','聲音指紋','語音轉錄'];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hm=s=>{const t=12*60+Math.floor(Math.max(s,0)/60);return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`};
+let JOB=null, RES=null, cur='ftv', poll=null;
+
+function show(id){
+  ['pick','progress','result','done'].forEach(x=>$('#'+x).hidden=x!==id);
+  document.querySelectorAll('#steps span').forEach(s=>s.classList.toggle('on',s.dataset.s===id));
+}
+async function api(path,opt){const r=await fetch(path,opt);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.statusText);return j}
+
+async function loadInputs(){
+  const inp=await api('/api/inputs');
+  $('#vids').innerHTML=CHS.map(c=>`<label class="f">${NAMES[c]}<select id="v-${c}"><option value="">（不處理這台）</option>${inp.files.map(f=>`<option ${inp.guess[c]===f?'selected':''}>${esc(f)}</option>`).join('')}</select></label>`).join('');
+  $('#tpl').textContent=inp.template?`範本：${inp.template}`:'找不到範本檔，請用 --template 指定';
+  $('#fast').disabled=!inp.fast_available;
+}
+
+$('#go').onclick=async()=>{
+  $('#perr').hidden=true;
+  const videos={}; CHS.forEach(c=>{const v=$('#v-'+c).value; if(v) videos[c]=v});
+  try{
+    JOB=await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videos,fast:$('#fast').checked,resume:$('#resume').checked})});
+  }catch(e){$('#perr').textContent=e.message;$('#perr').hidden=false;return}
+  $('#chans').innerHTML=Object.keys(videos).map(c=>`<div class="chan"><b>${NAMES[c]}</b><div class="track"><i id="bar-${c}"></i></div><div class="stage" id="st-${c}">排隊中</div></div>`).join('');
+  $('#toResult').disabled=true; $('#jerr').hidden=true; show('progress');
+  clearInterval(poll); poll=setInterval(tick,1000); tick();
+};
+
+async function tick(){
+  const j=await api('/api/jobs/'+JOB.id);
+  $('#elapsed').textContent=`已經過 ${Math.floor(j.elapsed/60)} 分 ${Math.round(j.elapsed%60)} 秒`;
+  for(const [c,st] of Object.entries(j.stages)){
+    const el=$('#st-'+c); if(!el) continue;
+    el.textContent=st;
+    const i=ORDER.findIndex(o=>st.startsWith(o));
+    const p=st==='完成'?100:st.startsWith('沿用')?90:i>=0?Math.round((i+1)/(ORDER.length+1)*100):5;
+    $('#bar-'+c).style.width=p+'%';
+  }
+  $('#log').textContent=j.lines.map(([t,l])=>`${String(t).padStart(6)}s  ${l}`).join('\n');
+  $('#log').scrollTop=1e9;
+  if(j.state==='done'){clearInterval(poll); document.querySelectorAll('.track i').forEach(b=>b.style.width='100%'); $('#toResult').disabled=false}
+  if(j.state==='failed'){clearInterval(poll); $('#jerr').textContent=`執行失敗（結束碼 ${j.returncode}），請看上方紀錄。`; $('#jerr').hidden=false}
+}
+
+$('#toResult').onclick=async()=>{RES=await api(`/api/jobs/${JOB.id}/result`); cur=CHS.find(c=>RES.cells.some(x=>x.ch===c))||'ftv'; renderResult(); show('result')};
+function segsOf(ch){
+  const out=[];
+  RES.cells.filter(c=>c.ch===ch).forEach(c=>c.items.forEach(i=>out.push([i.start??(+c.m.slice(2))*60,i.type,i.label||'廣告',c.conf==='low'])));
+  out.sort((a,b)=>a[0]-b[0]); return out.filter((s,k)=>!k||s[2]!==out[k-1][2]||s[1]!==out[k-1][1]);
+}
+function renderResult(){
+  const chs=CHS.filter(c=>RES.cells.some(x=>x.ch===c));
+  $('#tabs').innerHTML=chs.map(c=>`<button class="tab${c===cur?' on':''}" data-c="${c}">${NAMES[c]}</button>`).join('');
+  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.c;renderResult()});
+  const segs=segsOf(cur), rep=RES.report[cur]||{};
+  $('#stats').innerHTML=`<div><b>${segs.filter(s=>s[1]!=='ad').length}</b>則新聞</div><div><b>${segs.filter(s=>s[1]==='ad').length}</b>段廣告</div><div><b>${rep.cells??'—'}</b>格寫入</div><div><b>${rep.low_conf??'—'}</b>格列入抽查</div>`;
+  $('#segs').innerHTML=segs.map((s,i)=>{const end=i+1<segs.length?segs[i+1][0]:3600;return `<div class="seg${s[1]==='ad'?' ad':''}"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${s[3]?'<span class="pill">列入抽查</span>':'<span></span>'}</div>`}).join('');
+  $('#review').href=`/api/jobs/${JOB.id}/review`;
+}
+$('#toDone').onclick=()=>{
+  const r=Object.values(RES.report), cells=r.reduce((a,x)=>a+(x.cells||0),0), low=r.reduce((a,x)=>a+(x.low_conf||0),0);
+  $('#lowline').textContent=`共寫入 ${cells} 格；其中 ${low} 格信心較低，照常填寫並另列抽查清單`;
+  $('#dl').href=`/api/jobs/${JOB.id}/xlsx`; $('#preview').hidden=true; show('done');
+};
+$('#prev').onclick=()=>{
+  const chs=CHS.filter(c=>RES.cells.some(x=>x.ch===c)), by={}; RES.cells.forEach(c=>by[c.ch+c.m]=c.v);
+  const mins=[...new Set(RES.cells.map(c=>c.m))].sort(); const lo=+mins[0]||1200, hi=+mins[mins.length-1]||1259;
+  const rows=[]; for(let m=lo;m<=hi;m++){if(m%100<60) rows.push(String(m))}
+  $('#preview').innerHTML='<table><thead><tr><th>時間</th>'+chs.map(c=>`<th>${NAMES[c]}</th>`).join('')+'</tr></thead><tbody>'+rows.map(m=>`<tr><th>${m}</th>${chs.map(c=>{const v=by[c+m]||'';return `<td class="${v==='廣告'?'adc':''}">${esc(v)}</td>`}).join('')}</tr>`).join('')+'</tbody></table>';
+  $('#preview').hidden=false;
+};
+$('#restart').onclick=()=>show('pick');
+loadInputs().catch(e=>{$('#perr').textContent='讀不到後端：'+e.message;$('#perr').hidden=false});
+show('pick');
+</script></body></html>

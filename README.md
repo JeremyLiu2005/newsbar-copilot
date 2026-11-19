@@ -14,9 +14,15 @@
 前端兩個網頁，用途不同：
 
 - **監看台網頁**：後端實跑結果的瀏覽器，資料全是真實輸出（[demo/index.html](demo/index.html)）。
-- **操作原型**：展示監看員未來的操作流程（上傳 → 分析 → 結果 → 下載），**尚未串接後端**；結果頁資料取自同一次實跑（[demo/prototype.html](demo/prototype.html)，線上版 https://claude.ai/artifact/RL2VhX96ci22nN5znaiBSK ）。
+- **監看員網頁 `newsbar serve`（已串接後端）**：在本機開 http://127.0.0.1:8765 ，選四台側錄 → 開始分析（真的執行 `newsbar run`）→ 即時看各台進度 → 看結果 → 下載 Excel、開抽查頁。只綁本機，影片與表格不離開這台電腦。
+- **操作原型**：同一流程的靜態展示版，給沒有後端環境的人點著看，**未串接後端**（[demo/prototype.html](demo/prototype.html)，線上版 https://claude.ai/artifact/RL2VhX96ci22nN5znaiBSK ）。
 
-設計上系統跑在三立內部，側錄影片與監看資料不出內網；正式上線時前端會接上這套地端後端。
+```bash
+uv run newsbar serve --channels config/channels.1106.yaml --rules config/rules.1106.yaml \
+  --rules-fast config/rules.1106.fast.yaml --workdir data/work_full
+```
+
+設計上系統跑在三立內部，側錄影片與監看資料不出內網。
 
 ## 成果（2026/11/06 12:00–13:00，四台實跑）
 

@@ -402,6 +402,23 @@ def cmd_cleanup(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(a: argparse.Namespace) -> int:
+    """Operator web UI on this machine: pick recordings, run, watch, download."""
+    from . import server
+
+    rules_fast = Path(a.rules_fast) if a.rules_fast else None
+    s = server.Settings(video_dir=Path(a.video_dir), template=Path(a.template), out_dir=Path(a.out_dir),
+                        channels=Path(a.channels), rules=Path(a.rules), rules_fast=rules_fast,
+                        workdir=Path(a.workdir), asr=a.asr, jobs=a.jobs)
+    httpd = server.serve(s, a.host, a.port)
+    print(f"NewsBar Copilot 監看台：http://{a.host}:{a.port}（Ctrl+C 結束）", flush=True)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="newsbar")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -454,6 +471,20 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--sheet-start", default="1200")
     r.add_argument("--minutes", type=int, default=60)
     r.set_defaults(func=cmd_run)
+
+    sv = sub.add_parser("serve", help="在本機開監看員網頁：選影片、執行、看進度、下載 Excel")
+    sv.add_argument("--video-dir", default="data/raw", help="側錄影片所在資料夾（只列這裡的檔案）")
+    sv.add_argument("--template", default="data/raw/template.xlsx")
+    sv.add_argument("--out-dir", default="out/web")
+    sv.add_argument("--channels", default="config/channels.yaml")
+    sv.add_argument("--rules", default="config/rules.yaml")
+    sv.add_argument("--rules-fast", help="快速模式用的 rules（例：較小的語音模型）")
+    sv.add_argument("--workdir", default="data/work")
+    sv.add_argument("--asr", default="faster-whisper", choices=["none", "auto", "mlx", "faster-whisper"])
+    sv.add_argument("--jobs", type=int, default=4)
+    sv.add_argument("--host", default="127.0.0.1", help="預設只在本機開放；影片與表格不出這台電腦")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.set_defaults(func=cmd_serve)
 
     ev = sub.add_parser("eval", help="系統結果 vs 標準答案")
     ev.add_argument("--system", required=True)
