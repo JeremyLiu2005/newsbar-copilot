@@ -438,36 +438,33 @@ def s_risk(prs):
     return s
 
 
-def s_rollout(prs):
+def s_deploy(prs):
     s = blank(prs)
-    frame(s, "推動", "推動：90 天三階段上線", 10, "放行門檻與時程是提案設定，待業師確認。κ 為雙人標註的一致性係數（Cohen's κ）。")
-    tag(s, 11.15, 0.6, 0.8, "回答 Q5")
-    gx, gw = 2.35, 6.3
-    text(s, 0.67, 1.85, 7.9, 0.28, "三階段與放行條件", 14, True, RED)
-    for i, d in enumerate(["Day 0", "30", "60", "90"]):
-        text(s, gx + gw * i / 3 - 0.3, 2.2, 0.6, 0.25, d, 11, False, MUTE, PP_ALIGN.CENTER)
-        if i:
-            box(s, gx + gw * i / 3 - 0.005, 2.45, 0.01, 2.65, BORDER, None, 0)
-    phases = [("共寫判準、雙人標註", "κ ≥ 0.8", 0, 1, SOFTOR), ("午間並行比較", "F1 ≥ 0.80\nbar 讀取率 ≥ 90%", 1, 2, SOFT), ("全天四台交付", "F1 ≥ 0.85\n人工 ≤ 3 小時／日", 2, 3, RED)]
-    y = 2.6
-    for i, (a, b, s0, s1, fill) in enumerate(phases):
-        text(s, 0.67, y + 0.1, 1.6, 0.4, f"階段 {i + 1}", 13, True, INK)
-        box(s, gx + gw * s0 / 3, y, gw / 3 - 0.06, 0.8, fill, None, 0.08)
-        text(s, gx + gw * s0 / 3 + 0.1, y + 0.05, gw / 3 - 0.25, 0.3, a, 12, True, "FFFFFF" if i == 2 else INK)
-        text(s, gx + gw * s0 / 3 + 0.1, y + 0.33, gw / 3 - 0.25, 0.45, ("放行：" + b).split("\n"), 10, False, "FFFFFF" if i == 2 else INK)
-        y += 0.86
-    box(s, 0.67, 5.35, 7.98, 0.55, SOFTRED, None, 0.08)
-    text(s, 0.85, 5.35, 7.6, 0.55, "F1 低於 0.70 不擴大；未達門檻的格子只進抽查清單。", 13, True, RED, PP_ALIGN.LEFT, MSO_ANCHOR.MIDDLE)
-    text(s, 0.67, 6.1, 7.98, 0.28, "待業師確認", 13, True, INK)
-    text(s, 0.67, 6.4, 7.98, 0.55, "廣告後接回同一則新聞要留白還是重記標；節目預告算不算廣告；最晚交表時間。", 12, False, INK)
-    text(s, 9.0, 1.85, 3.7, 0.28, "下一步", 14, True, RED)
-    nxt = [("午間影子運行", "系統與人工並行，驗證速度與人工節省。"), ("正式雙人標註", "補齊標準答案，重算 F1 與 κ。"), ("GPU 機器實測", "確認四台一小時能否壓到 15 分鐘。"), ("業師確認假設", "工時、時薪、維運成本、排班。")]
-    y = 2.2
-    for i, (a, b) in enumerate(nxt):
-        label_box(s, 9.0, y, 0.5, 0.5, str(i + 1), RED, None, 15, True, "FFFFFF", radius=0.25, pad=0)
-        text(s, 9.65, y - 0.02, 3.0, 0.28, a, 14, True, INK)
-        text(s, 9.65, y + 0.27, 3.0, 0.5, b, 11, False, MUTE)
-        y += 1.1
+    frame(s, "上線與擴大", "上線：接在側錄系統後面", 10, "已實作：全天自動處理（newsbar watch）與每日品質日報。設計中：地端 GPU 伺服器部署、規則版本回退。放行門檻與時程待業師確認。")
+    tag(s, 10.4, 0.6, 1.5, "回答 Q1、Q5")
+    w, g = 2.7, 0.4
+    xs = [0.67 + i * (w + g) for i in range(4)]
+    top = [("三立內部側錄系統", "既有系統，不取代"), ("工作佇列", "每小時切檔，自動排入"), ("NewsBar 管線", "地端 GPU 伺服器，四台並行"), ("監看表 xlsx", "交給監看與分析")]
+    for i, (a_, b_) in enumerate(top):
+        label_box(s, xs[i], 1.95, w, 0.95, [[(a_, {"bold": True, "size": 14, "color": "FFFFFF" if i == 2 else INK})], [(b_, {"size": 11, "color": "FFFFFF" if i == 2 else MUTE})]], RED if i == 2 else CARD, RED if i == 2 else BORDER)
+        if i < 3:
+            arrow(s, xs[i] + w + 0.02, 2.42, xs[i + 1] - 0.02, 2.42, RED)
+    arrow(s, xs[2] + w / 2, 2.93, xs[2] + w / 2, 3.38, RED)
+    label_box(s, xs[2], 3.4, w, 0.95, [[("每日品質日報", {"bold": True, "size": 14})], [("填寫率、低信心比、OCR 空白率", {"size": 11, "color": MUTE})]], CARD, BORDER)
+    arrow(s, xs[2] + w + 0.02, 3.87, xs[3] - 0.02, 3.87, RED)
+    label_box(s, xs[3], 3.4, w, 0.95, [[("監看員抽查", {"bold": True, "size": 14})], [("只看低信心格與抽樣", {"size": 11, "color": MUTE})]], CARD, BORDER)
+    arrow(s, xs[3] + w / 2, 4.38, xs[3] + w / 2, 4.7, ORANGE)
+    label_box(s, xs[2], 4.72, 2 * w + g, 0.7, "修正紀錄 → 每週更新規則與提示詞 → 回到管線（有版本號，可退回）", SOFTOR, None, 12, True, INK)
+    text(s, 0.67, 3.4, 5.6, 0.28, "為什麼這樣接", 14, True, RED)
+    text(s, 0.67, 3.8, 5.8, 1.7, [
+        "只接在既有側錄後面，不改現有流程。",
+        "一台失敗不影響其他三台，中斷後可續跑。",
+        "影片不出內網，只留文字結果；畫面截圖保留 7 天。",
+        "異常由每日日報告警：填寫率、低信心比、OCR 空白率。"], 13, False, INK, space=6)
+    box(s, 0.67, 5.85, 11.98, 1.0, SOFTRED, None, 0.08)
+    text(s, 0.9, 5.92, 11.5, 0.9, [
+        [("擴大：", {"bold": True, "color": RED}), ("先午間並行比較，F1 ≥ 0.85 且人工 ≤ 3 小時／日，再放全天四台。", {})],
+        [("待業師確認：", {"bold": True, "color": RED}), ("廣告後接回同一則新聞怎麼記、節目預告算不算廣告、最晚交表時間。", {})]], 13, False, INK, space=5)
     return s
 
 
@@ -487,7 +484,7 @@ def main(base, out, assets=None):
     for i in range(len(prs.slides) - 1, 1, -1):  # keep base slides 1 (cover) and 2 (problem)
         drop_slide(prs, i)
     s_problem(prs, prs.slides[1])
-    for fn in (s_current, s_solution, s_engine1, s_demo, s_tech, s_value, s_risk, s_rollout):
+    for fn in (s_current, s_solution, s_engine1, s_demo, s_tech, s_value, s_risk, s_deploy):
         fn(prs)
     prs.save(out)
     print("slides:", len(prs.slides))
