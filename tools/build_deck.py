@@ -190,7 +190,7 @@ def bar_chart_f1(s, x, y, w, h):
 def s_current(prs):
     s = blank(prs)
     frame(s, "問題", "現況：人工怎麼做、哪裡難", 3, "填表規則與難點整理自課程提供的 10/26 歷史監看範例與「12監看」範本。")
-    tag(s, 11.15, 0.6, 0.8, "對應：換題與字幕")
+    tag(s, 11.15, 0.6, 0.8, "換題與字幕（Q2）")
     text(s, 0.67, 1.95, 6.2, 0.3, "同一分鐘（12:00），四台同時在播", 14, True, RED)
     for i, (ch_, n_) in enumerate([("tvbs", "TVBS-N"), ("ettv", "東森"), ("ftv", "民視"), ("cts", "華視")]):
         x_, y_ = 0.67 + (i % 2) * 3.2, 2.35 + (i // 2) * 2.0
@@ -211,7 +211,7 @@ def s_current(prs):
 def s_solution(prs):
     s = blank(prs)
     frame(s, "解方", "解方：先判廣告、再判換題、最後填標", 4, "一個指令或一個網頁就能跑完整條路徑。全程在本機執行，影片與表格不離開這台電腦。")
-    tag(s, 9.9, 0.6, 2.0, "對應：全自動流程與 Excel")
+    tag(s, 9.9, 0.6, 2.0, "全自動流程（Q1）・對時（Q2）・Excel（Q4）")
     pipe = [("抽畫面與音軌", "影音處理工具"), ("畫面時鐘校時", "四台時鐘都讀得到"), ("讀三種訊號", "文字、語音、畫面"), ("廣告判定", "10 種訊號"), ("換題判斷", "穩定 7 秒＋佐證"), ("五字標", "AI 寫標＋逐字檢查"), ("寫回 Excel", "秒轉分鐘格，只動四欄")]
     pw, pg = 1.53, 0.2
     for i, (a_, b_) in enumerate(pipe):
@@ -242,7 +242,7 @@ def s_solution(prs):
 def s_demo(prs):
     s = blank(prs)
     frame(s, "Demo", "Demo：五步完成一小時", 6, "畫面為流程示範，結果是後端 11/06 實跑輸出。複查紀錄為示範（6 格），不是實際審核結果。側錄影片由課程提供，版權屬各電視台。")
-    tag(s, 10.9, 0.6, 1.0, "對應：Excel 與驗證")
+    tag(s, 10.9, 0.6, 1.0, "Excel 與驗證（Q4）")
     for x, w, t in [(0.67, 2.45, "1 選影片　2 分析"), (3.3, 3.0, "3 結果"), (6.5, 4.5, "4 人工複查　5 修正版"), (11.25, 1.4, "掃描開啟")]:
         label_box(s, x, 1.9, w, 0.4, t, RED, None, 13, True, "FFFFFF", radius=0.2, pad=0.05)
     pic(s, "upload.png", 0.67, 2.5, w=2.45)
@@ -263,7 +263,7 @@ def s_demo(prs):
 def s_engine1(prs):
     s = blank(prs)
     frame(s, "判斷引擎：廣告與換題", "先判廣告，再判換題", 5, "規則式判斷，每個判斷都留下訊號紀錄，錯了可以追到是哪個訊號造成。")
-    tag(s, 10.4, 0.6, 1.5, "對應：換題與廣告包框")
+    tag(s, 10.4, 0.6, 1.5, "換題（Q2）・廣告包框（Q3）")
     text(s, 0.67, 1.85, 6, 0.28, "廣告判定流程", 14, True, RED)
     names = ["新聞", "疑似廣告", "廣告", "疑似回新聞", "新聞"]
     fills = [CARD, SOFTOR, SOFT, SOFTOR, CARD]
@@ -304,7 +304,7 @@ def s_engine1(prs):
 def s_tech(prs):
     s = blank(prs)
     frame(s, "技術與驗證", "技術與驗證", 7, "11/06 12:00–13:00 四台共 90 格；準確度對照 TVBS 研究者單人初標（一台、約 30 個點，非正式雙人標註）。文字辨識：Apple Vision；語音：faster-whisper；AI 模型：qwen2.5:7b-instruct（本機，溫度 0）。")
-    tag(s, 10.4, 0.6, 1.5, "對應：驗證結果")
+    tag(s, 10.4, 0.6, 1.5, "換題（Q2）・廣告（Q3）・驗證（Q4）・進度（Q5）")
     labs = [("標準答案（研究者初標）", "TVBS 一台，約 30 個點"), ("對照規則", "換題起始分鐘容許 ±1 分鐘"), ("調整與測試", "前 20 分鐘調整，12:20 後測試"), ("結果", "27 個換題點找到 23 個；廣告 10 分鐘全找到")]
     w, g = 2.75, 0.33
     for i, (a, b) in enumerate(labs):
@@ -361,7 +361,7 @@ def s_tech(prs):
 def s_value(prs):
     s = blank(prs)
     frame(s, "價值", "價值：每年約 5,585 小時", 8, "以下為假設，待業師確認每日監看時數、時薪、維運成本與排班：每日 18 小時監看 × 系統接手 85% × 時薪 NT$235。")
-    tag(s, 11.15, 0.6, 0.8, "對應：擴大效益")
+    tag(s, 11.15, 0.6, 0.8, "擴大效益（Q5）")
     cd = CategoryChartData()
     cd.categories = ["人力價值", "維運成本", "淨效益"]
     cd.add_series("base", (0, 109, 0))
@@ -421,7 +421,7 @@ def s_value(prs):
 def s_risk(prs):
     s = blank(prs)
     frame(s, "風險與保底", "風險與保底", 9, "低信心格另列抽查清單，由人確認；AI 初判只用來排序，修正另存成修正版，原本的 Excel 不動。")
-    tag(s, 11.15, 0.6, 0.8, "對應：限制與保底")
+    tag(s, 11.15, 0.6, 0.8, "限制與保底（Q5）")
     text(s, 0.67, 1.85, 6.5, 0.28, "風險與對策", 14, True, RED)
     rows = [("標準答案只有單人初標", "補雙人標註，重算準確度與一致性"), ("處理 46 分，目標 15 分", "換有顯示卡（GPU）的機器實測"), ("15 格五字標由規則直接摘字", "列入抽查，由人確認"), ("廣告頭尾約差 10 秒", "午間並行比較時調規則"), ("畫面時鐘與檔名差 23–32 秒", "以畫面時鐘為準，待業師確認"), ("廣告後接回同一則怎麼記", "目前回新聞一律填標，待業師確認")]
     y = 2.2
@@ -450,7 +450,7 @@ def s_risk(prs):
 def s_deploy(prs):
     s = blank(prs)
     frame(s, "上線與擴大", "上線：接在側錄系統後面", 10, "上線門檻與時程是提案設定，待業師確認。處理時間為一台 Mac 的快速模式實測。")
-    tag(s, 10.4, 0.6, 1.5, "對應：進度與擴大")
+    tag(s, 10.4, 0.6, 1.5, "上線流程（Q1）・進度與擴大（Q5）")
     w, g = 2.7, 0.4
     xs = [0.67 + i * (w + g) for i in range(4)]
     top = [("三立內部側錄系統", "既有系統，不取代"), ("待處理清單", "每小時切檔，自動排入"), ("NewsBar 處理流程", "地端伺服器，四台並行"), ("監看表（Excel）", "交給監看與分析")]
@@ -483,6 +483,17 @@ def s_deploy(prs):
 
 
 # ---------------------------------------------------------------- assemble
+def cover_key(s):
+    """Which pages answer which of the five questions (on the dark cover, right edge)."""
+    text(s, 10.5, 1.55, 2.5, 0.3, "五個問題在哪一頁", 13, True, "F97316")
+    rows = [("全自動流程（Q1）", "第 4、10 頁"), ("換題與對時（Q2）", "第 3、4、5、7 頁"), ("廣告包框（Q3）", "第 5、7 頁"), ("Excel 與驗證（Q4）", "第 4、6、7 頁"), ("進度與擴大（Q5）", "第 7、8、9、10 頁")]
+    y = 2.0
+    for a, b in rows:
+        text(s, 10.5, y, 2.5, 0.25, a, 12, True, "FFFFFF")
+        text(s, 10.5, y + 0.27, 2.5, 0.25, b, 11, False, "FCA5A5")
+        y += 0.72
+
+
 def drop_slide(prs, idx):
     lst = prs.slides._sldIdLst
     sld = list(lst)[idx]
@@ -497,6 +508,7 @@ def main(base, out, assets=None):
     prs = Presentation(base)
     for i in range(len(prs.slides) - 1, 1, -1):  # keep base slides 1 (cover) and 2 (problem)
         drop_slide(prs, i)
+    cover_key(prs.slides[0])
     s_problem(prs, prs.slides[1])
     for fn in (s_current, s_solution, s_engine1, s_demo, s_tech, s_value, s_risk, s_deploy):
         fn(prs)
