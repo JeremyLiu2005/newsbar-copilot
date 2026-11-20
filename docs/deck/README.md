@@ -19,7 +19,8 @@ python3 tools/build_deck.py 底稿.pptx 輸出.pptx 素材資料夾
 | `upload.png`、`progress.png`、`result.png` | 操作原型 `demo/prototype.html` 的選影片、分析、結果畫面，淺色主題，2 倍解析度，裁到卡片邊界 |
 | `rv_queue.png`、`rv_card.png` | 同一頁的人工複查步驟（佇列與卡片兩個區塊）；佇列已示範複查 6 格 |
 | `ov_timeline.png` | 監看台 `demo/index.html` 總覽的四台時間軸 |
-| `excel_sheet.png` | `out/12監看_20261106.xlsx` 的 12:00–12:13 節錄，用 openpyxl 讀值、HTML 表格排版後截圖 |
+| `excel_annot.png` | `out/12監看_20261106.xlsx` 的 12:00–12:05 與 12:34–12:37 節錄，用 openpyxl 讀值、HTML 表格排版（標出換題、「/」、廣告）後截圖 |
+| `{tvbs,ettv,ftv,cts}_1200_full.jpg` | `demo/img/` 四台 12:00 的完整畫面 |
 | `qr_proto.png`、`qr_monitor.png`、`qr_github.png` | 操作原型、監看台、GitHub 網址的 QR code（`qrcode` 套件） |
 | `tvbs_1204_full.jpg`、`tvbs_1204_bar.jpg` | `demo/img/` 的 TVBS 12:04 完整畫面與主 bar 裁切 |
 | `ettv_1234_0_ad05.jpg`、`_ad35`、`_ad65`、`_ad95` | `demo/img/` 的東森 12:34 廣告破口 4 格 |
