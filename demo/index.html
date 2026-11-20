@@ -1,6 +1,7 @@
 <title>NewsBar Copilot 監看台</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="review.css">
 <style>
 /* Layout: control-room tool — summary strip, 3600-second timeline, minute sheet beside an evidence panel */
 :root{
@@ -18,6 +19,7 @@
   --news:#6EA6E0; --news-soft:#1E3550; --ad:#E8A04E; --ad-soft:#43301A;
   --warn:#F07D90; --warn-soft:#4A2029; --ok:#6CC495; --ok-soft:#1C3A2A; --sel:#E6EAF0; color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
 .wrap{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
@@ -92,6 +94,12 @@ td:focus-visible{outline:2px solid var(--news);outline-offset:-2px}
 .empty{color:var(--mute);font-size:14px}
 .errlist{margin:8px 0 0;padding-left:18px;font-size:13.5px;color:var(--mute)}
 footer{color:var(--mute);font-size:13px}
+.vtabs{display:flex;gap:6px;border-bottom:1px solid var(--line)}
+.vtabs button{font:inherit;font-weight:500;background:none;border:0;border-bottom:3px solid transparent;padding:8px 14px;color:var(--mute);cursor:pointer;margin-bottom:-1px}
+.vtabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--news);font-weight:700}
+.vtabs button:focus-visible{outline:3px solid var(--news-soft);outline-offset:-3px}
+.vtabs .n{font:12px var(--mono);margin-left:6px;background:var(--warn-soft);color:var(--warn);border-radius:999px;padding:0 7px}
+.gotorv{margin-top:12px;font:inherit;font-size:14px;font-weight:700;border-radius:6px;padding:7px 14px;border:1px solid var(--news);background:transparent;color:var(--news);cursor:pointer}
 @media (prefers-reduced-motion:no-preference){td,.bar{transition:background-color .15s}}
 </style>
 
@@ -102,10 +110,15 @@ footer{color:var(--mute);font-size:13px}
     <p class="sub">2026/11/06 12:00–12:59・TVBS-N、東森、民視、華視・系統原始輸出，未經人工修改</p>
   </div>
   <nav class="links" aria-label="相關連結">
-    <a href="https://docs.google.com/spreadsheets/d/1r0NJTrHSPwxeT5bPlOU8agDoGQBMMMFfeaEerXp3-TE/edit" target="_blank" rel="noopener">Excel 成品（Google 試算表）</a>
+    <a href="https://github.com/JeremyLiu2005/newsbar-copilot" target="_blank" rel="noopener">GitHub 原始碼</a>
   </nav>
 </header>
 
+<div class="vtabs" role="tablist" aria-label="檢視">
+  <button role="tab" id="tab-ov" aria-selected="true" aria-controls="view-ov">總覽</button>
+  <button role="tab" id="tab-rv" aria-selected="false" aria-controls="view-rv">人工複查<span class="n" id="rv-n"></span></button>
+</div>
+<div id="view-ov" role="tabpanel" aria-labelledby="tab-ov" style="display:flex;flex-direction:column;gap:20px">
 <div class="tiles" id="tiles"></div>
 
 <section class="box">
@@ -124,16 +137,14 @@ footer{color:var(--mute);font-size:13px}
     <h2>「12監看」分鐘表</h2>
     <div class="tools">
       <label for="gold"><input type="checkbox" id="gold"> 對照研究者初標（TVBS）</label>
-      <label for="reviewer">審核者 <input id="reviewer" placeholder="姓名或代號" size="10"></label>
       <span class="hint" id="fixcount" style="margin:0"></span>
-      <button class="ghost" id="export" hidden>匯出修正紀錄</button>
     </div>
     <div class="sheetwrap"><table id="sheet"></table></div>
     <div class="legend">
       <span><i class="sw" style="background:var(--ad-soft)"></i>廣告</span>
       <span><i class="sw" style="background:var(--ad)"></i>低信心（照常填，列入抽查）</span>
       <span><i class="sw" style="background:var(--warn)"></i>五字標改用規則擷取</span>
-      <span><i class="sw" style="background:var(--ok)"></i>已人工複查</span>
+      <span><i class="sw" style="background:var(--ok)"></i>已人工複查（在「人工複查」分頁處理）</span>
       <span id="goldlegend" hidden><i class="sw" style="background:var(--ok-soft)"></i>與初標相符　<i class="sw" style="background:var(--warn-soft)"></i>漏記／多記</span>
     </div>
     <div id="errs" hidden></div>
@@ -141,9 +152,13 @@ footer{color:var(--mute);font-size:13px}
   <section class="box panel" id="panel" aria-live="polite"></section>
 </div>
 
+</div>
+<div id="view-rv" role="tabpanel" aria-labelledby="tab-rv" hidden></div>
+
 <footer>每格判斷依據、截圖與語音節錄都是系統當次的實際輸出。標準答案為研究者初標，正式雙人標註尚未完成。處理環境：Mac M4，四台一小時共 46 分鐘。</footer>
 </div>
 
+<script src="review.js"></script>
 <script>
 const CHS=['tvbs','ettv','ftv','cts'];
 const SIG={
@@ -239,66 +254,48 @@ function panel(c){
   const fbs=(c.fb||'').split(',').filter(Boolean).map(f=>`<div class="sig"><code>${esc(f)}</code>${esc(FB[f]||'')}</div>`).join('');
   p.innerHTML=`<div class="cellhead"><div><div class="meta">${D.channels[c.ch]}・${c.m.slice(0,2)}:${c.m.slice(2)}</div><div class="val">${esc(c.v)}</div></div>
     <span class="pill ${c.conf==='low'?'p-low':'p-high'}">${c.conf==='low'?'低信心・列入抽查':'高信心'}</span></div>
-    <div class="sigs"><div class="meta">判斷依據</div>${sigs}${fbs}</div>${items}${fixForm(c)}`;
-  wireFix(c);
-}
-
-function fixForm(c){
-  const f=FIX[c.ch+'_'+c.m];
-  if(!DB) return `<div class="fix"><div class="meta">人工複查</div><p class="hint" style="margin:0">登入 claude.ai 並取得這個頁面的編輯或參與權限後，可以在這裡標記對錯、修改這一格。</p></div>`;
-  return `<div class="fix"><div class="meta">人工複查：${c.m.slice(0,2)}:${c.m.slice(2)} 這一格目前寫「<b>${esc(c.v)||'（空白）'}</b>」</div>
-    <div class="row2"><label><input type="radio" name="vd" value="ok" ${f?.verdict==='ok'?'checked':''}> 對</label>
-      <label><input type="radio" name="vd" value="fix" ${f?.verdict==='fix'?'checked':''}> 錯，改成</label>
-      <input type="text" id="fx-val" value="${esc(f?.correct??c.v)}" placeholder="正確寫法（空白＝這格不該填）"></div>
-    <div class="row2"><select id="fx-type"><option value="">錯誤類型</option>${ETYPES.map(t=>`<option ${f?.error_type===t?'selected':''}>${t}</option>`).join('')}</select>
-      <input type="text" id="fx-note" placeholder="備註（選填）" value="${esc(f?.note||'')}">
-      <button id="fx-save">儲存</button>${f?'<button class="ghost" id="fx-del">撤銷</button>':''}</div>
-    <p class="err" id="fx-err" hidden></p>
-    ${f?`<p class="hint" style="margin:0">${esc(f.reviewer)}・${esc(String(f.reviewed_at).replace('T',' ').slice(0,16))}：${f.verdict==='fix'?'錯，改成「'+esc(f.correct||'（空白）')+'」（'+esc(f.error_type)+'）':'確認無誤'}</p>`:''}</div>`;
-}
-
-function wireFix(c){
-  if(!DB||!$('#fx-save')) return;
-  const err=m=>{$('#fx-err').textContent=m;$('#fx-err').hidden=false};
-  const ref=DB.doc('corrections/'+c.ch+'_'+c.m);
-  $('#fx-save').onclick=async()=>{
-    const vd=document.querySelector('input[name=vd]:checked')?.value, rv=$('#reviewer').value.trim();
-    if(!rv) return err('請先在上方填審核者');
-    if(!vd) return err('請先選「對」或「錯」');
-    if(vd==='fix'&&!$('#fx-type').value) return err('請選錯誤類型');
-    try{localStorage.setItem('nb-reviewer',rv)}catch(e){}
-    $('#fx-save').disabled=true;
-    try{await ref.set({channel:c.ch,minute:c.m,verdict:vd,correct:vd==='fix'?$('#fx-val').value.trim():null,
-      error_type:vd==='fix'?$('#fx-type').value:null,note:$('#fx-note').value.trim()||null,original:c.v,
-      reviewer:rv,reviewed_at:new Date().toISOString()})}
-    catch(e){err(e.code==='permission_denied'||e.code==='not_granted'?'你沒有寫入權限，請向頁面擁有者要編輯或參與權限。':'儲存失敗：'+(e.message||e.code))}
-    finally{if($('#fx-save'))$('#fx-save').disabled=false}
-  };
-  if($('#fx-del')) $('#fx-del').onclick=async()=>{try{await ref.delete()}catch(e){err('撤銷失敗：'+(e.message||e.code))}};
+    <div class="sigs"><div class="meta">判斷依據</div>${sigs}${fbs}</div>${items}${(c.conf==='low'||FIX[c.ch+'_'+c.m])?`<button class="gotorv" id="gorv">到「人工複查」處理這一格</button>`:''}`;
+  const g=$('#gorv'); if(g) g.onclick=()=>openReview(c.ch+'_'+c.m);
 }
 
 function fixCount(){
   const all=Object.values(FIX), n=all.length, k=all.filter(f=>f.verdict==='fix').length;
   $('#fixcount').textContent=n?`已複查 ${n} 格，改正 ${k} 格`:'';
-  $('#export').hidden=!n;
+  const todo=D.cells.filter(c=>c.conf==='low'&&!FIX[c.ch+'_'+c.m]).length;
+  $('#rv-n').textContent=todo?String(todo):''; $('#rv-n').hidden=!todo;
+}
+
+// One store for the review workspace: shared db when this viewer may write, otherwise a draft kept in this browser.
+function makeStore(){
+  const local=NBReview.localStore('nb-demo-corrections'); const subs=[]; let remote={}, dbc=null, writable=true, note='';
+  const st={
+    get banner(){return note||(dbc?'':'試用模式：這個頁面目前沒有連到共用資料庫，你的複查只存在這個瀏覽器。')},
+    all:()=>({...remote,...local.all()}),
+    async save(r){const id=r.channel+'_'+r.minute;
+      if(dbc&&writable){try{await dbc.doc(id).set(r);return}catch(e){
+        if(e.code==='permission_denied'||e.code==='not_granted'){writable=false;note='試用模式：你的身分沒有寫入權限，複查只存在這個瀏覽器，不會寫進共用資料庫。'}else throw e}}
+      await local.save(r)},
+    async remove(id){ if(dbc&&writable){try{await dbc.doc(id).delete()}catch(e){}} await local.remove(id)},
+    subscribe(f){subs.push(f)},
+    attach(db){dbc=db.collection('corrections');
+      dbc.onSnapshot(snap=>{remote={}; snap.docs.forEach(d=>{const v=d.data(); if(v) remote[d.id]=v}); subs.forEach(f=>f())},()=>{note='讀不到共用修正紀錄，目前只用瀏覽器草稿。'; subs.forEach(f=>f())});
+      subs.forEach(f=>f())}
+  };
+  local.subscribe(()=>subs.forEach(f=>f()));
+  return st;
+}
+let STORE=null, RV=null;
+function openReview(id){ tab('rv'); RV&&RV.go(id) }
+function tab(w){
+  $('#view-ov').hidden=w!=='ov'; $('#view-rv').hidden=w!=='rv';
+  $('#tab-ov').setAttribute('aria-selected',w==='ov'); $('#tab-rv').setAttribute('aria-selected',w==='rv');
+  try{history.replaceState(null,'',w==='rv'?'#review':location.hash.replace('#review',''))}catch(e){}
 }
 
 async function startDb(){
-  try{$('#reviewer').value=localStorage.getItem('nb-reviewer')||''}catch(e){}
   const use=window.claude?.use; if(!use) return;
-  DB=await window.claude.use('db').catch(()=>null);
-  if(!DB){ if(sel) panel(D.cells.find(c=>c.ch===sel.ch&&c.m===sel.m)); return }
-  const t=setTimeout(()=>{$('#fixcount').textContent='修正紀錄載入逾時'},10000);
-  DB.collection('corrections').onSnapshot(snap=>{
-    clearTimeout(t); FIX={}; snap.docs.forEach(d=>{const v=d.data(); if(v) FIX[d.id]=v});
-    fixCount(); sheet(); if(sel) panel(D.cells.find(c=>c.ch===sel.ch&&c.m===sel.m));
-  },()=>{clearTimeout(t);$('#fixcount').textContent='讀不到修正紀錄'});
-  $('#export').onclick=async()=>{
-    const dl=await window.claude.use('downloads').catch(()=>null);
-    const rows=Object.values(FIX).sort((a,b)=>(a.minute+a.channel).localeCompare(b.minute+b.channel));
-    if(!dl){$('#fixcount').textContent='這個檢視不支援下載';return}
-    try{await dl.save({filename:'corrections.json',data:JSON.stringify(rows,null,1)})}catch(e){}
-  };
+  const DB=await window.claude.use('db').catch(()=>null); if(!DB) return;
+  STORE.attach(DB);
 }
 
 function pick(ch,m,scroll){
@@ -308,11 +305,16 @@ function pick(ch,m,scroll){
 }
 
 fetch('data.json').then(r=>r.json()).then(d=>{
+  const wantRv=location.hash==='#review';
   D=d; tiles(); timeline();
   const h=(location.hash||'').slice(1).split('-');
   const start=D.cells.find(c=>c.ch===h[0]&&c.m===h[1])||D.cells.find(c=>c.ch==='ettv'&&c.m==='1234')||D.cells[0];
   pick(start.ch,start.m);
   $('#gold').addEventListener('change',e=>{showGold=e.target.checked;sheet()});
+  STORE=makeStore(); FIX=STORE.all(); STORE.subscribe(()=>{FIX=STORE.all(); fixCount(); sheet(); if(sel) panel(D.cells.find(c=>c.ch===sel.ch&&c.m===sel.m))});
+  RV=NBReview.mount($('#view-rv'),{D,store:STORE}); fixCount();
+  $('#tab-ov').onclick=()=>tab('ov'); $('#tab-rv').onclick=()=>tab('rv');
+  if(wantRv) tab('rv');
   startDb();
 }).catch(()=>{$('#panel').innerHTML='<p class="empty">資料載入失敗，請重新整理頁面。</p>'});
 </script>

@@ -76,6 +76,9 @@ def shots(ch: str, sec: int, name: str) -> tuple[str | None, str | None]:
 
 
 evid = [json.loads(line) for line in open("out/12監看_20261106.evidence.jsonl")]
+# LLM first opinion on weak story changes (src/newsbar/judge.py), saved beside the sheet by the backend
+_jp = Path("out/12監看_20261106.judge.json")
+JUDGE = {(x["channel"], x["start"]): x for x in json.load(open(_jp, encoding="utf-8"))["items"]} if _jp.exists() else {}
 starts = {ch: sorted(it.get("start_sec") or 0 for d in evid if d["channel"] == ch for it in d["items"]) for ch in CH}
 cells = []
 for d in evid:
@@ -97,6 +100,8 @@ for d in evid:
             "type": it["type"], "label": it.get("label"), "start": s, "end": end, "shot": sec,
             "bar": it.get("bar_text"), "asr": (it.get("asr_text") or "")[:160] or None, "img": bar, "full": full,
             "strip": strip,
+            "judge": ({"verdict": j["verdict"], "reason": j["reason"], "prev": j.get("prev")}
+                      if it["type"] == "news" and (j := JUDGE.get((d["channel"], it.get("start_sec")))) else None),
         })
     cells.append({
         "ch": d["channel"], "m": d["minute"], "v": d["value"], "items": items,
