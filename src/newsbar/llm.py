@@ -22,14 +22,17 @@ SYSTEM = """你是台灣電視新聞監看員，要替一則新聞寫「五字�
 2. 只能用主標題裡出現過的字（人名、地名、事物、動作、數字）；不得補造，也不要用標題以外的地名。
 3. 社會事件（車禍、命案、竊盜、火警等）一定要含地點，地點必須出現在來源中，優先用較小的地名（例：新北土城→土城）。
 4. 來源只說「起訴」「求刑」「疑似」時，不得寫成「判刑」「確定」等定論。
-5. 人名可以只取名字（張俊傑→俊傑），機構可用常見簡稱。"""
+5. 人名可以只取名字（張俊傑→俊傑），機構可用常見簡稱。
+6. 先數字數：超過 6 個字就刪修飾語（時間、程度、「不慎」「怒批」等），只留「地點＋核心動作＋結果」；少於 4 個字就補上地點或結果。"""
 
 FEW_SHOT = [
     ("新北土城一七旬老翁 轉彎不慎遭貨車輾亡", "土城翁輾亡"),
     ("張俊傑「9分鐘偷渡術」曝 高金素梅共諜案起訴求刑14年", "高金遭起訴"),
     ("過彎不慎墜橋 駕駛送醫不治", "過彎墜橋亡"),
     ("萬聖節派對後垃圾亂丟 民眾怒批", "萬聖節亂丟"),
+    ("台中潭子男子酒駕撞護欄 闖紅燈遭攔查", "潭子酒駕撞"),
 ]
+PROMPT_VERSION = "v2-len6"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
 
 MAX_ASR_CHARS = 200  # NFR-14: never send more speech than needed
 
@@ -127,7 +130,7 @@ class CachedGenerator:
         self._cache: dict[str, str] = json.loads(self.path.read_text()) if self.path.exists() else {}
 
     def generate(self, source: LabelSource, attempt: int) -> str:
-        key = f"{getattr(self.inner, 'model', '')}|{attempt}|{build_user_prompt(source, attempt)}"
+        key = f"{getattr(self.inner, 'model', '')}|{PROMPT_VERSION}|{attempt}|{build_user_prompt(source, attempt)}"
         with self._lock:
             if key in self._cache:
                 return self._cache[key]
