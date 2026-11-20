@@ -69,6 +69,34 @@ uv run newsbar apply-corrections --sheet out/12監看_20261106.xlsx --correction
 
 產出檔案：`*.xlsx`（監看表）、`*.evidence.jsonl`（每格的依據）、`*.report.csv`（抽查清單，低信心排最前面）、`*.report.json`（處理報告）、`*.review.html`（抽查頁）。
 
+## 兩種版本：Mac 與 NVIDIA GPU
+
+同一份程式碼，靠設定檔與安裝組切換，不用分支。
+
+| | Mac 版（11/06 實測用） | NVIDIA GPU 版（程式已備，尚未實測） |
+|---|---|---|
+| 適用機器 | macOS，Apple 晶片 | Linux，NVIDIA 顯示卡（CUDA） |
+| 文字辨識 | Apple Vision | PaddleOCR 2.x，自動用顯示卡 |
+| 語音轉錄 | faster-whisper `small`，Apple GPU | faster-whisper `large-v3-turbo`，CUDA float16 |
+| 同時轉錄幾台 | 1 台（Apple GPU 共用會互相拖慢） | 8 GB 顯示卡 2 台，16 GB 以上可設 4 台 |
+| 設定檔 | `config/rules.1106.yaml` | `config/rules.gpu.yaml` |
+| 安裝 | `uv sync --extra mac --extra asr` | `uv sync --extra gpu` |
+
+GPU 版：
+
+```bash
+uv sync --python 3.11 --extra gpu      # paddlepaddle-gpu 要對上 CUDA 版本；PyPI 的版本不合時，改用 Paddle 官方安裝指令
+ollama pull qwen2.5:7b-instruct
+OLLAMA_NUM_PARALLEL=4 ollama serve      # 讓 AI 寫標可以同時處理四個請求
+uv run newsbar run --backend paddle --asr faster-whisper --rules config/rules.gpu.yaml \
+  --channels config/channels.1106.yaml --template data/raw/template.xlsx --out out/12監看.xlsx \
+  --video tvbs=data/raw/tvbs.ts --video ettv=data/raw/ettv.ts --video ftv=data/raw/ftv.ts --video cts=data/raw/cts.ts --jobs 4
+```
+
+- 同時轉錄台數：`--asr-parallel N` 或設定檔的 `asr.parallel`。沒設定時 Mac 是 1、其他機器是 2。
+- 強制指定裝置：`NEWSBAR_ASR_DEVICE`（auto、cuda、mps、cpu）、`NEWSBAR_ASR_COMPUTE`（float16、int8 等）、`NEWSBAR_OCR_GPU`（1 或 0）。
+- GPU 版還沒在 NVIDIA 機器上跑過。四台一小時能否壓到 15 分鐘，要實測後才知道。
+
 ## 判斷怎麼做
 
 ```mermaid

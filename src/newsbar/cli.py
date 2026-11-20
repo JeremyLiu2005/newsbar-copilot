@@ -117,7 +117,7 @@ def _extract_job(args: tuple) -> tuple:
     from . import extract, fingerprint, ingest
     from .ocr import get_backend
 
-    ch, path, clock, cfg, work, backend_name, asr_name, asr_model, lib_path, sheet_start, duration = args
+    ch, path, clock, cfg, work, backend_name, asr_name, asr_model, lib_path, sheet_start, duration, asr_parallel = args
     asr = None
     if asr_name != "none":
         from .asr import get_backend as get_asr
@@ -126,7 +126,8 @@ def _extract_job(args: tuple) -> tuple:
     clock = _resolve_clock(Path(path), cfg, clock, backend)
     offset = ingest.sheet_offset(clock, sheet_start) if clock else 0
     obs, warns = extract.extract_channel(Path(path), ch, cfg, backend, Path(work), offset, asr,
-                                         fingerprint.AdLibrary.load(Path(lib_path)), duration=duration)
+                                         fingerprint.AdLibrary.load(Path(lib_path)), duration=duration,
+                                         asr_parallel=asr_parallel)
     return ch, len(obs), warns
 
 
@@ -138,7 +139,15 @@ def cmd_run(a: argparse.Namespace) -> int:
 
     cfg = _load_yaml(a.channels)["channels"]
     rules = _load_yaml(a.rules)
-    a.asr_model = a.asr_model or (rules.get("asr") or {}).get("model")
+    asr_cfg = rules.get("asr") or {}
+    a.asr_model = a.asr_model or asr_cfg.get("model")
+    # Mac: one transcription at a time; NVIDIA GPU: several (asr.parallel / --asr-parallel)
+    if a.asr_parallel is None:
+        a.asr_parallel = int(asr_cfg.get("parallel") or extract.default_asr_parallel())
+    import os
+    for key, env in (("device", "NEWSBAR_ASR_DEVICE"), ("compute_type", "NEWSBAR_ASR_COMPUTE")):
+        if asr_cfg.get(key):  # inherited by the spawned per-channel workers
+            os.environ[env] = str(asr_cfg[key])
     work = Path(a.workdir)
     streams, warnings, timings = {}, {}, {}
     backend = asr = None
@@ -155,7 +164,8 @@ def cmd_run(a: argparse.Namespace) -> int:
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
         t0 = time.time()
-        jobs = [(ch, str(p), c, cfg[ch], str(work), a.backend, a.asr, a.asr_model, str(lib_path), a.sheet_start, a.duration)
+        jobs = [(ch, str(p), c, cfg[ch], str(work), a.backend, a.asr, a.asr_model, str(lib_path), a.sheet_start, a.duration,
+                 a.asr_parallel)
                 for ch, p, c in todo]
         with ProcessPoolExecutor(max_workers=a.jobs, mp_context=mp.get_context("spawn")) as ex:
             futs = {ex.submit(_extract_job, j): j[0] for j in jobs}
@@ -186,7 +196,7 @@ def cmd_run(a: argparse.Namespace) -> int:
                 clock = _resolve_clock(path, cfg[ch], clock, backend)
                 offset = ingest.sheet_offset(clock, a.sheet_start) if clock else 0
                 obs, warns = extract.extract_channel(path, ch, cfg[ch], backend, work, offset, asr,
-                                                     library, duration=a.duration)
+                                                     library, duration=a.duration, asr_parallel=a.asr_parallel)
                 streams[ch] = obs
                 warnings[ch] = warns
         except Exception as e:  # NFR-09: one channel failing must not stop the others
@@ -462,6 +472,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--backend", default="auto", choices=["auto", "vision", "paddle"])
     r.add_argument("--asr", default="none", choices=["none", "auto", "mlx", "faster-whisper"])
     r.add_argument("--asr-model", help="例：small（Mac）、large-v3-turbo（GPU）")
+    r.add_argument("--asr-parallel", type=int, default=None,
+                   help="同時轉錄幾台；預設 Mac 1、其他 2（8 GB 顯示卡），16 GB 以上可設 4")
     r.add_argument("--resume", action="store_true", help="已有 obs.jsonl 的台別直接沿用")
     r.add_argument("--jobs", type=int, default=1, help="平行處理台數（建議 4）")
     r.add_argument("--upload", action="store_true", help="完成後上傳到自己的 Google 雲端（試算表）")

@@ -6,6 +6,7 @@ Writes {workdir}/{channel}/obs.jsonl so later stages can be rerun alone (FR-20).
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from dataclasses import asdict, fields
 from pathlib import Path
 
@@ -64,6 +65,7 @@ def extract_channel(
     start: float = 0.0,
     duration: float | None = None,
     log=print,
+    asr_parallel: int = 1,
 ) -> tuple[list[SecondObs], list[str]]:
     work = workdir / channel
     rois = {k: v for k, v in cfg.items() if k in ("main_bar", "ticker", "alt_bar")}
@@ -95,17 +97,52 @@ def extract_channel(
         log(f"[{channel}] 語音轉錄 …")
         from .asr import attach
 
-        # One ASR at a time: four Whisper processes on one Apple GPU slowed each other down
-        # so much that a 2.5-min-per-channel job took 33 min (11/06 fast run). OCR and visual
-        # work keep running in parallel; only this step queues.
-        import fcntl
-
-        lock = open(workdir / ".asr.lock", "w")
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
+        # At most `asr_parallel` channels transcribe at once. On a Mac this is 1: four Whisper
+        # processes on one Apple GPU slowed each other down so much that a 2.5-min-per-channel job
+        # took 33 min (11/06 fast run). An NVIDIA GPU can run several; size it to the card's memory.
+        with asr_slot(workdir, asr_parallel):
             attach(obs, asr, video, sec_offset, start, duration)
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
-            lock.close()
     save_obs(obs, work / "obs.jsonl")
     return obs, res.warnings
+
+
+def default_asr_parallel(platform: str | None = None) -> int:
+    """1 on a Mac (shared Apple GPU); 2 elsewhere, a safe start for an 8 GB NVIDIA card."""
+    import sys
+
+    return 1 if (platform or sys.platform) == "darwin" else 2
+
+
+@contextmanager
+def asr_slot(workdir: Path, slots: int, poll: float = 1.0):
+    """Hold one of `slots` lock files (workdir/.asr.lock.N) while transcribing.
+
+    Works across the spawned per-channel processes. slots <= 0 means no limit; on systems
+    without fcntl (Windows) the limit is skipped.
+    """
+    if slots <= 0:
+        yield
+        return
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows
+        yield
+        return
+    import time
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    while True:
+        for i in range(slots):
+            f = open(workdir / f".asr.lock.{i}", "w")
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                f.close()
+                continue
+            try:
+                yield i
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+                f.close()
+            return
+        time.sleep(poll)

@@ -1,0 +1,52 @@
+# NVIDIA GPU 版設定（判斷規則與 rules.1106.yaml 相同，只換執行環境）。尚未在 GPU 機器上實測。
+version: 0.1
+
+ocr:
+  # min_conf: 0.6   # 不設定時依後端：PaddleOCR 0.6、Apple Vision 0.3（Vision 信心值只有 0.3/0.5/1.0 三級）
+  vote_window_sec: 5
+
+ad_state:
+  min_signals: 2
+  min_duration_sec: 10
+  return_confirm_sec: 5
+  outage_black_sec: 30
+  layout_sim_threshold: 0.55
+
+segmenter:
+  bar_change_jaccard: 0.5
+  same_story_cosine: 0.75
+  weights: { bar: 0.5, asr: 0.3, visual: 0.2 }
+  threshold: 0.6
+  asr_window_sec: 20
+  visual_window_sec: 5
+
+labeler:
+  generator: ollama
+  parallel: 4             # 同時送出的 LLM 請求數
+  host: http://127.0.0.1:11434   # Ollama 預設埠；啟動時設 OLLAMA_NUM_PARALLEL=4 才能同時處理四個請求
+  model: qwen2.5:7b-instruct
+  allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
+  min_len: 4
+  max_len: 6
+  retries: 1
+
+output:
+  ad_label: 廣告
+  weather_label: 氣象
+  outage_label: 訊號中斷
+  multi_sep: /
+
+fingerprint:
+  library: data/ad_library_1106.npz   # 確認過的廣告聲音會自動加入，下次同一支廣告直接命中（AD-f）
+
+cross_channel:
+  enabled: true
+  window_sec: 900
+
+# labeler.generator: rule（不用 LLM）| ollama（地端，預設建議）| claude（外部，需 allow_external: true）
+
+asr:
+  model: large-v3-turbo     # GPU 上用較大的模型；顯示卡記憶體不足時改 small
+  device: cuda              # auto | cuda | cpu
+  compute_type: float16     # CUDA 建議 float16；記憶體吃緊可改 int8_float16
+  parallel: 2               # 同時轉錄幾台：8 GB 顯示卡 2、16 GB 以上 4
