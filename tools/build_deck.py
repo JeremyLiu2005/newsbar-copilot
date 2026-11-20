@@ -201,14 +201,9 @@ def s_current(prs):
         box(s, x, 1.9, 2.3, 0.5, RED if i < 4 else SOFTRED, None, 0, shape=MSO_SHAPE.PENTAGON)
         text(s, x + 0.15, 1.9, 1.95, 0.5, n, 13, True, "FFFFFF" if i < 4 else RED, PP_ALIGN.LEFT, MSO_ANCHOR.MIDDLE)
         x += 2.42
-    box(s, 0.67, 2.75, 4.6, 3.9, CARD, BORDER, 0.1)
-    text(s, 0.9, 2.9, 4.2, 0.3, "「12監看」怎麼填", 14, True, RED)
-    text(s, 0.9, 3.3, 4.15, 3.2, [
-        [("換題那一分鐘填標。", {"bold": True})],
-        [("延續同一則，留白。", {"bold": True})],
-        [("同一分鐘換了好幾則，用「/」連起來。", {"bold": True})],
-        [("廣告起始那一分鐘填「廣告」。", {"bold": True})],
-        [("每格約五個字，要讓人認得是哪則新聞。", {})]], 15, False, INK, space=16)
+    text(s, 0.67, 2.75, 4.6, 0.3, "填好的「12監看」（節錄 12:00–12:13）", 14, True, RED)
+    pic(s, "excel_sheet.png", 0.67, 3.1, w=4.6)
+    text(s, 0.67, 6.5, 4.6, 0.45, "換題那一分鐘填標，延續留白，同分鐘多則用「/」，廣告填「廣告」。", 11, False, MUTE)
     text(s, 5.6, 2.75, 7, 0.3, "五個難點", 14, True, RED)
     rows = [("14 分鐘內至少 3 台同時換題", "反應不及，最容易漏記", "第 4 頁"),
             ("廣告包框裡殘留舊標題", "容易把殘字當成新聞", "第 5 頁"),
@@ -220,7 +215,6 @@ def s_current(prs):
         box(s, 5.6, y, 7.05, 0.62, CARD, BORDER, 0.08)
         text(s, 5.78, y + 0.07, 3.6, 0.26, a, 13, True, INK)
         text(s, 5.78, y + 0.34, 3.6, 0.24, b, 11, False, MUTE)
-        label_box(s, 11.65, y + 0.15, 0.85, 0.32, c, SOFTRED, None, 10, True, RED, radius=0.16, pad=0.02)
         y += 0.7
     return s
 
@@ -244,10 +238,14 @@ def s_solution(prs):
         text(s, x + 0.25, 4.78, 3.3, 0.28, c, 13, True, RED)
         if i < 2:
             arrow(s, x + 3.84, 4.25, x + 4.06, 4.25, RED)
-    text(s, 0.67, 5.55, 8, 0.28, "設計原則", 13, True, RED)
-    pr = ["規則式狀態機，錯誤可追到訊號", "LLM 只負責命名，要過校驗", "每一格都由系統填，不留白", "只動四台五字標欄，其他不變"]
-    for i, t in enumerate(pr):
-        label_box(s, 0.67 + i * 3.05, 5.95, 2.9, 0.75, t, SOFTRED, None, 12, True, INK, pad=0.12)
+    text(s, 0.67, 5.5, 8, 0.28, "一個例子：TVBS-N 12:04", 13, True, RED)
+    box(s, 0.67, 5.88, 4.9, 0.95, CARD, BORDER, 0.08)
+    s.shapes.add_picture(str(A / "tvbs_1204_bar.jpg"), Inches(0.82), Inches(6.0), width=Inches(4.6))
+    text(s, 0.82, 6.45, 4.6, 0.25, "畫面標題（OCR 讀到）", 11, False, MUTE)
+    arrow(s, 5.62, 6.35, 6.0, 6.35, RED)
+    label_box(s, 6.05, 5.88, 3.45, 0.95, [[("毒駕遭車撞飛", {"bold": True, "size": 18})], [("LLM 寫標：6 字，字都在標題裡，通過校驗", {"size": 11, "color": MUTE})]], CARD, RED, lw=1.5)
+    arrow(s, 9.55, 6.35, 9.93, 6.35, RED)
+    label_box(s, 9.98, 5.88, 2.67, 0.95, [[("填入 TVBS-N 12:04", {"bold": True, "size": 14})], [("「12監看」分鐘表", {"size": 11, "color": MUTE})]], SOFTRED, None)
     return s
 
 
@@ -261,15 +259,19 @@ def s_demo(prs):
         box(s, x, 1.85, 2.3, 0.45, RED, None, 0, shape=MSO_SHAPE.PENTAGON)
         text(s, x + 0.15, 1.85, 1.95, 0.45, n, 13, True, "FFFFFF", PP_ALIGN.LEFT, MSO_ANCHOR.MIDDLE)
         x += 2.42
-    pic(s, "result.png", 0.67, 2.55, w=3.6)
-    text(s, 0.67, 5.4, 3.6, 0.9, "結果：逐段列出新聞與廣告，低信心標「列入抽查」。", 12, False, INK)
-    pic(s, "rv_queue.png", 4.55, 2.55, h=3.2)
-    pic(s, "rv_card.png", 6.0, 2.55, h=3.2)
-    text(s, 4.55, 5.9, 4.1, 0.9, "複查：38 格排成佇列，每格附畫面與依據；對、改寫、不該填、先跳過。", 12, False, INK)
-    pic(s, "ov_timeline.png", 8.9, 2.55, w=3.75)
-    text(s, 8.9, 3.4, 3.75, 0.6, "監看台：四台一小時的新聞與廣告，橘色是廣告破口。", 12, False, INK)
-    box(s, 8.9, 4.2, 3.75, 2.5, SOFT, None, 0.1)
-    text(s, 9.1, 4.3, 3.4, 2.35, [[("可以直接點開", {"bold": True, "size": 12, "color": RED})], "操作原型：", "claude.ai/artifact/RL2VhX96ci22nN5znaiBSK", "監看台：", "claude.ai/artifact/8P4J7qDJsnfJyGeUFKCcJ2", "原始碼：", "github.com/JeremyLiu2005/newsbar-copilot"], 10, False, INK, space=2)
+    pic(s, "result.png", 0.67, 2.55, w=3.3)
+    text(s, 0.67, 5.15, 3.3, 0.9, "結果：逐段列出新聞與廣告，低信心標「列入抽查」。", 12, False, INK)
+    pic(s, "rv_queue.png", 4.15, 2.55, h=3.85)
+    pic(s, "rv_card.png", 5.92, 2.55, h=3.85)
+    text(s, 4.15, 6.48, 4.9, 0.5, "複查：38 格排成佇列，每格附畫面與依據；對、改寫、不該填、先跳過。", 12, False, INK)
+    pic(s, "ov_timeline.png", 9.3, 2.55, w=3.35)
+    text(s, 9.3, 3.3, 3.35, 0.6, "監看台：四台一小時的新聞與廣告，橘色是廣告破口。", 11, False, INK)
+    box(s, 9.3, 4.15, 3.35, 2.25, SOFT, None, 0.1)
+    text(s, 9.45, 4.25, 3.1, 0.25, "掃描即可開啟", 12, True, RED)
+    for i, (f, t) in enumerate([("qr_proto.png", "操作原型"), ("qr_monitor.png", "監看台"), ("qr_github.png", "原始碼")]):
+        qx = 9.45 + i * 1.07
+        s.shapes.add_picture(str(A / f), Inches(qx), Inches(4.6), width=Inches(0.97))
+        text(s, qx, 5.62, 0.97, 0.25, t, 10, False, INK, PP_ALIGN.CENTER)
     return s
 
 
@@ -289,19 +291,17 @@ def s_engine1(prs):
     conds = {0: ["2 種以上訊號", "有跑馬列的台 3 種"], 1: ["持續 25 秒以上"], 3: ["回新聞 3 項成立：", "版面恢復、語音、", "bar 新讀數"]}
     for i, c in conds.items():
         text(s, xs[i] + bw - 0.2, 2.85, 1.7 if i != 3 else 1.6, 0.8, c, 11, False, MUTE)
-    text(s, 0.67, 3.8, 6.8, 0.28, "十種廣告訊號（任兩種成立才算；不到 25 秒不算，8 秒內的破口併成一段）", 12, True, INK)
-    chips = ["版面改變", "bar 底色", "台徽消失", "黑場或靜音", "廣告語音", "聲音指紋", "跑馬列消失", "電話或預告語", "頭條預告輪播", "畫面時鐘消失"]
-    cx, cy = 0.67, 4.1
-    for i, c in enumerate(chips):
-        label_box(s, cx, cy, 1.28, 0.36, c, SOFT, None, 11, False, INK, radius=0.18, pad=0.03)
-        cx += 1.37
-        if i == 4:
-            cx, cy = 0.67, 4.52
-    text(s, 0.67, 5.15, 6.8, 0.28, "換題判定", 14, True, RED)
-    text(s, 0.67, 5.5, 6.8, 1.45, [
-        "主 bar 的標題穩定 7 秒，再加上 1 項佐證才算新題：語音主題改變、記者名條或主播鏡頭。",
-        "3 分鐘內同一標題輪回，併回原本那一則，不重複填。",
-        "廣告前不到 20 秒的片段併進廣告。只讀主 bar，跑馬燈與快訊不進判定。"], 12, False, INK, space=4)
+    text(s, 0.67, 3.55, 6.8, 0.28, "任兩種訊號成立才算廣告（共 10 種）；不到 25 秒不算，8 秒內的破口併成一段。", 12, True, INK)
+    fx, fy, fw = 0.67, 4.0, 3.6
+    pic(s, "tvbs_1204_full.jpg", fx, fy, w=fw)
+    k = fw / 640
+    for (bx, by, bw_, bh_), col in [((160, 291, 476, 29), RED), ((160, 322, 480, 22), MUTE), ((160, 268, 186, 20), MUTE), ((0, 322, 158, 22), ORANGE)]:
+        box(s, fx + bx * k, fy + by * k, bw_ * k, bh_ * k, None, col, 0, lw=2.0)
+    for i, (c, t) in enumerate([(RED, "主 bar：判定只讀這裡"), (MUTE, "插播字幕與跑馬燈：不採用"), (ORANGE, "畫面時鐘：用來對時")]):
+        box(s, fx, 6.2 + i * 0.26, 0.16, 0.16, c, None, 0)
+        text(s, fx + 0.25, 6.17 + i * 0.26, 3.6, 0.25, t, 11, False, INK)
+    text(s, 4.85, 4.0, 2.6, 0.28, "換題判定", 14, True, RED)
+    text(s, 4.85, 4.4, 2.6, 2.5, ["主 bar 的標題穩定 7 秒，再加 1 項佐證才算新題：語音主題改變、記者名條或主播鏡頭。", "3 分鐘內同一標題輪回，併回原本那一則。", "廣告前不到 20 秒的片段併進廣告。"], 12, False, INK, space=6)
     # ad frames
     fx = [7.75, 10.25]
     fy = [1.85, 3.5]
@@ -317,15 +317,15 @@ def s_engine1(prs):
 
 def s_tech(prs):
     s = blank(prs)
-    frame(s, "技術與驗證", "技術與驗證", 7, "11/06 12:00–13:00 四台共 90 格；準確度對照 TVBS 研究者單人初標（一台、約 30 個點，非正式雙人標註）。本機模型 qwen2.5:7b-instruct，溫度 0。")
+    frame(s, "技術與驗證", "技術與驗證", 7, "11/06 12:00–13:00 四台共 90 格；準確度對照 TVBS 研究者單人初標（一台、約 30 個點，非正式雙人標註）。OCR：Apple Vision；語音：faster-whisper；LLM：qwen2.5:7b-instruct（本機，溫度 0）。")
     tag(s, 10.4, 0.6, 1.5, "回答 Q2、Q3、Q4")
-    labs = [("抽畫面與音軌", "FFmpeg"), ("讀主 bar", "Apple Vision OCR"), ("語音轉錄", "faster-whisper"), ("廣告狀態機", "10 種訊號"), ("換題判斷", "穩定 7 秒＋佐證"), ("五字標", "LLM＋校驗"), ("寫回表格", "openpyxl")]
-    w, g = 1.55, 0.2
+    labs = [("標準答案（研究者初標）", "TVBS 一台，約 30 個點"), ("對照規則", "換題起始分鐘容許 ±1 分鐘"), ("調參與測試", "前 20 分鐘調參，12:20 後為測試段"), ("結果", "換題命中 23／27；廣告 10 分鐘全中")]
+    w, g = 2.75, 0.33
     for i, (a, b) in enumerate(labs):
         x = 0.67 + i * (w + g)
-        label_box(s, x, 1.85, w, 0.85, [[(a, {"bold": True, "size": 12})], [(b, {"size": 10, "color": MUTE})]], CARD, BORDER, pad=0.04)
-        if i < 6:
-            arrow(s, x + w + 0.01, 2.28, x + w + g - 0.01, 2.28, RED, 1.25)
+        label_box(s, x, 1.85, w, 0.9, [[(a, {"bold": True, "size": 13, "color": RED if i == 3 else INK})], [(b, {"size": 11, "color": MUTE})]], SOFTRED if i == 3 else CARD, None if i == 3 else BORDER, pad=0.08)
+        if i < 3:
+            arrow(s, x + w + 0.02, 2.3, x + w + g - 0.02, 2.3, RED, 1.25)
     text(s, 0.67, 2.95, 5.6, 0.28, "準確度對目標", 13, True, RED)
     bar_chart_f1(s, 0.67, 3.2, 5.9, 2.55)
     text(s, 0.67, 5.85, 5.9, 1.0, [
