@@ -406,7 +406,7 @@ def s_value(prs):
 
 def s_risk(prs):
     s = blank(prs)
-    frame(s, "風險與人機協作", "風險與人機協作", 9, "「決定權在人」：LLM 初判只用來排序，不會自動改表格；修正另存成修正版，原本的 Excel 不動。")
+    frame(s, "風險與保底", "風險與保底", 9, "低信心格另列抽查清單，由人確認；LLM 初判只用來排序，修正另存成修正版，原本的 Excel 不動。")
     tag(s, 11.15, 0.6, 0.8, "回答 Q5")
     text(s, 0.67, 1.85, 6.5, 0.28, "風險與對策", 14, True, RED)
     rows = [("標準答案只有單人初標", "補正式雙人標註，重算 F1 與 κ"), ("處理 46 分，目標 15 分", "換有 GPU 的機器實測"), ("15 格五字標靠規則擷取", "列入抽查，由人確認"), ("廣告頭尾約差 10 秒", "午間並行比較時調規則")]
@@ -417,13 +417,19 @@ def s_risk(prs):
         arrow(s, 3.85, y + 0.48, 4.1, y + 0.48, RED, 1.25)
         text(s, 4.2, y + 0.1, 2.75, 0.75, b, 13, False, MUTE, anchor=MSO_ANCHOR.MIDDLE)
         y += 1.1
-    text(s, 7.5, 1.85, 5.1, 0.28, "人機怎麼分工", 14, True, RED)
-    label_box(s, 7.5, 2.2, 5.15, 0.9, [[("系統", {"bold": True, "size": 13, "color": RED})], [("90 格全由系統填寫，每格留下依據", {"size": 13})]], CARD, RED, lw=1.5)
-    arrow(s, 10.07, 3.13, 10.07, 3.45, RED)
-    label_box(s, 7.5, 3.5, 5.15, 0.9, [[("人", {"bold": True, "size": 13, "color": RED})], [("只看 38 格：低信心 29＋抽樣 9", {"size": 13})]], CARD, RED, lw=1.5)
-    arrow(s, 10.07, 4.43, 10.07, 4.75, RED)
-    label_box(s, 7.5, 4.8, 5.15, 0.9, [[("結果", {"bold": True, "size": 13, "color": RED})], [("改正另存成修正版，記審核者與原因", {"size": 13})]], SOFTRED, None)
-    text(s, 7.5, 5.9, 5.15, 0.9, "LLM 只做初判與排序。要不要改，由人決定。", 13, True, INK)
+    text(s, 7.5, 1.85, 5.1, 0.28, "沒把握時的三條退路", 14, True, RED)
+    outs = [("FB-3", "標題讀不到", "改用語音決定名稱，標低信心"), ("FB-4", "LLM 寫的標兩次沒過校驗", "改用規則從標題擷取，標低信心"), ("FB-1", "換題佐證不足", "照常填寫，標低信心")]
+    y = 2.2
+    for code, a_, b_ in outs:
+        box(s, 7.5, y, 5.15, 0.85, CARD, BORDER, 0.08)
+        label_box(s, 7.65, y + 0.2, 0.8, 0.45, code, SOFTRED, None, 13, True, RED, radius=0.1, pad=0.02)
+        text(s, 8.65, y + 0.1, 3.9, 0.3, a_, 14, True, INK)
+        text(s, 8.65, y + 0.45, 3.9, 0.3, b_, 12, False, MUTE)
+        y += 0.97
+    box(s, 7.5, 5.15, 5.15, 0.7, CARD, BORDER, 0.08)
+    text(s, 7.7, 5.15, 4.8, 0.7, [[("拿掉語音，", {}), ("換題 F1 由 0.885 降到 0.758", {"bold": True, "color": RED}), ("，仍照常出表。", {})]], 13, False, INK, anchor=MSO_ANCHOR.MIDDLE)
+    box(s, 7.5, 6.0, 5.15, 0.92, SOFTRED, None, 0.08)
+    text(s, 7.7, 6.0, 4.8, 0.92, "表上不寫「待確認」：題目要求日常產製自動完成、不新增記法，低信心只記在依據與抽查清單，行政貼收視率時不會多出一種要人工處理的格。", 11, False, INK, anchor=MSO_ANCHOR.MIDDLE)
     return s
 
 
