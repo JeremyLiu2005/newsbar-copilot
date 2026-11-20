@@ -210,7 +210,7 @@ def s_solution(prs):
     s = blank(prs)
     frame(s, "解方", "解方：先判廣告、再判換題、最後填標", 4, "一個指令或一個網頁就能跑完整條路徑。全程在本機執行，影片與表格不離開這台電腦。")
     tag(s, 9.9, 0.6, 2.0, "回答 Q1、Q2、Q4")
-    pipe = [("抽畫面與音軌", "FFmpeg"), ("畫面時鐘校時", "秒對到實際時刻"), ("讀三種訊號", "OCR、語音、畫面"), ("廣告判定", "10 種訊號"), ("換題判斷", "穩定 7 秒＋佐證"), ("五字標", "LLM＋逐字檢查"), ("寫回 Excel", "秒轉分鐘格，只動四欄")]
+    pipe = [("抽畫面與音軌", "FFmpeg"), ("畫面時鐘校時", "四台時鐘都讀得到"), ("讀三種訊號", "OCR、語音、畫面"), ("廣告判定", "10 種訊號"), ("換題判斷", "穩定 7 秒＋佐證"), ("五字標", "LLM＋逐字檢查"), ("寫回 Excel", "秒轉分鐘格，只動四欄")]
     pw, pg = 1.53, 0.2
     for i, (a_, b_) in enumerate(pipe):
         x = 0.67 + i * (pw + pg)
@@ -322,7 +322,7 @@ def s_tech(prs):
     cd.categories = [f"{n}　換題 {c}・廣告 {a}" for n, _, c, a, _ in reversed(per)]
     cd.add_series("高信心", [t - l for _, t, _, _, l in reversed(per)])
     cd.add_series("低信心（列入抽查）", [l for _, _, _, _, l in reversed(per)])
-    gf = s.shapes.add_chart(XL_CHART_TYPE.BAR_STACKED, Inches(6.95), Inches(3.2), Inches(5.7), Inches(2.55), cd)
+    gf = s.shapes.add_chart(XL_CHART_TYPE.BAR_STACKED, Inches(6.95), Inches(3.2), Inches(5.7), Inches(2.3), cd)
     ch = gf.chart
     chart_text(ch, 11)
     ch.has_title = False
@@ -350,9 +350,9 @@ def s_tech(prs):
     va.tick_labels.font.size = Pt(10)
     ch.category_axis.tick_labels.font.size = Pt(11)
     ch.category_axis.format.line.color.rgb = rgb(BORDER)
-    text(s, 6.95, 5.8, 5.7, 0.5, "90 格全由系統填寫；低信心（系統沒把握）29 格（32%）照常填，另列抽查。", 11, True, RED)
-    box(s, 6.95, 6.3, 5.7, 0.62, SOFTRED, None, 0.08)
-    text(s, 7.1, 6.3, 5.4, 0.62, "檢查：字數 4–6、字在標題內、社會新聞要有地點。重跑 240 格逐格相同。", 11, False, INK, PP_ALIGN.LEFT, MSO_ANCHOR.MIDDLE)
+    text(s, 6.95, 5.52, 5.7, 0.5, "90 格全由系統填寫；低信心（系統沒把握）29 格（32%）照常填，另列抽查。", 11, True, RED)
+    box(s, 6.95, 6.0, 5.7, 0.92, SOFTRED, None, 0.08)
+    text(s, 7.1, 6.0, 5.4, 0.92, ["五字標的機器檢查（89 個）：字數 4–6 全部符合；每個字都在該段畫面標題裡，沒有憑空編的字。人工可用率還沒評分。", "重跑 240 格逐格相同。"], 11, False, INK, PP_ALIGN.LEFT, MSO_ANCHOR.MIDDLE, space=2)
     return s
 
 
@@ -395,16 +395,24 @@ def s_value(prs):
     ch.category_axis.tick_labels.font.size = Pt(13)
     text(s, 0.67, 1.85, 6.2, 0.28, "一年的人力價值與維運成本（萬元，假設值）", 14, True, RED)
     text(s, 7.4, 1.85, 5.2, 0.28, "怎麼算（假設值）", 14, True, RED)
-    box(s, 7.4, 2.25, 5.25, 4.3, CARD, BORDER, 0.1)
+    box(s, 7.4, 2.25, 5.25, 2.95, CARD, BORDER, 0.1)
     calc = [("每日監看", "18 小時"), ("× 365 天", "6,570 小時／年"), ("× 系統接手 85%", "5,585 小時／年"), ("× 時薪 NT$235", "131 萬"), ("− 維運成本", "22 萬"), ("＝ 淨效益", "109 萬／年")]
-    y = 2.45
-    for i, (a, b) in enumerate(calc):
+    y = 2.35
+    for i, (a_, b_) in enumerate(calc):
         last = i == len(calc) - 1
         if last:
-            box(s, 7.55, y - 0.05, 4.95, 0.62, SOFTRED, None, 0.08)
-        text(s, 7.75, y, 2.5, 0.52, a, 14, True, RED if last else INK, anchor=MSO_ANCHOR.MIDDLE)
-        text(s, 10.0, y, 2.35, 0.52, b, 15, True, ORANGE if i == 2 else (RED if last else INK), PP_ALIGN.RIGHT, MSO_ANCHOR.MIDDLE)
-        y += 0.68
+            box(s, 7.55, y - 0.02, 4.95, 0.44, SOFTRED, None, 0.08)
+        text(s, 7.75, y, 2.5, 0.4, a_, 13, True, RED if last else INK, anchor=MSO_ANCHOR.MIDDLE)
+        text(s, 10.0, y, 2.35, 0.4, b_, 14, True, ORANGE if i == 2 else (RED if last else INK), PP_ALIGN.RIGHT, MSO_ANCHOR.MIDDLE)
+        y += 0.46
+    text(s, 7.4, 5.4, 5.2, 0.28, "接手比例不同時（其餘假設不變）", 13, True, RED)
+    for i, (r_, h_, n_) in enumerate([("70%", "4,599 小時", "86 萬"), ("85%", "5,585 小時", "109 萬"), ("95%", "6,242 小時", "125 萬")]):
+        cx = 7.4 + i * 1.8
+        mid = i == 1
+        box(s, cx, 5.78, 1.65, 1.1, SOFTRED if mid else CARD, None if mid else BORDER, 0.08)
+        text(s, cx, 5.84, 1.65, 0.3, "接手 " + r_, 12, True, RED if mid else INK, PP_ALIGN.CENTER)
+        text(s, cx, 6.16, 1.65, 0.3, h_, 12, False, MUTE, PP_ALIGN.CENTER)
+        text(s, cx, 6.46, 1.65, 0.32, "淨效益 " + n_, 13, True, INK, PP_ALIGN.CENTER)
     return s
 
 
@@ -413,14 +421,14 @@ def s_risk(prs):
     frame(s, "風險與保底", "風險與保底", 9, "低信心格另列抽查清單，由人確認；LLM 初判只用來排序，修正另存成修正版，原本的 Excel 不動。")
     tag(s, 11.15, 0.6, 0.8, "回答 Q5")
     text(s, 0.67, 1.85, 6.5, 0.28, "風險與對策", 14, True, RED)
-    rows = [("標準答案只有單人初標", "補正式雙人標註，重算 F1 與標註一致性"), ("處理 46 分，目標 15 分", "換有 GPU 的機器實測"), ("15 格五字標由規則直接摘字", "列入抽查，由人確認"), ("廣告頭尾約差 10 秒", "午間並行比較時調規則")]
+    rows = [("標準答案只有單人初標", "補雙人標註，重算 F1 與一致性"), ("處理 46 分，目標 15 分", "換有 GPU 的機器實測"), ("15 格五字標由規則直接摘字", "列入抽查，由人確認"), ("廣告頭尾約差 10 秒", "午間並行比較時調規則"), ("畫面時鐘與檔名差 23–32 秒", "以畫面時鐘為準，待業師確認"), ("廣告後接回同一則怎麼記", "目前回新聞一律填標，待業師確認")]
     y = 2.2
     for a, b in rows:
-        box(s, 0.67, y, 6.4, 0.95, CARD, BORDER, 0.08)
-        text(s, 0.85, y + 0.1, 3.0, 0.75, a, 14, True, INK, anchor=MSO_ANCHOR.MIDDLE)
-        arrow(s, 3.85, y + 0.48, 4.1, y + 0.48, RED, 1.25)
-        text(s, 4.2, y + 0.1, 2.75, 0.75, b, 13, False, MUTE, anchor=MSO_ANCHOR.MIDDLE)
-        y += 1.1
+        box(s, 0.67, y, 6.4, 0.68, CARD, BORDER, 0.08)
+        text(s, 0.85, y + 0.04, 3.0, 0.6, a, 13, True, INK, anchor=MSO_ANCHOR.MIDDLE)
+        arrow(s, 3.85, y + 0.34, 4.1, y + 0.34, RED, 1.25)
+        text(s, 4.2, y + 0.04, 2.8, 0.6, b, 12, False, MUTE, anchor=MSO_ANCHOR.MIDDLE)
+        y += 0.78
     text(s, 7.5, 1.85, 5.1, 0.28, "沒把握時的三條退路", 14, True, RED)
     outs = [("語音定名", "標題讀不到", "改用語音決定名稱，標低信心"), ("規則擷取", "LLM 寫的標兩次沒過檢查", "改用規則直接從標題摘字，標低信心"), ("換題存疑", "換題佐證不足", "照常填寫，標低信心")]
     y = 2.2
@@ -439,7 +447,7 @@ def s_risk(prs):
 
 def s_deploy(prs):
     s = blank(prs)
-    frame(s, "上線與擴大", "上線：接在側錄系統後面", 10, "上線門檻與時程是提案設定，待業師確認。")
+    frame(s, "上線與擴大", "上線：接在側錄系統後面", 10, "上線門檻與時程是提案設定，待業師確認。處理時間為 Mac M4 快速模式實測。")
     tag(s, 10.4, 0.6, 1.5, "回答 Q1、Q5")
     w, g = 2.7, 0.4
     xs = [0.67 + i * (w + g) for i in range(4)]
@@ -449,16 +457,20 @@ def s_deploy(prs):
         if i < 3:
             arrow(s, xs[i] + w + 0.02, 2.42, xs[i + 1] - 0.02, 2.42, RED)
     arrow(s, xs[2] + w / 2, 2.93, xs[2] + w / 2, 3.38, RED)
-    label_box(s, xs[2], 3.4, w, 0.95, [[("每日品質日報", {"bold": True, "size": 14})], [("填寫率、低信心比例、讀不到標題的比例", {"size": 11, "color": MUTE})]], CARD, BORDER)
+    label_box(s, xs[2], 3.4, w, 0.95, [[("每日品質日報", {"bold": True, "size": 14})], [("填寫率、低信心與讀不到標題比例", {"size": 11, "color": MUTE})]], CARD, BORDER)
     arrow(s, xs[2] + w + 0.02, 3.87, xs[3] - 0.02, 3.87, RED)
     label_box(s, xs[3], 3.4, w, 0.95, [[("監看員抽查", {"bold": True, "size": 14})], [("只看低信心格與抽樣", {"size": 11, "color": MUTE})]], CARD, BORDER)
     arrow(s, xs[3] + w / 2, 4.38, xs[3] + w / 2, 4.7, ORANGE)
     label_box(s, xs[2], 4.72, 2 * w + g, 0.55, "修正紀錄 → 每週更新規則與提示詞 → 回到處理流程（有版本號，可退回）", SOFTOR, None, 12, True, INK)
-    text(s, 0.67, 3.4, 5.6, 0.28, "為什麼這樣接", 14, True, RED)
-    text(s, 0.67, 3.8, 5.8, 1.5, [
-        "只接在既有側錄後面，不改現有流程。",
-        "一台失敗不影響其他三台，中斷後可續跑。",
-        "影片不出內網，只留文字結果；畫面截圖保留 7 天。"], 13, False, INK, space=6)
+    text(s, 0.67, 3.4, 5.9, 0.28, "處理時間花在哪（Mac M4，快速模式實測）", 14, True, RED)
+    bx, bw = 0.67, 5.9
+    box(s, bx, 3.85, bw * 43.5 / 46.2, 0.4, ORANGE, None, 0)
+    box(s, bx + bw * 43.5 / 46.2, 3.85, bw * 2.7 / 46.2, 0.4, RED, None, 0)
+    text(s, bx + 2.2, 3.85, 3.4, 0.4, "抽取（讀標題、語音轉錄等）43.5 分", 12, True, "FFFFFF", anchor=MSO_ANCHOR.MIDDLE)
+    text(s, bx + bw - 1.3, 4.3, 1.3, 0.25, "判斷 2.7 分", 11, True, RED, PP_ALIGN.RIGHT)
+    box(s, bx + bw * 15 / 46.2 - 0.015, 3.78, 0.03, 0.54, INK, None, 0)
+    text(s, bx + bw * 15 / 46.2 - 0.6, 4.35, 1.2, 0.22, "目標 15 分", 10, True, INK, PP_ALIGN.CENTER)
+    text(s, 0.67, 4.72, 5.9, 0.7, "語音轉錄一次只能跑一台，是主要瓶頸；判斷本身只要 2.7 分鐘。四台並行（GPU）有機會壓到 15 分鐘，尚待實測。", 12, False, INK)
     box(s, 0.67, 5.5, 5.9, 1.42, CARD, BORDER, 0.08)
     text(s, 0.85, 5.58, 5.5, 0.28, "目前進度", 13, True, RED)
     text(s, 0.85, 5.9, 5.55, 1.0, [[("已實作：", {"bold": True}), ("全天自動處理、每日品質日報、人工複查與修正版", {})], [("設計中：", {"bold": True}), ("地端 GPU 伺服器部署、規則版本回退", {})]], 12, False, INK, space=5)
