@@ -139,18 +139,12 @@ def s_problem(prs, s):
         if sh.has_text_frame and sh.text_frame.text.strip() == "14":  # big number sat on its caption in PowerPoint
             sh.top = Inches(1.78)
             sh.text_frame.vertical_anchor = MSO_ANCHOR.TOP
-    text(s, 0.67, 5.95, 3.0, 0.25, "錯一分鐘的後果", 13, True, RED)
-    steps = [("漏記或記錯一分鐘", "監看表是隔日分析的事件索引"), ("事件與收視率錯位", "下游看不出表格錯了"), ("收視高點算給錯的新聞", "廣告破口與節目判讀都跟著錯")]
-    x = 0.67
-    for i, (a, b) in enumerate(steps):
-        box(s, x, 6.3, 3.6, 0.68, CARD, BORDER, 0.08)
-        text(s, x + 0.15, 6.36, 3.3, 0.3, a, 14, True, INK)
-        text(s, x + 0.15, 6.68, 3.3, 0.25, b, 11, False, MUTE)
-        if i < 2:
-            arrow(s, x + 3.63, 6.64, x + 4.09, 6.64, RED)
-        x += 4.12
-
-
+    stats = [("240 格", "每小時要判斷的格數：4 台 × 60 分鐘"), ("約 5 字", "每格要寫出讓人認得是哪則新聞的標題"), ("隔日", "監看表要貼收視率；錯位就會判錯節目")]
+    for i, (a, b) in enumerate(stats):
+        x = 0.67 + i * 4.065
+        box(s, x, 6.0, 3.85, 0.95, CARD, BORDER, 0.08)
+        text(s, x + 0.2, 6.0, 1.45, 0.95, a, 22, True, ORANGE if i < 2 else RED, anchor=MSO_ANCHOR.MIDDLE)
+        text(s, x + 1.65, 6.0, 2.05, 0.95, b, 12, False, INK, anchor=MSO_ANCHOR.MIDDLE)
 
 
 def bar_chart_f1(s, x, y, w, h):
@@ -195,39 +189,27 @@ def s_current(prs):
     s = blank(prs)
     frame(s, "問題", "現況：人工怎麼做、哪裡難", 3, "填表規則與難點整理自課程提供的 10/26 歷史監看範例與「12監看」範本。")
     tag(s, 11.15, 0.6, 0.8, "回答 Q1")
-    steps = ["看四台畫面", "判斷換題或廣告", "寫五字標", "填入分鐘格", "隔日貼收視率"]
-    x = 0.67
-    for i, n in enumerate(steps):
-        box(s, x, 1.9, 2.3, 0.5, RED if i < 4 else SOFTRED, None, 0, shape=MSO_SHAPE.PENTAGON)
-        text(s, x + 0.15, 1.9, 1.95, 0.5, n, 13, True, "FFFFFF" if i < 4 else RED, PP_ALIGN.LEFT, MSO_ANCHOR.MIDDLE)
-        x += 2.42
-    text(s, 0.67, 2.75, 4.6, 0.3, "填好的「12監看」（節錄 12:00–12:13）", 14, True, RED)
-    pic(s, "excel_sheet.png", 0.67, 3.1, w=4.6)
-    text(s, 0.67, 6.5, 4.6, 0.45, "換題那一分鐘填標，延續留白，同分鐘多則用「/」，廣告填「廣告」。", 11, False, MUTE)
-    text(s, 5.6, 2.75, 7, 0.3, "五個難點", 14, True, RED)
-    rows = [("14 分鐘內至少 3 台同時換題", "反應不及，最容易漏記", "第 4 頁"),
-            ("廣告包框裡殘留舊標題", "容易把殘字當成新聞", "第 5 頁"),
-            ("同一則標題 3 分鐘內輪回", "重複填寫", "第 5 頁"),
-            ("跑馬燈、快訊、記者名條", "不是這則新聞的標題", "第 5 頁"),
-            ("角落小廣告", "主畫面沒變，不算廣告", "第 5 頁")]
-    y = 3.15
-    for a, b, c in rows:
-        box(s, 5.6, y, 7.05, 0.62, CARD, BORDER, 0.08)
-        text(s, 5.78, y + 0.07, 3.6, 0.26, a, 13, True, INK)
-        text(s, 5.78, y + 0.34, 3.6, 0.24, b, 11, False, MUTE)
-        y += 0.7
+    text(s, 0.67, 1.95, 6.2, 0.3, "填好的「12監看」（節錄 12:00–12:13）", 14, True, RED)
+    pic(s, "excel_sheet.png", 0.67, 2.35, w=6.2)
+    text(s, 0.67, 6.4, 6.2, 0.5, "換題那一分鐘填標，延續留白，同分鐘多則用「/」，廣告填「廣告」。", 12, False, MUTE)
+    text(s, 7.3, 1.95, 5.3, 0.3, "五個難點", 14, True, RED)
+    rows = [("14 分鐘內至少 3 台同時換題", "反應不及，最容易漏記"), ("廣告包框裡殘留舊標題", "容易把殘字當成新聞"), ("同一則標題 3 分鐘內輪回", "重複填寫"), ("跑馬燈、快訊、記者名條", "不是這則新聞的標題"), ("角落小廣告", "主畫面沒變，不算廣告")]
+    y = 2.35
+    for a, b in rows:
+        box(s, 7.3, y, 5.35, 0.78, CARD, BORDER, 0.08)
+        text(s, 7.5, y + 0.1, 4.9, 0.3, a, 14, True, INK)
+        text(s, 7.5, y + 0.43, 4.9, 0.28, b, 12, False, MUTE)
+        y += 0.9
     return s
 
 
 def s_solution(prs):
     s = blank(prs)
-    frame(s, "解方", "解方：先判廣告、再判換題、最後填標", 4, "全程在本機執行，影片與表格不離開這台電腦。")
+    frame(s, "解方", "解方：先判廣告、再判換題、最後填標", 4, "全程在本機執行（一個指令或一個網頁），影片與表格不離開這台電腦。")
     tag(s, 10.4, 0.6, 1.5, "回答 Q1、Q2")
-    label_box(s, 0.67, 1.95, 3.3, 0.95, [[("輸入", {"bold": True, "size": 13, "color": RED})], [("四台側錄影片＋「12監看」範本", {"size": 13})]], CARD, BORDER)
-    arrow(s, 4.02, 2.42, 4.55, 2.42, RED)
-    label_box(s, 4.6, 1.95, 4.1, 0.95, [[("NewsBar Copilot", {"bold": True, "size": 16, "color": "FFFFFF"})], [("本機執行，一個指令或一個網頁", {"size": 12, "color": "FFFFFF"})]], RED, RED)
-    arrow(s, 8.75, 2.42, 9.28, 2.42, RED)
-    label_box(s, 9.33, 1.95, 3.32, 0.95, [[("輸出", {"bold": True, "size": 13, "color": RED})], [("監看表、判斷依據、抽查清單", {"size": 13})]], CARD, BORDER)
+    gs = [("只動四個欄位", "寫入前後逐格比對，其他格不變"), ("空白＝延續", "換題才填標，同分鐘多則用「/」"), ("回新聞一律填標", "留白會被讀成還在廣告")]
+    for i, (a, b) in enumerate(gs):
+        label_box(s, 0.67 + i * 4.065, 1.95, 3.85, 0.95, [[(a, {"bold": True, "size": 15, "color": RED})], [(b, {"size": 12, "color": INK})]], CARD, BORDER)
     cards = [("01", "廣告判定", "版面、聲音、時鐘", "先凍結包框殘字"), ("02", "換題判定", "主 bar、語音、畫面", "穩定 7 秒再加佐證"), ("03", "五字標", "只用標題原字", "逐字校驗後才寫入")]
     for i, (n, a, b, c) in enumerate(cards):
         x = 0.67 + i * 4.1
@@ -253,25 +235,20 @@ def s_demo(prs):
     s = blank(prs)
     frame(s, "Demo", "Demo：五步完成一小時", 6, "畫面為操作原型，結果是後端 11/06 實跑輸出。複查紀錄為示範（6 格），不是實際審核結果。側錄影片由課程提供，版權屬各電視台。")
     tag(s, 10.9, 0.6, 1.0, "回答 Q4")
-    names = ["1 選影片", "2 分析", "3 結果", "4 人工複查", "5 修正版"]
-    x = 0.67
-    for i, n in enumerate(names):
-        box(s, x, 1.85, 2.3, 0.45, RED, None, 0, shape=MSO_SHAPE.PENTAGON)
-        text(s, x + 0.15, 1.85, 1.95, 0.45, n, 13, True, "FFFFFF", PP_ALIGN.LEFT, MSO_ANCHOR.MIDDLE)
-        x += 2.42
-    pic(s, "result.png", 0.67, 2.55, w=3.3)
-    text(s, 0.67, 5.15, 3.3, 0.9, "結果：逐段列出新聞與廣告，低信心標「列入抽查」。", 12, False, INK)
-    pic(s, "rv_queue.png", 4.15, 2.55, h=3.85)
-    pic(s, "rv_card.png", 5.92, 2.55, h=3.85)
-    text(s, 4.15, 6.48, 4.9, 0.5, "複查：38 格排成佇列，每格附畫面與依據；對、改寫、不該填、先跳過。", 12, False, INK)
-    pic(s, "ov_timeline.png", 9.3, 2.55, w=3.35)
-    text(s, 9.3, 3.3, 3.35, 0.6, "監看台：四台一小時的新聞與廣告，橘色是廣告破口。", 11, False, INK)
-    box(s, 9.3, 4.15, 3.35, 2.25, SOFT, None, 0.1)
-    text(s, 9.45, 4.25, 3.1, 0.25, "掃描即可開啟", 12, True, RED)
+    for x, w, t in [(0.67, 2.45, "1 選影片　2 分析"), (3.3, 3.0, "3 結果"), (6.5, 4.5, "4 人工複查　5 修正版"), (11.25, 1.4, "掃描開啟")]:
+        label_box(s, x, 1.9, w, 0.4, t, RED, None, 13, True, "FFFFFF", radius=0.2, pad=0.05)
+    pic(s, "upload.png", 0.67, 2.5, w=2.45)
+    pic(s, "progress.png", 0.67, 4.7, w=2.45)
+    text(s, 0.67, 6.15, 2.45, 0.7, "選四台與範本；四台並行，各自顯示階段。", 11, False, INK)
+    pic(s, "result.png", 3.3, 2.5, w=3.0)
+    text(s, 3.3, 4.9, 3.0, 1.2, "逐段列出新聞與廣告，低信心標「列入抽查」，可請本機模型先初判換題。", 12, False, INK)
+    pic(s, "rv_queue.png", 6.5, 2.5, h=3.7)
+    pic(s, "rv_card.png", 8.13, 2.5, h=3.7)
+    text(s, 6.5, 6.3, 4.5, 0.6, "38 格排成佇列，每格附畫面與依據；對、改寫、不該填、先跳過。複查完另存修正版。", 11, False, INK)
     for i, (f, t) in enumerate([("qr_proto.png", "操作原型"), ("qr_monitor.png", "監看台"), ("qr_github.png", "原始碼")]):
-        qx = 9.45 + i * 1.07
-        s.shapes.add_picture(str(A / f), Inches(qx), Inches(4.6), width=Inches(0.97))
-        text(s, qx, 5.62, 0.97, 0.25, t, 10, False, INK, PP_ALIGN.CENTER)
+        qy = 2.5 + i * 1.5
+        s.shapes.add_picture(str(A / f), Inches(11.4), Inches(qy), width=Inches(1.1))
+        text(s, 11.25, qy + 1.12, 1.4, 0.25, t, 10, False, INK, PP_ALIGN.CENTER)
     return s
 
 
@@ -308,9 +285,8 @@ def s_engine1(prs):
     frames = ["ettv_1234_0_ad05.jpg", "ettv_1234_0_ad35.jpg", "ettv_1234_0_ad65.jpg", "ettv_1234_0_ad95.jpg"]
     for i, f in enumerate(frames):
         pic(s, f, fx[i % 2], fy[i // 2], w=2.4)
-    text(s, 7.75, 5.2, 4.9, 0.5, "東森 12:34 起的廣告破口。畫面版式、台徽與內容都變了，主 bar 位置沒有新聞標題。", 12, False, INK)
-    box(s, 7.75, 5.85, 4.9, 1.0, SOFTRED, None, 0.08)
-    text(s, 7.95, 5.92, 4.5, 0.9, ["包框期間凍結 bar 的文字，殘留的標題不採用；回新聞後重新起標。", "廣告起始那一分鐘填「廣告」。"], 12, False, INK, space=3)
+    box(s, 7.75, 5.4, 4.9, 1.1, SOFTRED, None, 0.08)
+    text(s, 7.95, 5.5, 4.5, 0.95, ["包框期間凍結 bar 的文字，殘留的標題不採用；回新聞後重新起標。", "廣告起始那一分鐘填「廣告」。"], 12, False, INK, space=3)
     return s
 
 
@@ -404,14 +380,17 @@ def s_value(prs):
     va.tick_labels.font.size = Pt(11)
     ch.category_axis.tick_labels.font.size = Pt(13)
     text(s, 0.67, 1.85, 6.2, 0.28, "一年的人力價值與維運成本（萬元，假設值）", 14, True, RED)
-    text(s, 7.4, 1.85, 5.2, 0.28, "帶來什麼", 14, True, RED)
-    vals = [("省下重複的盯盤工時", "約 5,585 小時／年，人只看低信心格。"), ("表格更一致", "換題與廣告的規則固定，不看當班的反應速度。"), ("每格可追溯", "每格留下訊號、截圖與語音節錄，錯了找得到原因。")]
-    y = 2.25
-    for a, b in vals:
-        box(s, 7.4, y, 5.25, 1.3, CARD, BORDER, 0.08)
-        text(s, 7.6, y + 0.14, 4.9, 0.3, a, 15, True, INK)
-        text(s, 7.6, y + 0.52, 4.9, 0.7, b, 13, False, MUTE)
-        y += 1.5
+    text(s, 7.4, 1.85, 5.2, 0.28, "怎麼算（假設值）", 14, True, RED)
+    box(s, 7.4, 2.25, 5.25, 4.3, CARD, BORDER, 0.1)
+    calc = [("每日監看", "18 小時"), ("× 365 天", "6,570 小時／年"), ("× 系統接手 85%", "5,585 小時／年"), ("× 時薪 NT$235", "131 萬"), ("− 維運成本", "22 萬"), ("＝ 淨效益", "109 萬／年")]
+    y = 2.45
+    for i, (a, b) in enumerate(calc):
+        last = i == len(calc) - 1
+        if last:
+            box(s, 7.55, y - 0.05, 4.95, 0.62, SOFTRED, None, 0.08)
+        text(s, 7.75, y, 2.5, 0.52, a, 14, True, RED if last else INK, anchor=MSO_ANCHOR.MIDDLE)
+        text(s, 10.0, y, 2.35, 0.52, b, 15, True, ORANGE if i == 2 else (RED if last else INK), PP_ALIGN.RIGHT, MSO_ANCHOR.MIDDLE)
+        y += 0.68
     return s
 
 
@@ -420,14 +399,14 @@ def s_risk(prs):
     frame(s, "風險與人機協作", "風險與人機協作", 9, "「決定權在人」：LLM 初判只用來排序，不會自動改表格；修正另存成修正版，原本的 Excel 不動。")
     tag(s, 11.15, 0.6, 0.8, "回答 Q5")
     text(s, 0.67, 1.85, 6.5, 0.28, "風險與對策", 14, True, RED)
-    rows = [("標準答案只有單人初標", "補正式雙人標註，重算 F1 與 κ"), ("處理 46 分，目標 15 分", "換有 GPU 的機器實測"), ("15 格五字標靠規則擷取", "列入抽查，由人確認"), ("廣告頭尾約差 10 秒", "午間並行比較時調規則"), ("本機模型輸出不穩", "溫度 0，答案快取，重跑相同")]
+    rows = [("標準答案只有單人初標", "補正式雙人標註，重算 F1 與 κ"), ("處理 46 分，目標 15 分", "換有 GPU 的機器實測"), ("15 格五字標靠規則擷取", "列入抽查，由人確認"), ("廣告頭尾約差 10 秒", "午間並行比較時調規則")]
     y = 2.2
     for a, b in rows:
-        box(s, 0.67, y, 6.4, 0.78, CARD, BORDER, 0.08)
-        text(s, 0.85, y + 0.1, 3.0, 0.6, a, 13, True, INK, anchor=MSO_ANCHOR.MIDDLE)
-        arrow(s, 3.85, y + 0.39, 4.1, y + 0.39, RED, 1.25)
-        text(s, 4.2, y + 0.1, 2.75, 0.6, b, 12, False, MUTE, anchor=MSO_ANCHOR.MIDDLE)
-        y += 0.9
+        box(s, 0.67, y, 6.4, 0.95, CARD, BORDER, 0.08)
+        text(s, 0.85, y + 0.1, 3.0, 0.75, a, 14, True, INK, anchor=MSO_ANCHOR.MIDDLE)
+        arrow(s, 3.85, y + 0.48, 4.1, y + 0.48, RED, 1.25)
+        text(s, 4.2, y + 0.1, 2.75, 0.75, b, 13, False, MUTE, anchor=MSO_ANCHOR.MIDDLE)
+        y += 1.1
     text(s, 7.5, 1.85, 5.1, 0.28, "人機怎麼分工", 14, True, RED)
     label_box(s, 7.5, 2.2, 5.15, 0.9, [[("系統", {"bold": True, "size": 13, "color": RED})], [("90 格全由系統填寫，每格留下依據", {"size": 13})]], CARD, RED, lw=1.5)
     arrow(s, 10.07, 3.13, 10.07, 3.45, RED)
