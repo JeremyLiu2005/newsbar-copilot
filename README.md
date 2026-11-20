@@ -129,6 +129,3 @@ flowchart TD
 
 - 監看台（四台逐格判斷依據、截圖、廣告時間軸、TVBS 對照）：https://claude.ai/artifact/8P4J7qDJsnfJyGeUFKCcJ2
 - 操作原型（同一流程的靜態展示，沒有串接後端）：https://claude.ai/artifact/RL2VhX96ci22nN5znaiBSK
-- Excel 成品：[Google 試算表「12監看_20261106」](https://docs.google.com/spreadsheets/d/1r0NJTrHSPwxeT5bPlOU8agDoGQBMMMFfeaEerXp3-TE)
-
-兩個 claude.ai 頁面預設只有作者看得到，要開分享才能點開。
