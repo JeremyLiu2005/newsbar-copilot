@@ -1,93 +1,134 @@
 # NewsBar Copilot
 
-新聞監看全自動填表：輸入四個競台的側錄影片與「12監看」範本，自動判斷換題與廣告、產生五字標，寫回 Excel。
+三立新聞每天要有人盯著四個競台的畫面，每分鐘記一格「這分鐘在播哪則新聞」，寫成五個字左右的標題，填進「12監看」Excel。這個專案把這件事交給電腦做：給它側錄影片和空白的範本，它讀畫面下方的新聞標題條、判斷什麼時候換題、什麼時候是廣告，產生五字標，寫回 Excel。
 
-- 需求分析（Contextual Design）：[docs/requirements.md](docs/requirements.md)
-- 功能規格（痛點 → 規則 → 測試案例）：[docs/spec.md](docs/spec.md)
-- 系統架構：[docs/architecture.md](docs/architecture.md)
-- 要問業師的問題：[docs/mentor-questions.md](docs/mentor-questions.md)
+這是 UNEXT AI 企業創新實戰營 S36 的提案作品。程式全部在本機跑，影片和表格不會送到外部服務。
 
-## 系統狀態
+## 現在做到哪裡
 
-後端核心流程已用 11/06 四台一小時真實側錄驗證：主 bar OCR、換題判定、廣告狀態機、五字標生成與校驗、寫回「12監看」Excel。執行方式是命令列 `newsbar run`（地端，Mac M4）。
+用 2026/11/06 12:00–13:00 的民視、TVBS、東森、華視四台側錄實跑過一次，共 90 格。
 
-前端兩個網頁，用途不同：
+| 項目 | 目標 | 實測 |
+|---|---|---|
+| 換題時間點 F1（容許 ±1 分鐘，TVBS 對照研究者初標） | 0.85 以上 | 0.885，未調參的後 40 分鐘為 0.867 |
+| 廣告分鐘 F1 | 0.90 以上 | 0.95 |
+| 自動填寫率 | 100% | 100% |
+| 四台一小時的處理時間（Mac M4） | 15 分鐘以內 | 46 分鐘 |
 
-- **監看台網頁**：後端實跑結果的瀏覽器，資料全是真實輸出（[demo/index.html](demo/index.html)）。
-- **監看員網頁 `newsbar serve`（已串接後端）**：在本機開 http://127.0.0.1:8765 ，選四台側錄 → 開始分析（真的執行 `newsbar run`）→ 即時看各台進度 → 看結果 → 下載 Excel、開抽查頁。只綁本機，影片與表格不離開這台電腦。
-- **操作原型**：同一流程的靜態展示版，給沒有後端環境的人點著看，**未串接後端**（[demo/prototype.html](demo/prototype.html)，線上版 https://claude.ai/artifact/RL2VhX96ci22nN5znaiBSK ）。
+幾件要先講清楚的事：
+
+- **標準答案還不是正式的。** 目前只有 TVBS 一台、約 30 個點，由研究者一個人初標，不是雙人標註，所以 F1 只能當參考。
+- **處理時間沒達標。** 語音轉錄一次只能跑一台，這台電腦沒有 NVIDIA GPU。換成有 GPU 的機器才有可能達到 15 分鐘，這點還沒實測。
+- **90 格裡有 29 格是低信心。** 其中 14 格是換題訊號偏弱（FB-1），15 格的五字標是 LLM 兩次沒通過校驗、改用規則從標題擷取的（FB-4），1 格是 OCR 讀不到、靠語音定名（FB-3）。這些格子照常填，另外列進抽查清單，要人來看。
+- **TVBS 12:24 有一段廣告判錯**，其他台的廣告頭尾也有約 10 秒的誤差。等正式標註出來再調規則。
+
+## 怎麼用
+
+需要 macOS（用 Apple Vision 做 OCR）、Python 3.11、FFmpeg、[Ollama](https://ollama.com)。
+
+```bash
+uv sync --python 3.11 --extra mac
+ollama pull qwen2.5:7b-instruct
+uv run pytest        # 沒有影片也能跑，測試用程式合成的新聞畫面
+```
+
+四台側錄影片版權屬各電視台，由課程提供，不放在這個 repo。拿到後放到 `data/raw/{tvbs,ettv,ftv,cts}.ts`，範本放 `data/raw/template.xlsx`。
+
+### 網頁後台（給監看員）
 
 ```bash
 uv run newsbar serve --channels config/channels.1106.yaml --rules config/rules.1106.yaml \
   --rules-fast config/rules.1106.fast.yaml --workdir data/work_full
 ```
 
-設計上系統跑在三立內部，側錄影片與監看資料不出內網。
+打開 http://127.0.0.1:8765，只綁本機。流程是：選四台影片、開始分析、看各台進度、看結果、下載 Excel。
 
-## 成果（2026/11/06 12:00–13:00，四台實跑）
+結果頁每一段新聞都能點開，看到當下完整畫面、主標題條的裁切圖、OCR 讀到的字、語音辨識結果和判斷依據。畫面或標籤不對，可以直接在頁面上標「對」或填正確寫法、選錯誤類型，再產生「修正版」Excel。原本的 Excel 不會被改動。
 
-| 指標 | 目標 | 實測 |
-|---|---|---|
-| 換題起始分鐘 F1（容許 ±1 分鐘，TVBS 對照研究者初標） | ≥0.85 | 0.885（未調參測試段 0.867） |
-| 廣告分鐘 F1 | ≥0.90 | 0.95 |
-| 自動填寫率 | 100% | 100% |
-| 四台一小時處理時間（Mac M4） | ≤15 分鐘 | 46 分鐘（瓶頸：語音轉錄一次只能一台） |
+結果頁上的「LLM 初判換題」按鈕，會請本機模型看每個 FB-1 的標題是不是新的一則新聞。判成「新的一則」的格子在清單上標「LLM 已初判」，其他仍列入抽查。這只是參考意見，不會寫進表格。
 
-- 監看台網頁（每格判斷依據、主 bar 截圖、廣告時間軸、TVBS 對照）：https://claude.ai/artifact/8P4J7qDJsnfJyGeUFKCcJ2
-- Excel 成品：Google 試算表「12監看_20261106」（需權限）
-- 標準答案目前是研究者初標，正式雙人標註尚未完成
-
-## 影片從哪裡來
-
-四台側錄影片（民視、TVBS、東森、華視）由課程提供，版權屬各電視台，**不放進這個 repo**。
-要重跑請向課程取得影片，放到 `data/raw/{tvbs,ettv,ftv,cts}.ts`，再照下面「開發」的指令執行。
-沒有影片也能跑 `uv run pytest`：測試用的是程式合成的新聞畫面，不需要真實側錄。
-
-執行環境：macOS（Apple Vision OCR）、Python 3.11、FFmpeg、Ollama（`qwen2.5:7b-instruct`）。
-
-## 核心流程
-
-```
-側錄影片 → 抽框／抽音軌 → 主 bar OCR ＋ 語音轉錄 ＋ 畫面訊號
-        → 廣告狀態機 → 換題引擎 → 五字標（受限 LLM＋校驗）
-        → 秒轉分鐘格 → 寫回 12監看.xlsx
-```
-
-## 設計原則
-
-1. 先判廣告、再判換題，包框殘留的 bar 文字不採用
-2. 判斷用可解釋的規則，LLM 只負責命名且必須通過來源校驗
-3. 每一格都由系統決定，不停下來等人工
-4. 只動四個競台的五字標欄，其他欄位與格式不變
-
-## 開發
+### 命令列
 
 ```bash
-uv sync --python 3.11 --extra mac   # mac = Apple Vision OCR
-uv run pytest                        # 132 個測試：規格 T01–T24、合成影片 OCR／包框／平行端到端
+# 四台影片 → 監看表、判斷依據、處理報告、抽查頁（畫面時鐘會自動讀取校時）
+uv run newsbar run --template data/raw/template.xlsx --out out/12監看_20261106.xlsx \
+  --video tvbs=data/raw/tvbs.ts --video ettv=data/raw/ettv.ts \
+  --video ftv=data/raw/ftv.ts --video cts=data/raw/cts.ts \
+  --channels config/channels.1106.yaml --rules config/rules.1106.yaml \
+  --workdir data/work_full --jobs 4 --resume
 
-# 1. 檢查 ROI（可順便存包框樣板）
-uv run newsbar calibrate --video data/tvbs.mp4 --channel tvbs --channels config/channels.yaml --at 30
-# 2. 一鍵：四台影片 → 監看表、依據、處理報告、抽查頁
-uv run newsbar run --template 範本.xlsx --out out/12監看_20261106.xlsx \
-  --video tvbs=data/tvbs.mp4@11:59:50 --video ettv=data/ettv.mp4@11:59:50 \
-  --video ftv=data/ftv.mp4@11:59:50 --video cts=data/cts.mp4@11:59:50 \
-  --channels config/channels.yaml --rules config/rules.yaml --jobs 4
-# 3. 與標準答案比對（前 20 分鐘留給調參）
+# 跟標準答案比對
 uv run newsbar eval --system out/12監看_20261106.xlsx --gold gold.xlsx --test-from 1220
-# 4. 抽查修正 → 另存修正版（原檔不動）
+
+# 抽查後另存修正版
 uv run newsbar apply-corrections --sheet out/12監看_20261106.xlsx --corrections corrections.json \
-  --template 範本.xlsx --out out/12監看_20261106.修正版.xlsx
+  --template data/raw/template.xlsx --out out/12監看_20261106.修正版.xlsx
 ```
 
-全天自動：`newsbar watch --inbox 側錄資料夾 --out-dir out --template 範本.xlsx --keep-frames-days 7`（檔名 `{台別}_{YYYYMMDD}_{HHMM}.mp4`）。
+`--resume` 會沿用已經跑過的 OCR 與語音結果，只重跑換題和五字標。同一支影片重跑，五字標會逐格相同：模型溫度固定為 0，答案也存在快取裡。改了提示詞要更新 `llm.py` 的 `PROMPT_VERSION`，快取才不會把舊答案又拿出來用。
 
-產出：`*.xlsx`（監看表）、`*.evidence.jsonl`（每格依據）、`*.report.csv`（抽查清單）、`*.report.json`（處理報告）、`*.review.html`（抽查頁）。
+產出檔案：`*.xlsx`（監看表）、`*.evidence.jsonl`（每格的依據）、`*.report.csv`（抽查清單，低信心排最前面）、`*.report.json`（處理報告）、`*.review.html`（抽查頁）。
 
-選配：`uv add mlx-whisper`（語音轉錄，`--asr mlx`）、`ollama pull qwen2.5:7b-instruct`（地端 LLM，rules `labeler.generator: ollama`）。
+## 判斷怎麼做
 
-實測（M4、合成 720p 影片）：Apple Vision 每張 ROI 約 45 ms；一台一小時只讀主 bar 約 3 分鐘；ROI 截圖每台每小時約 60 MB。
+```mermaid
+flowchart LR
+    V["側錄影片<br/>四台各一支"] --> F["抽畫面與音軌"]
+    F --> O["主標題條 OCR"]
+    F --> A["語音轉錄"]
+    F --> S["畫面訊號<br/>版面、台徽、時鐘"]
+    O --> AD["廣告狀態機"]
+    A --> AD
+    S --> AD
+    AD --> C["換題判斷"]
+    C --> L["五字標<br/>LLM 產生，通過校驗才收"]
+    L --> M["秒轉成分鐘格"]
+    M --> X["寫回 12監看.xlsx<br/>只動四台五字標欄"]
+    X --> E["判斷依據、抽查清單、處理報告"]
+```
 
-實作狀態見 [architecture.md §12](docs/architecture.md#12-實作狀態)，需求逐條狀態見 [requirements.md §6](docs/requirements.md#6-需求清單)。
+- **先判廣告，再判換題。** 廣告包框裡殘留的標題條文字不採用。廣告靠版面、底色、台徽、黑場靜音、廣告語音、聲音指紋、跑馬列消失、畫面時鐘消失等訊號，通常要兩個以上同時成立。
+- **換題看標題條。** 標題穩定出現 7 秒才算一則新聞，廣告前不到 20 秒的片段併進廣告，3 分鐘內同一則標題輪回併回原本那一則。
+- **五字標由 LLM 產生，但要過校驗。** 字數 4 到 6，字必須出現在畫面標題裡，社會新聞要有地點。兩次都沒過，就改用規則從標題擷取「地點＋核心動詞」。
+- **每一格都由系統決定，不停下來等人。** 沒把握的標成低信心，交給人抽查。
+- **只動四個競台的五字標欄**，範本其他欄位與格式在寫入前後都會比對，不能有變動。
 
-影片與中間產物放在 `data/`，不進版本控制。
+LLM 用的是本機 Ollama 的 `qwen2.5:7b-instruct`。地端 7B 模型常寫出超過六個字或用了標題以外的字，所以才需要校驗和規則備援。提示詞已加上字數規則，在 17 個 FB-4 格上測，字數錯誤從約一半降到 1 個，但還沒用新提示詞重跑 11/06 的 Excel，現有成品仍是舊提示詞的結果。
+
+### 低信心的格子怎麼處理
+
+```mermaid
+flowchart TD
+    Q["90 格都由系統填寫"] --> H{"信心高？"}
+    H -->|"高，61 格"| OK["直接採用"]
+    H -->|"低，29 格"| T{"哪一種？"}
+    T -->|"FB-1 換題訊號弱"| J["LLM 初判：是不是新的一則"]
+    J -->|"新的一則"| J1["標「LLM 已初判」<br/>仍可人工覆核"]
+    J -->|"同一則或雜訊"| R
+    T -->|"FB-4 規則擷取的五字標"| R["列入抽查清單"]
+    T -->|"FB-3 只靠語音定名"| R
+    J1 --> R2["人工抽查：對照畫面、語音與依據"]
+    R --> R2
+    R2 -->|"對"| OK
+    R2 -->|"錯"| FIX["填正確寫法並選錯誤類型"]
+    FIX --> W["另存修正版 Excel<br/>原檔不動"]
+```
+
+### 還沒解決的
+
+- FB-4 的五字標：用同一個本機模型當裁判，它幾乎每個標籤都說要修，還放過截斷的「高雄老店歇」，目前不可靠，所以後台只接了 FB-1 的初判。想省這部分的人工，需要更強的模型（要送標題到外部 API，要先決定能不能送）。
+- 「廣告結束後接回同一則新聞，要留白還是重記標」要請業師確認。要問業師的完整清單在 [docs/mentor-questions.md](docs/mentor-questions.md)。
+
+## 文件
+
+- [docs/requirements.md](docs/requirements.md)：需求分析與逐條狀態
+- [docs/spec.md](docs/spec.md)：痛點、規則、測試案例
+- [docs/architecture.md](docs/architecture.md)：系統架構與實作狀態
+
+## 線上展示
+
+- 監看台（四台逐格判斷依據、截圖、廣告時間軸、TVBS 對照）：https://claude.ai/artifact/8P4J7qDJsnfJyGeUFKCcJ2
+- 操作原型（同一流程的靜態展示，沒有串接後端）：https://claude.ai/artifact/RL2VhX96ci22nN5znaiBSK
+- Excel 成品：[Google 試算表「12監看_20261106」](https://docs.google.com/spreadsheets/d/1r0NJTrHSPwxeT5bPlOU8agDoGQBMMMFfeaEerXp3-TE)
+
+兩個 claude.ai 頁面預設只有作者看得到，要開分享才能點開。
