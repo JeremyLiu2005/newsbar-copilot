@@ -12,12 +12,13 @@
   };
   const WHY = {
     fb3: '換題當下標題沒讀到（或廣告後沒等到新標題），這一格先用語音決定名稱。請對照畫面上的標題，確認是同一則新聞。',
-    fb4: 'LLM 寫的五字標兩次沒通過逐字校驗，改用規則從標題擷取。請看這幾個字是否說得清楚是哪則新聞。',
+    fb4: 'AI 寫的五字標兩次沒通過逐字檢查，改用規則直接從標題摘字。請看這幾個字是否說得清楚是哪則新聞。',
     fb1: '換題的佐證偏弱。請看這一則的起點，是不是真的換了新聞，或該併回前一則。',
     fb1c: '換題的佐證偏弱，但本機模型初判這是新的一則。你可以快速確認，不必逐項細查。',
     smp: '系統高信心的格子，隨機抽樣檢查，用來確認沒有漏看的錯誤。'
   };
-  const TAGNAME = { fb3: 'FB-3 語音定名', fb4: 'FB-4 規則擷取', fb1: 'FB-1 換題存疑', fb1c: 'FB-1 LLM 已初判', smp: '高信心抽樣' };
+  const TAGNAME = { fb3: '語音定名', fb4: '規則擷取', fb1: '換題存疑', fb1c: '換題存疑・AI 已初判', smp: '高信心抽樣' };
+  const SHORT = { fb3: '語音定名', fb4: '規則擷取', fb1: '換題存疑', fb1c: '換題存疑', smp: '抽樣' };
   const FUNC = new Set('中了再又仍已遭被將要的與和');
   const $ = (r, s) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -135,7 +136,7 @@
         const k = kindOf(c), r = recOf(c);
         return `<div class="qi${c.ch + c.m === S.id ? ' sel' : ''}${r ? ' done' : ''}" data-i="${i}" tabindex="0" role="option" aria-selected="${c.ch + c.m === S.id}">
           <span class="tm">${hm(c.m)}</span><span class="lb">${esc(c.v)}</span>
-          ${r ? `<span class="tag ${r.verdict === 'fix' ? 't-fix' : 't-ok'}">${r.verdict === 'fix' ? '已改正' : '已確認'}</span>` : `<span class="tag t-${k}">${k === 'smp' ? '抽樣' : k.toUpperCase().replace('FB', 'FB-').replace('1C', '1')}</span>`}
+          ${r ? `<span class="tag ${r.verdict === 'fix' ? 't-fix' : 't-ok'}">${r.verdict === 'fix' ? '已改正' : '已確認'}</span>` : `<span class="tag t-${k}">${SHORT[k]}</span>`}
           <span class="sub">${NAMES[c.ch]}・${TAGNAME[k]}</span></div>`;
       }).join('');
       el.querySelectorAll('.qi').forEach(n => {
@@ -160,7 +161,7 @@
         </div>
         <div><div class="cap">主 bar 讀到的標題（可用滑鼠選取，再按「帶入選取文字」）</div><div class="rv-title" data-title>${esc(i.bar || '（讀不到）')}</div></div>
         ${j && j.prev ? `<div class="cmp"><b>前一則</b><span>${esc(j.prev)}</span><b>這一則</b><span>${esc(i.bar || '')}</span></div>` : ''}
-        ${j ? `<div class="judge"><div class="h">LLM 初判：${jt || esc(j.verdict)}</div><div>${esc(j.reason || '')}</div><div class="rv-note">本機 7B 模型的參考意見，只用來排序，不會自動改表格。</div></div>` : ''}
+        ${j ? `<div class="judge"><div class="h">AI 初判：${jt || esc(j.verdict)}</div><div>${esc(j.reason || '')}</div><div class="rv-note">本機 7B 模型的參考意見，只用來排序，不會自動改表格。</div></div>` : ''}
         ${i.asr ? `<details><summary>語音辨識節錄</summary><div style="margin-top:6px">${esc(i.asr)}…</div></details>` : ''}
       </div>`;
     }

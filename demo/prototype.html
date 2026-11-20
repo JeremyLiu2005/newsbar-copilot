@@ -121,8 +121,8 @@ th,td{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;white-
     <div class="tabs" id="tabs" role="tablist"></div>
     <div><div class="lab" style="margin-bottom:4px">這一台的一小時：橘色是廣告破口</div><div class="tl" id="tl"></div></div>
     <div class="list" id="segs"></div>
-    <p class="note">「列入抽查」的段落照常填進表裡，不會留白或寫「待確認」。換題證據偏弱（FB-1）的格子，可以先請本機模型初判。</p>
-    <div class="btns"><button class="pbtn ghost" id="judge">LLM 初判換題</button><span class="note" id="judgenote" style="align-self:center"></span></div>
+    <p class="note">「列入抽查」的段落照常填進表裡，不會留白或寫「待確認」。換題存疑的格子，可以先請本機模型初判。</p>
+    <div class="btns"><button class="pbtn ghost" id="judge">AI 初判換題</button><span class="note" id="judgenote" style="align-self:center"></span></div>
     <div class="btns"><button class="pbtn" id="toReview">下一步：人工複查</button></div>
   </section>
 
@@ -212,15 +212,15 @@ function renderResult(){
   $('#tl').innerHTML=(D.timeline[cur]||[]).filter(r=>r[0]==='ad').map(r=>`<span style="left:${r[1]/36}%;width:${(r[2]-r[1])/36}%"></span>`).join('');
   $('#segs').innerHTML=segs.map((s,i)=>{
     const end=i+1<segs.length?segs[i+1][0]:3600;
-    const tag=isCleared(s[5],s[4])?'<span class="pill p-soft">LLM 已初判</span>':s[3]?'<span class="pill p-low">列入抽查</span>':'<span></span>';
+    const tag=isCleared(s[5],s[4])?'<span class="pill p-soft">AI 已初判</span>':s[3]?'<span class="pill p-low">列入抽查</span>':'<span></span>';
     return `<div class="seg${s[1]==='ad'?' ad':''}"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${tag}</div>`}).join('');
   $('#judge').disabled=judged;
 }
 $('#judge').onclick=()=>{
   const b=$('#judge'); b.disabled=true; b.textContent='初判中…';
-  setTimeout(()=>{judged=true; b.textContent='LLM 初判換題';
+  setTimeout(()=>{judged=true; b.textContent='AI 初判換題';
     const n=D.cells.flatMap(c=>c.items.filter(i=>i.judge)).length, k=D.cells.filter(c=>c.fb==='FB-1'&&c.items.filter(i=>i.type==='news').every(i=>i.judge&&i.judge.verdict==='different')).length;
-    $('#judgenote').textContent=`已初判 ${n} 則；${k} 格判為新的一則，標「LLM 已初判」。五字標沒有動，仍可人工覆核。`; renderResult()},700);
+    $('#judgenote').textContent=`已初判 ${n} 則；${k} 格判為新的一則，標「AI 已初判」。五字標沒有動，仍可人工覆核。`; renderResult()},700);
 };
 
 function dataForReview(){
