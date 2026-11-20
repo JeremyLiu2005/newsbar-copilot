@@ -302,41 +302,47 @@ def s_tech(prs):
         label_box(s, x, 1.85, w, 0.9, [[(a, {"bold": True, "size": 13, "color": RED if i == 3 else INK})], [(b, {"size": 11, "color": MUTE})]], SOFTRED if i == 3 else CARD, None if i == 3 else BORDER, pad=0.08)
         if i < 3:
             arrow(s, x + w + 0.02, 2.3, x + w + g - 0.02, 2.3, RED, 1.25)
-    text(s, 0.67, 2.95, 5.6, 0.28, "準確度對目標", 13, True, RED)
+    text(s, 0.67, 2.95, 5.6, 0.28, "準確度對目標（TVBS 對照）", 13, True, RED)
     bar_chart_f1(s, 0.67, 3.2, 5.9, 2.55)
     text(s, 0.67, 5.85, 5.9, 1.0, [
         "自動填寫率 100%；四台一小時處理 46 分，目標 15 分，未達。",
         "未調參的 12:20 後測試段換題 F1 為 0.867；拿掉語音降到 0.758。"], 12, False, INK, space=3)
-    text(s, 6.95, 2.95, 5.7, 0.28, "90 格的信心分布", 13, True, RED)
+    text(s, 6.95, 2.95, 5.7, 0.28, "四台各自的結果（格）", 13, True, RED)
+    # per channel, from out/12監看_20261106.report.json: (name, cells, story changes, ad breaks, low confidence)
+    per = [("TVBS-N", 24, 25, 4, 9), ("東森", 27, 30, 4, 7), ("民視", 20, 18, 3, 6), ("華視", 19, 16, 4, 7)]
     cd = CategoryChartData()
-    cd.categories = ["高信心 61", "FB-1 換題存疑 13", "FB-4 規則擷取 15", "FB-3 語音定名 1"]
-    cd.add_series("格數", (61, 13, 15, 1))
-    gf = s.shapes.add_chart(XL_CHART_TYPE.DOUGHNUT, Inches(6.95), Inches(3.2), Inches(2.9), Inches(3.0), cd)
+    cd.categories = [f"{n}　換題 {c}・廣告 {a}" for n, _, c, a, _ in reversed(per)]
+    cd.add_series("高信心", [t - l for _, t, _, _, l in reversed(per)])
+    cd.add_series("低信心（列入抽查）", [l for _, _, _, _, l in reversed(per)])
+    gf = s.shapes.add_chart(XL_CHART_TYPE.BAR_STACKED, Inches(6.95), Inches(3.2), Inches(5.7), Inches(2.55), cd)
     ch = gf.chart
     chart_text(ch, 11)
     ch.has_title = False
-    ch.has_legend = False
+    ch.has_legend = True
+    ch.legend.position = XL_LEGEND_POSITION.BOTTOM
+    ch.legend.include_in_layout = False
+    ch.legend.font.size = Pt(11)
     plot = ch.plots[0]
+    plot.gap_width = 45
+    plot.overlap = 100
     plot.has_data_labels = True
-    plot.data_labels.show_value = True
-    plot.data_labels.font.size = Pt(11)
+    plot.data_labels.position = XL_LABEL_POSITION.CENTER
+    plot.data_labels.font.size = Pt(12)
     plot.data_labels.font.bold = True
     plot.data_labels.font.color.rgb = rgb("FFFFFF")
-    for i, c in enumerate(["A3A3A3", ORANGE, RED, DARK]):
-        pt = plot.series[0].points[i]
-        pt.format.fill.solid()
-        pt.format.fill.fore_color.rgb = rgb(c)
-    hole = plot._element.find(qn("c:holeSize"))
-    if hole is None:
-        hole = etree.SubElement(plot._element, qn("c:holeSize"))
-    hole.set("val", "58")
-    leg = [("高信心 61 格", "A3A3A3"), ("換題存疑 13 格", ORANGE), ("規則擷取 15 格", RED), ("語音定名 1 格", DARK)]
-    y = 3.45
-    for a, c in leg:
-        box(s, 10.0, y + 0.04, 0.16, 0.16, c, None, 0, shape=MSO_SHAPE.OVAL)
-        text(s, 10.3, y, 2.4, 0.26, a, 12, False, INK)
-        y += 0.36
-    text(s, 10.0, 4.95, 2.65, 1.3, "低信心 29 格（32%）照常填，另列抽查清單。", 12, True, RED)
+    for ser, c in zip(plot.series, ["A3A3A3", RED]):
+        ser.format.fill.solid()
+        ser.format.fill.fore_color.rgb = rgb(c)
+    va = ch.value_axis
+    va.minimum_scale, va.maximum_scale = 0, 30
+    va.major_unit = 10
+    va.has_major_gridlines = True
+    va.major_gridlines.format.line.color.rgb = rgb(BORDER)
+    va.format.line.fill.background()
+    va.tick_labels.font.size = Pt(10)
+    ch.category_axis.tick_labels.font.size = Pt(11)
+    ch.category_axis.format.line.color.rgb = rgb(BORDER)
+    text(s, 6.95, 5.8, 5.7, 0.5, "90 格全由系統填寫；低信心 29 格（32%）照常填，另列抽查：換題存疑 13、規則擷取 15、語音定名 1。", 11, True, RED)
     box(s, 6.95, 6.3, 5.7, 0.62, SOFTRED, None, 0.08)
     text(s, 7.1, 6.3, 5.4, 0.62, "校驗：字數 4–6、字在標題內、社會新聞要有地點。重跑 240 格逐格相同。", 11, False, INK, PP_ALIGN.LEFT, MSO_ANCHOR.MIDDLE)
     return s
