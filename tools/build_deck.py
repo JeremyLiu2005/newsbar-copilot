@@ -253,7 +253,7 @@ def s_demo(prs):
     pic(s, "rv_queue.png", 6.5, 2.5, h=3.7)
     pic(s, "rv_card.png", 8.13, 2.5, h=3.7)
     text(s, 6.5, 6.3, 4.5, 0.6, "38 格排成清單，每格附畫面與依據；對、改寫、不該填、先跳過。複查完另存修正版。", 11, False, INK)
-    for i, (f, t) in enumerate([("qr_proto.png", "流程示範"), ("qr_monitor.png", "結果網頁"), ("qr_github.png", "原始碼")]):
+    for i, (f, t) in enumerate([("qr_proto.png", "流程示範"), ("qr_monitor.png", "結果網頁"), ("qr_github.png", "GitHub 可下載")]):
         qy = 2.5 + i * 1.5
         s.shapes.add_picture(str(A / f), Inches(11.4), Inches(qy), width=Inches(1.1))
         text(s, 11.25, qy + 1.12, 1.4, 0.25, t, 10, False, INK, PP_ALIGN.CENTER)
