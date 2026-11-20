@@ -21,7 +21,10 @@ out.write_bytes(b'PK-fake-xlsx')
 out.with_suffix('.evidence.jsonl').write_text(json.dumps({'channel': 'tvbs', 'minute': '1200', 'value': '土城翁輾亡',
     'confidence': 'high', 'fallback': None, 'signals': ['NEW-1'],
     'items': [{'type': 'news', 'label': '土城翁輾亡', 'start_sec': 5, 'bar_text': '新北土城一七旬老翁',
-    'asr_text': '新北土城一名七旬老翁', 'frame': 'data/work/tvbs/frames/main_bar/00019.jpg'}]}, ensure_ascii=False) + '\n')
+    'asr_text': '新北土城一名七旬老翁', 'frame': 'data/work/tvbs/frames/main_bar/00019.jpg'}]}, ensure_ascii=False) + '\n'
+    + json.dumps({'channel': 'tvbs', 'minute': '1201', 'value': '股匯雙殺', 'confidence': 'low', 'fallback': 'FB-1',
+    'signals': ['NEW-1'], 'items': [{'type': 'news', 'label': '股匯雙殺', 'start_sec': 70, 'bar_text': '股匯雙殺新台幣貶值',
+    'asr_text': '', 'frame': 'x/00070.jpg'}]}, ensure_ascii=False) + '\n')
 out.with_suffix('.report.json').write_text(json.dumps({'channels': {'tvbs': {'cells': 1, 'low_conf': 0}}}))
 print('tvbs: 1 格，換題 1，廣告 0，低信心 0', flush=True)
 """
@@ -40,7 +43,8 @@ def app(tmp_path):
     script.write_text(FAKE_RUN)
     s = server.Settings(video_dir=vids, template=vids / "template.xlsx", out_dir=tmp_path / "out",
                         channels=tmp_path / "c.yaml", rules=tmp_path / "r.yaml", rules_fast=None,
-                        workdir=tmp_path / "work")
+                        workdir=tmp_path / "work",
+                        judge_ask=lambda system, user: {"verdict": "different", "reason": "兩則不同事件"})
     jobs = server.Jobs(launch=lambda cmd: __import__("subprocess").Popen(
         [sys.executable, str(script), *cmd[3:]], stdout=-1, stderr=-2, text=True))
     httpd = server.serve(s, port=0, jobs=jobs)
@@ -143,3 +147,31 @@ def test_manual_review_saves_and_replaces_corrections(app):
     assert r["items"] == []
     code, err = post(url, {"channel": "cts", "minute": "1200", "verdict": "ok", "reviewer": "B"})
     assert code == 400
+
+
+def test_llm_first_opinion_on_weak_story_changes(app):
+    _, job = post(app + "/api/jobs", {"videos": {"tvbs": "tvbs.ts"}})
+    for _ in range(50):
+        if json.loads(get(f"{app}/api/jobs/{job['id']}")[2])["state"] != "running":
+            break
+        time.sleep(0.1)
+    before = json.loads(get(f"{app}/api/jobs/{job['id']}/result")[2])
+    assert all(i["judge"] is None for c in before["cells"] for i in c["items"])
+    code, r = post(f"{app}/api/jobs/{job['id']}/judge", {})
+    assert code == 200 and r == {"checked": 1, "cleared": 1}
+    res = json.loads(get(f"{app}/api/jobs/{job['id']}/result")[2])
+    weak = next(c for c in res["cells"] if c["m"] == "1201")["items"][0]
+    assert weak["judge"]["verdict"] == "different" and weak["judge"]["prev"] == "新北土城一七旬老翁"
+    assert next(c for c in res["cells"] if c["m"] == "1200")["items"][0]["judge"] is None
+    assert res["cells"][0]["v"] == "土城翁輾亡"  # the sheet value is never changed by the opinion
+
+
+def test_judge_verdicts_are_validated_and_first_story_skips_the_model():
+    from newsbar import judge
+    ev = [{"channel": "ftv", "minute": "1200", "fallback": "FB-1", "confidence": "low",
+           "items": [{"type": "news", "start_sec": -14, "bar_text": "車輛自燃"}]},
+          {"channel": "ftv", "minute": "1203", "fallback": "FB-1", "confidence": "low",
+           "items": [{"type": "news", "start_sec": 200, "bar_text": "冷空氣報到"}]}]
+    calls = []
+    out = judge.judge_changes(ev, lambda sys_, user: calls.append(user) or {"verdict": "???", "reason": "x"})
+    assert [o["verdict"] for o in out] == ["first", "unknown"] and len(calls) == 1

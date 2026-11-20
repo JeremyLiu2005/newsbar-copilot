@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import unquote
 
+import yaml
+
 CHANNELS = ["tvbs", "ettv", "ftv", "cts"]
 VIDEO_EXT = {".ts", ".mp4", ".mkv", ".mov"}
 STAGE_RE = re.compile(r"^\[(?P<ch>[a-z0-9_]+)(?:\.[a-z0-9]+)?\]\s*(?P<msg>.+?)\s*(?:…)?$")
@@ -113,6 +115,7 @@ class Settings:
     asr: str = "faster-whisper"
     jobs: int = 4
     python: str = sys.executable
+    judge_ask: Callable[[str, str], dict] | None = None  # tests inject a fake; default is the local Ollama
 
 
 def list_inputs(s: Settings) -> dict:
@@ -197,12 +200,44 @@ def read_result(out: Path, workdir: Path | None = None) -> dict:
             end = next((x for x in starts.get(c["channel"], []) if x > s0), 10**6)
             i["_idx"] = shot_index(rows.get(c["channel"], []), i, end) if rows else _frame_index(i.get("frame"))
             i["_strip"] = ad_strip(rows.get(c["channel"], []), s0, end) if i.get("type") == "ad" else []
+    judged = {(j["channel"], j["start"]): j for j in load_judge(out)}
     return {"cells": [{"ch": c["channel"], "m": c["minute"], "v": c["value"], "conf": c.get("confidence"),
                        "fb": c.get("fallback"), "sig": c.get("signals", []),
                        "items": [{"type": i["type"], "label": i.get("label"), "start": i.get("start_sec"),
                                   "bar": i.get("bar_text"), "asr": (i.get("asr_text") or "")[:400] or None,
-                                  "idx": i.get("_idx"), "strip": i.get("_strip", [])} for i in c.get("items", [])]} for c in cells],
+                                  "idx": i.get("_idx"), "strip": i.get("_strip", []),
+                                  "judge": ({"verdict": j["verdict"], "reason": j["reason"], "prev": j.get("prev")}
+                                            if (j := judged.get((c["channel"], i.get("start_sec")))) else None)}
+                                 for i in c.get("items", [])]} for c in cells],
             "report": report.get("channels", {}), "timings": report.get("timings_sec", {})}
+
+
+def judge_path(out: Path) -> Path:
+    return out.with_suffix(".judge.json")
+
+
+def load_judge(out: Path) -> list[dict]:
+    p = judge_path(out)
+    return json.loads(p.read_text(encoding="utf-8")).get("items", []) if p.exists() else []
+
+
+def run_judge(job: Job, s: Settings) -> dict:
+    """LLM second opinion on FB-1 cells; saved beside the sheet, never written into it."""
+    from . import judge
+
+    ev = job.out.with_suffix(".evidence.jsonl")
+    if not ev.exists():
+        raise ValueError("還沒有判斷依據檔")
+    rows = [json.loads(l) for l in ev.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lab = (yaml.safe_load(s.rules.read_text(encoding="utf-8")) or {}).get("labeler", {}) if s.rules.exists() else {}
+    ask = s.judge_ask or judge.ollama_ask(lab.get("host", "http://127.0.0.1:11434"), lab.get("model", "qwen2.5:7b-instruct"))
+    try:
+        items = judge.judge_changes(rows, ask)
+    except (OSError, ValueError, KeyError) as e:  # Ollama down, bad JSON
+        raise RuntimeError(f"地端模型沒有回應：{e}") from e
+    judge_path(job.out).write_text(json.dumps({"model": lab.get("model"), "items": items}, ensure_ascii=False), encoding="utf-8")
+    cleared = sum(1 for j in items if j["verdict"] == "different")
+    return {"checked": len(items), "cleared": cleared}
 
 
 def _frame_index(frame: str | None) -> int | None:
@@ -360,6 +395,19 @@ def make_handler(s: Settings, jobs: Jobs):
             return self.send(200, review.read_bytes(), "text/html; charset=utf-8")
 
         def do_POST(self):
+            m = re.fullmatch(r"/api/jobs/([0-9a-f]{8})/judge", self.path)
+            if m:
+                job = self.job_or_404(m[1])
+                if job is None:
+                    return None
+                if job.state != "done":
+                    return self.json({"error": "工作尚未完成"}, 409)
+                try:
+                    return self.json(run_judge(job, s))
+                except ValueError as e:
+                    return self.json({"error": str(e)}, 400)
+                except RuntimeError as e:
+                    return self.json({"error": str(e)}, 503)
             m = re.fullmatch(r"/api/jobs/([0-9a-f]{8})/(corrections|corrected)", self.path)
             if m:
                 job = self.job_or_404(m[1])

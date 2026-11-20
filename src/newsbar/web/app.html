@@ -44,6 +44,7 @@ pre.log{background:var(--bg);border:1px solid var(--line);border-radius:6px;padd
 .list{border:1px solid var(--line);border-radius:8px;max-height:420px;overflow:auto}
 .seg{display:grid;grid-template-columns:118px minmax(0,1fr) auto;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:14px;align-items:center}
 .seg .t{font:13px var(--mono);color:var(--mute)} .seg.ad{background:var(--ad-soft)} .seg.ad .lbl{color:var(--ad);font-weight:700}
+.pill.soft{background:var(--bg-soft,#eef1f4);color:var(--muted,#5b6570);font-weight:600}
 .pill{font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn)}
 .note{color:var(--mute);font-size:13px}
 .resgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:16px;align-items:start}
@@ -99,7 +100,8 @@ thead th{position:sticky;top:0;background:var(--panel)} td.adc{background:var(--
     <div class="stats" id="stats"></div>
     <div class="resgrid"><div class="list" id="segs"></div><div class="ev" id="ev"><p class="note">點左邊任一則，看系統判斷的依據：當下畫面、主 bar 讀到的字、語音辨識結果。</p></div></div>
     <p class="note">「列入抽查」的格照常填進表裡，只另外排進抽查清單，不留白、不寫「待確認」。</p>
-    <div class="btns"><button id="toDone">下一步：取得 Excel</button><a class="btn ghost" id="review" target="_blank">開啟抽查頁</a></div>
+    <div class="btns"><button id="toDone">下一步：取得 Excel</button><button class="ghost" id="judge">LLM 初判換題</button><a class="btn ghost" id="review" target="_blank">開啟抽查頁</a></div>
+    <p class="note" id="judgenote" hidden></p>
   </section>
 
   <section class="card" id="done" hidden>
@@ -178,6 +180,9 @@ async function tick(){
 
 $('#toResult').onclick=async()=>{RES=await api(`/api/jobs/${JOB.id}/result`); await loadFix();
   try{$('#reviewer').value=localStorage.getItem('nb-reviewer')||''}catch(e){} cur=CHS.find(c=>RES.cells.some(x=>x.ch===c))||'ftv'; renderResult(); show('result')};
+const JV={different:'LLM 初判：新的一則',same:'LLM 初判：疑似同一則',noise:'LLM 初判：疑似雜訊',first:'各台第一則',unknown:'LLM 初判：無法判斷'};
+// A cell is cleared from the spot-check list only when its sole weak point is FB-1 and the model says a new story began.
+const cleared=(c,i)=>c.conf==='low'&&String(c.fb||'')==='FB-1'&&i.judge&&i.judge.verdict==='different';
 function segsOf(ch){
   const out=[];
   RES.cells.filter(c=>c.ch===ch).forEach(c=>c.items.forEach(i=>out.push([i.start??(+c.m.slice(2))*60,i.type,i.label||'廣告',c.conf==='low',i,c])));
@@ -195,6 +200,7 @@ function evidence(seg){
     <div><div class="k">主 bar 讀到的字</div><div class="v">${esc(i.bar||'—')}</div></div>
     <div><div class="k">語音辨識結果</div><div class="v">${esc(i.asr||'—')}</div></div>
     <div><div class="k">判斷依據</div>${sigs||'<div class="v">—</div>'}${fbs}</div>
+    ${i.judge?`<div><div class="k">LLM 初判（地端模型，僅供參考，不會寫進表格）</div><div class="v"><b>${esc(JV[i.judge.verdict]||i.judge.verdict)}</b>${i.judge.reason?'：'+esc(i.judge.reason):''}${i.judge.prev?`<br><span class="note">前一則：${esc(i.judge.prev)}</span>`:''}</div></div>`:''}
     <div class="fix"><div class="k">人工複查：${c.m.slice(0,2)}:${c.m.slice(2)} 這一格目前寫「<b>${esc(c.v)||'（空白）'}</b>」</div>
       <div class="row2"><label><input type="radio" name="vd" value="ok"> 對</label><label><input type="radio" name="vd" value="fix"> 錯，改成</label>
         <input type="text" id="fx-val" value="${esc(FIX[ch+c.m]?.correct??c.v)}" placeholder="正確寫法（空白＝這格不該填）"></div>
@@ -218,8 +224,8 @@ function renderResult(){
   $('#tabs').innerHTML=chs.map(c=>`<button class="tab${c===cur?' on':''}" data-c="${c}">${NAMES[c]}</button>`).join('');
   document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.c;renderResult()});
   const segs=segsOf(cur), rep=RES.report[cur]||{};
-  $('#stats').innerHTML=`<div><b>${segs.filter(s=>s[1]!=='ad').length}</b>則新聞</div><div><b>${segs.filter(s=>s[1]==='ad').length}</b>段廣告</div><div><b>${rep.cells??'—'}</b>格寫入</div><div><b>${rep.low_conf??'—'}</b>格列入抽查</div>`;
-  $('#segs').innerHTML=segs.map((s,i)=>{const end=i+1<segs.length?segs[i+1][0]:3600;return `<div class="seg${s[1]==='ad'?' ad':''}" data-k="${i}" tabindex="0"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${FIX[cur+s[5].m]?`<span class="done-tag">${FIX[cur+s[5].m].verdict==='fix'?'已改正':'已確認'}</span>`:s[3]?'<span class="pill">列入抽查</span>':'<span></span>'}</div>`}).join('');
+  $('#stats').innerHTML=`<div><b>${segs.filter(s=>s[1]!=='ad').length}</b>則新聞</div><div><b>${segs.filter(s=>s[1]==='ad').length}</b>段廣告</div><div><b>${rep.cells??'—'}</b>格寫入</div><div><b>${rep.low_conf??'—'}</b>格列入抽查</div>${segs.some(s=>s[4].judge)?`<div><b>${segs.filter(s=>cleared(s[5],s[4])).length}</b>格 LLM 已初判</div>`:''}`;
+  $('#segs').innerHTML=segs.map((s,i)=>{const end=i+1<segs.length?segs[i+1][0]:3600;return `<div class="seg${s[1]==='ad'?' ad':''}" data-k="${i}" tabindex="0"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${FIX[cur+s[5].m]?`<span class="done-tag">${FIX[cur+s[5].m].verdict==='fix'?'已改正':'已確認'}</span>`:cleared(s[5],s[4])?'<span class="pill soft" title="LLM 初判這是新的一則，仍可人工覆核">LLM 已初判</span>':s[3]?'<span class="pill">列入抽查</span>':'<span></span>'}</div>`}).join('');
   $('#review').href=`/api/jobs/${JOB.id}/review`;
   document.querySelectorAll('.seg').forEach(el=>{
     const go=()=>{document.querySelectorAll('.seg.sel').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');evidence(segs[+el.dataset.k])};
@@ -227,6 +233,16 @@ function renderResult(){
   });
   if(segs.length){document.querySelector('.seg').click()}
 }
+$('#judge').onclick=async()=>{
+  const b=$('#judge'), n=$('#judgenote'); b.disabled=true; b.textContent='初判中…'; n.hidden=true;
+  try{
+    const r=await api(`/api/jobs/${JOB.id}/judge`,{method:'POST'});
+    RES=await api(`/api/jobs/${JOB.id}/result`);
+    n.textContent=`已初判 ${r.checked} 則；其中 ${r.cleared} 則判為新的一則，在清單上標「LLM 已初判」（仍可人工覆核）。五字標沒有動。`;
+    const k=document.querySelector('.seg.sel')?.dataset.k; renderResult(); if(k!=null){const el=document.querySelector(`.seg[data-k="${k}"]`); if(el) el.click()}
+  }catch(e){n.textContent='初判失敗：'+e.message}
+  n.hidden=false; b.disabled=false; b.textContent='LLM 初判換題';
+};
 $('#toDone').onclick=()=>{
   const r=Object.values(RES.report), cells=r.reduce((a,x)=>a+(x.cells||0),0), low=r.reduce((a,x)=>a+(x.low_conf||0),0);
   $('#lowline').textContent=`共寫入 ${cells} 格；其中 ${low} 格信心較低，照常填寫並另列抽查清單`;
