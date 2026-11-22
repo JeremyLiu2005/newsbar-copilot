@@ -259,27 +259,9 @@ body.lock{overflow:hidden}
 
     <div class="pane" id="p-rules" hidden>
       <h1>決策規則</h1>
-      <p class="sub">系統怎麼做決定。這些是 11/06 實跑用的規則，不是設定畫面，不能在這裡改。</p>
+      <p class="sub">系統怎麼做決定。內容直接來自程式裡的規則總表（newsbar rules），數字由測試核對和程式一致；這裡只能看、不能改。</p>
       <div class="rules">
-        <div class="rcard"><h2>何時算換題</h2><ul>
-          <li>標題列出現新標題，並且穩定 7 秒以上。</li>
-          <li>還要有任一項佐證：前後 20 秒的語音話題不同、前後 5 秒是主播鏡頭、說話的人換了、25 秒內出現記者名條。</li>
-          <li>鏡位切換（主播、連線、現場）本身不算換題，只看標題列。</li>
-          <li>3 分鐘內同一個標題又輪回，併回原來那一則。</li></ul></div>
-        <div class="rcard"><h2>何時算廣告</h2><ul>
-          <li>10 種訊號中任兩種同時成立，並持續 10 秒。</li>
-          <li>不到 25 秒的不算廣告破口。</li>
-          <li>兩段廣告之間 8 秒內的空隙，併成一段。</li>
-          <li>回到新聞：版面與標題列底色都恢復，並且出現主播、語音或新標題，維持 5 秒。</li>
-          <li>廣告期間一律填「廣告」，不沿用舊標題。</li></ul></div>
-        <div class="rcard"><h2>五字標怎麼寫</h2><ul>
-          <li>4 到 6 個字，每個字都要出自來源標題。</li>
-          <li>社會新聞要有地點。</li>
-          <li>保留「疑」「涉」等未確認的語氣，不寫成定論。</li>
-          <li>AI 寫不出合格的字時，改用規則直接從標題摘字，並標黃請人看。</li></ul></div>
-        <div class="rcard"><h2>遇到不確定</h2><ul>
-          <li>不停下來：照常填入最可能的寫法，標黃。</li>
-          <li>標黃的格子附上影片時間、標題列畫面與語音節錄，方便回頭核對。</li></ul></div>
+        <div id="rbook" class="rules" style="grid-column:1/-1"><p class="note">規則載入中…</p></div>
         <div class="rcard wide"><h2>這一格填在哪一分鐘</h2>
           <p class="note" style="margin:0">依官方範本：從哪一秒開始，就填在那一分鐘。同一分鐘播出好幾則，依播出順序用「/」連起來。下一分鐘只是延續，就留白。廣告的起始分鐘填「廣告」。</p>
           <div class="field"><label for="exsel">選一個真實的分鐘看看（同分鐘有多則的格子）</label><select id="exsel"></select></div>
@@ -640,4 +622,11 @@ fetch('data.json').then(r=>r.json()).then(d=>{
   if(STEPS.some(s=>s[0]===h)){reached=STEPS.findIndex(s=>s[0]===h)}
   show(STEPS.some(s=>s[0]===h)?h:'upload');
 }).catch(()=>{document.body.insertAdjacentHTML('afterbegin','<p style="padding:16px">資料載入失敗，請重新整理頁面。</p>')});
+
+/* ---- 規則總表（來自 newsbar rules --json） ---- */
+fetch('rules.json').then(r=>r.json()).then(rb=>{
+  const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  $('#rbook').innerHTML=rb.groups.map((g,i)=>`<details class="rcard"${i===0?' open':''}><summary style="cursor:pointer;font-weight:700;font-size:16px">${esc(g.title)}　<span class="note" style="font-weight:400">${g.rules.length} 條</span></summary>${g.note?`<p class="note" style="margin:8px 0 6px">${esc(g.note)}</p>`:''}<ul>${
+    g.rules.map(r=>`<li><b style="font:600 11px var(--mono);color:var(--mute)">${esc(r.id)}</b>　${esc(r.text)}</li>`).join('')}</ul></details>`).join('');
+}).catch(()=>{$('#rbook').innerHTML='<p class="note">規則總表載入失敗。</p>'});
 </script>
