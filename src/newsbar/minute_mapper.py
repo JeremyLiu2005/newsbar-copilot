@@ -1,8 +1,13 @@
 """Turn per-channel state-change events into minute cells (architecture §4.10).
 
-Contract derived from the 10/26 example sheet:
-  * a new story → its label in the minute it starts; continuation → blank
-  * several entries in one minute → joined with "/" in time order
+Two placement rules (Labels.minute_rule, rules.yaml output.minute_rule):
+  * "next" (default, 三立 11/22): a change at hh:mm:ss with ss > 0 is written from
+    the next minute; a cell holds one entry, the one on air when that minute starts
+  * "floor" (10/26 example sheet): the minute it starts; several entries in one
+    minute → joined with "/" in time order
+
+Contract shared by both:
+  * a new story → its label; continuation → blank
   * an ad break → "廣告" in its first minute, blank while it lasts
   * the first news minute after an ad or outage is always written, even when
     it is the same story as before (blank would read as "still in the ad")
@@ -10,6 +15,7 @@ Contract derived from the 10/26 example sheet:
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from collections.abc import Iterable
 
@@ -64,12 +70,17 @@ def map_events(
     n_minutes: int = 60,
     labels: Labels = Labels(),
     carry_in: bool = True,
+    minute_rule: str | None = None,
 ) -> dict[str, dict[str, Cell]]:
     """Return {channel: {minute: Cell}} for every minute that gets a value.
 
     carry_in: a state already running before the first minute is written at the
     first minute so the sheet stands on its own (open question Q8).
+    minute_rule: "next" | "floor"; None → labels.minute_rule.
     """
+    rule = minute_rule or labels.minute_rule
+    if rule not in ("next", "floor"):
+        raise ContractError(f"minute_rule must be 'next' or 'floor', got {rule!r}")
     minutes = minute_labels(start, n_minutes)
     channels = list(channels)
     by_channel: dict[str, list[Event]] = defaultdict(list)
@@ -100,10 +111,28 @@ def map_events(
                 if not carry_in:
                     continue
                 idx = 0
+            elif rule == "next":
+                # 規則 MAP-3（next）：不是整分 00 秒的換題，從下一分鐘開始寫；一格只放一則，
+                # 同一格內後來的改變蓋掉先前的（那一分鐘開始時在播的才是這格的內容）
+                idx = math.ceil(ev.start_sec / 60)
+                if idx >= n_minutes:
+                    continue
+                pending[idx] = [ev]
+                continue
             else:
-                # 規則 MAP-3：秒數捨去到所在的那一分鐘
+                # 規則 MAP-3（floor）：秒數捨去到所在的那一分鐘
                 idx = int(ev.start_sec // 60)
             pending[idx].append(ev)
+
+        if rule == "next":
+            # A cell overwritten back to the state already written above it is a continuation → blank.
+            prev: tuple[EventType, str | None] | None = None
+            for idx in sorted(pending):
+                key = _state_key(pending[idx][-1])
+                if key == prev:
+                    del pending[idx]
+                    continue
+                prev = key
 
         for idx, cell_events in pending.items():
             # Entries carried in from before the sheet collapse to the latest one.

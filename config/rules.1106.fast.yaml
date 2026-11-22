@@ -27,7 +27,7 @@ labeler:
   model: qwen2.5:7b-instruct
   allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
   min_len: 4
-  max_len: 6
+  max_len: 5
   retries: 1
 
 output:
@@ -35,6 +35,7 @@ output:
   weather_label: 氣象
   outage_label: 訊號中斷
   multi_sep: /
+  minute_rule: next     # 秒級換題從下一分鐘起寫、一格一則（三立 11/22）；floor＝10/26 範例寫法
 
 fingerprint:
   library: data/ad_library_1106_fast.npz   # 確認過的廣告聲音會自動加入，下次同一支廣告直接命中（AD-f）

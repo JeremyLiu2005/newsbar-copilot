@@ -18,7 +18,8 @@ HEDGED = LabelSource(["某藝人疑似酒駕 警方調查中"])
 
 def test_fix2_label_dropping_a_hedge_is_rejected():
     assert "TONE-1" in validate("某藝人酒駕", HEDGED)
-    assert validate("藝人疑似酒駕", HEDGED) == []
+    assert validate("藝人疑酒駕", HEDGED) == []
+    assert "LBL-5" in validate("藝人疑似酒駕", HEDGED)  # 6 字：超過上限 5
 
 
 def test_fix2_words_that_merely_contain_the_character_are_not_hedges():

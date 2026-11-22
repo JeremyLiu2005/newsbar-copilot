@@ -316,7 +316,8 @@ def cmd_run(a: argparse.Namespace) -> int:
     rep["failed_channels"] = failed  # R20: visible here, in the 複查清單 and the summary — never in the workbook
     rep["clock"] = clock_info
     rep["pipeline_warnings"] = res["warnings"]
-    if not a.no_review_copy:
+    # 三立 11/22：交付的 Excel 一律不標黃；標黃副本改為選用（--review-copy），複查請看 review.html 的標題列截圖
+    if a.review_copy and not a.no_review_copy:
         review_xlsx = out.with_name(out.stem + "_複查版.xlsx")
         try:
             n = excel_writer.write_review_copy(
@@ -603,7 +604,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--clock", help="所有影片第 0 秒的實際時刻（個別指定用 @）")
     r.add_argument("--template", help="12監看範本 .xlsx；有 --input-dir 時可省略")
     r.add_argument("--out", help="輸出 .xlsx；預設 out/12監看.xlsx")
-    r.add_argument("--no-review-copy", action="store_true", help="不另存「_複查版.xlsx」（異常格標黃並附註解的副本）")
+    r.add_argument("--review-copy", action="store_true", help="另存「_複查版.xlsx」（異常格標黃並附註解的副本；預設不產生，交付檔永遠不標黃）")
+    r.add_argument("--no-review-copy", action="store_true", help="（相容舊指令）不另存「_複查版.xlsx」；現在預設就不產生")
     r.add_argument("--lexicon", help="詞庫 yaml（地名、未確認語氣詞、畫面疊字）；預設 config/lexicon.yaml，沒有就用內建")
     r.add_argument("--channels", default="config/channels.example.yaml")
     r.add_argument("--rules", default="config/rules.example.yaml")

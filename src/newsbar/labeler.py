@@ -63,9 +63,36 @@ def hedge_basis(source: "LabelSource") -> str:
 @dataclass(frozen=True)
 class LabelRules:
     min_len: int = 4
-    max_len: int = 6
+    max_len: int = 5  # 三立 11/22：五字標不可超過 5 個字
     status_words: tuple[str, ...] = ("廣告", "氣象", "訊號中斷")
     sep: str = "/"
+
+    @classmethod
+    def from_rules(cls, rules: dict | None) -> "LabelRules":
+        lab = (rules or {}).get("labeler") or {}
+        return cls(min_len=int(lab.get("min_len", cls.min_len)), max_len=int(lab.get("max_len", cls.max_len)))
+
+
+_TOKEN = re.compile(r"[A-Za-z0-9]+|[^\sA-Za-z0-9]")
+
+
+def enforce_max(label: str, rules: "LabelRules") -> str:
+    """Hard cap (LBL-5): never let a label longer than max_len reach the sheet.
+    Counts like label_length (each CJK char 1, each English/number word 1) and cuts at a unit
+    boundary; trailing connectors (的 了 …) are dropped after the cut."""
+    if label_length(label) <= rules.max_len:
+        return label
+    out, n = "", 0
+    for m in _TOKEN.finditer(label):
+        tok = m.group(0)
+        unit = 1 if _CJK.fullmatch(tok) or tok.isalnum() else 0
+        if n + unit > rules.max_len:
+            break
+        out += tok
+        n += unit
+    while out and _bad_end(out[-1]) and label_length(out) > 1:
+        out = out[:-1]
+    return out.strip() or label[: rules.max_len]
 
 
 def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) -> list[str]:
@@ -78,7 +105,7 @@ def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) 
     # 規則 OUT-grammar：不可含斜線，也不可等於「廣告／氣象／訊號中斷」
     if rules.sep in label or label in rules.status_words:
         errors.append("OUT-grammar")
-    # 規則 LBL-5：長度 4–6 個字（英文詞算 1 個字）
+    # 規則 LBL-5：長度 4–5 個字（英文詞算 1 個字；上限取自 labeler.max_len）
     n = label_length(label)
     if not (rules.min_len <= n <= rules.max_len):
         errors.append("LBL-5")
@@ -381,6 +408,6 @@ def make_label(
             if not errs:
                 return LabelResult(cand, attempt + 1, None, history, review_reasons(cand, source))
     # 規則 FB-4：兩次都沒通過、或 AI 沒回應 → 規則備援
-    label = rule_label(source, rules)
+    label = enforce_max(rule_label(source, rules), rules)
     reasons += [r for r in review_reasons(label, source) if r not in reasons]
     return LabelResult(label, len(history), "FB-4", history, reasons)

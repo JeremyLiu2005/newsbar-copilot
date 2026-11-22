@@ -42,6 +42,8 @@ def run_channel(
     lab = (rules or {}).get("labeler") or {}
     # 規則 §6.3：AI 標籤被退件後的重試次數（預設 1 次）
     retries = lab.get("retries", labeler.DEFAULT_RETRIES)
+    # 規則 LBL-5：字數上下限取自設定檔（labeler.min_len / max_len）
+    lrules = labeler.LabelRules.from_rules(rules)
     # Label all new stories up front, several LLM calls at a time (Ollama serves them in parallel).
     todo = {i: labeler.LabelSource(s.bar_texts, s.asr_text) for i, s in enumerate(segs)
             if s.type is EventType.NEWS and s.reuse_of is None}
@@ -50,9 +52,9 @@ def run_channel(
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            done = dict(zip(todo, ex.map(lambda src: labeler.make_label(src, generator, retries), todo.values())))
+            done = dict(zip(todo, ex.map(lambda src: labeler.make_label(src, generator, retries, lrules), todo.values())))
     else:
-        done = {i: labeler.make_label(src, generator, retries) for i, src in todo.items()}
+        done = {i: labeler.make_label(src, generator, retries, lrules) for i, src in todo.items()}
     for i, seg in enumerate(segs):
         sigs = {"ids": seg.signals}
         if seg.type is EventType.NEWS:
