@@ -197,6 +197,10 @@ def _hms(sec: float) -> str:
 
 def flag_reasons(rec: dict) -> list[str]:
     """Chinese reasons a cell needs a human: explicit reasons, fallback codes, plain low confidence."""
+    if rec.get("review_items") is not None and "review_level" in rec:
+        # 規則 REV-1：複查版只標「建議回查」與「處理失敗」；資訊提示不標黃
+        return list(dict.fromkeys(n["reason"] + (f"：{n['detail']}" if n.get("detail") else "")
+                                  for n in rec["review_items"] if n["level"] in ("建議回查", "處理失敗")))
     out = list(rec.get("reasons") or [])
     for code in filter(None, (rec.get("fallback") or "").split(",")):
         out.append(FB_TEXT.get(code, f"備援 {code}"))

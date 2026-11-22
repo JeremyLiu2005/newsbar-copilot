@@ -16,6 +16,7 @@ def record(cell: Cell, rules_version: str) -> dict:
     signals: list[str] = []
     fallbacks = []
     reasons: list[str] = []
+    notes: list[dict] = []
     conf = "high"
     order = {"high": 0, "medium": 1, "low": 2}
     for ev in cell.events:
@@ -28,8 +29,12 @@ def record(cell: Cell, rules_version: str) -> dict:
                 "asr_text": ev.source.asr_text,
                 "frame": ev.source.frame,
                 "boundary": ev.signals.get("boundary"),
+                "ocr": list(getattr(ev, "ocr", []) or []),
             }
         )
+        for n in getattr(ev, "notes", []) or []:
+            if n not in notes:
+                notes.append(n)
         signals.extend(ev.signals.get("ids", []))
         if ev.fallback:
             fallbacks.append(ev.fallback)
@@ -45,8 +50,19 @@ def record(cell: Cell, rules_version: str) -> dict:
         "confidence": conf,
         "fallback": ",".join(fallbacks) or None,
         "reasons": reasons,
+        "review_items": notes,  # REV-1: every note with its level
+        "review_level": review_level(notes),
         "rules_version": rules_version,
     }
+
+
+# 規則 REV-1：資訊提示只留紀錄；建議回查與處理失敗才進複查清單、才標黃
+LEVEL_ORDER = {"無": 0, "資訊提示": 1, "建議回查": 2, "處理失敗": 3}
+FLAG_LEVELS = ("建議回查", "處理失敗")
+
+
+def review_level(notes: list[dict]) -> str:
+    return max((n["level"] for n in notes), key=LEVEL_ORDER.get, default="無")
 
 
 def story_records(by_ch: dict[str, list], run_id: str | None = None) -> list[dict]:
@@ -71,7 +87,11 @@ def story_records(by_ch: dict[str, list], run_id: str | None = None) -> list[dic
                 "score_source": b.get("score_source"),
                 "reason_codes": b.get("reason_codes", []),
                 "evidence": b.get("evidence", {}),
-                "review_required": bool(b.get("review_required")) or ev.confidence == "low" or bool(ev.fallback),
+                "review_required": review_level(getattr(ev, "notes", []) or []) in FLAG_LEVELS
+                if getattr(ev, "notes", None) else (bool(b.get("review_required")) or ev.confidence == "low" or bool(ev.fallback)),
+                "review_level": review_level(getattr(ev, "notes", []) or []),
+                "review_items": list(getattr(ev, "notes", []) or []),
+                "ocr": list(getattr(ev, "ocr", []) or []),
                 "signals": ev.signals.get("ids", []),
             })
     return out
@@ -84,6 +104,9 @@ def save_stories(by_ch: dict[str, list], path: Path, run_id: str | None = None) 
 
 
 def review_priority(rec: dict) -> int:
+    if "review_level" in rec:
+        return {"處理失敗": -1, "建議回查": PRIORITY["fallback"], "資訊提示": PRIORITY["ad_edge"]}.get(
+            rec["review_level"], PRIORITY["other"])
     if rec["fallback"]:
         return PRIORITY["fallback"]
     if rec["confidence"] == "low":
@@ -103,8 +126,11 @@ REJECTED = "REJECTED"  # a reviewer marked it unusable
 def quality_of(rec: dict) -> dict:
     """QA-1: the review state of one cell as data — the yellow fill of the review copy is drawn
     from this, never the other way round."""
-    needs = (bool(rec.get("fallback")) or rec.get("confidence") == "low"
-             or any((i.get("boundary") or {}).get("review_required") for i in rec.get("items", [])))
+    if rec.get("review_items") is not None and "review_level" in rec:
+        needs = rec["review_level"] in FLAG_LEVELS  # REV-1 (new records)
+    else:  # records written before REV-1
+        needs = (bool(rec.get("fallback")) or rec.get("confidence") == "low"
+                 or any((i.get("boundary") or {}).get("review_required") for i in rec.get("items", [])))
     codes = []
     for i in rec.get("items", []):
         codes += [c for c in (i.get("boundary") or {}).get("reason_codes", []) if c not in codes]

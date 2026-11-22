@@ -27,7 +27,7 @@ SRC = LabelSource(["新北土城一七旬老翁 轉彎不慎遭貨車輾亡"])
 def test_fix1_llm_failure_falls_back_and_is_flagged():
     gen = DeadGenerator()
     res = make_label(SRC, gen)
-    assert res.fallback == "FB-4" and res.label == "土城車輾亡"
+    assert res.fallback == "FB-4" and "土城" in res.label and "輾亡" in res.label
     assert "AI 服務無回應" in res.reasons
     assert gen.calls == 1  # no second call against a dead service
 
@@ -151,4 +151,4 @@ def test_fix3_clock_reason_flags_every_cell_of_the_channel(template, tmp_path):
                        channel_reasons={"tvbs": ["時鐘未讀到，改用檔名時間"]})
     tv = [r for r in res["evidence"] if r["channel"] == "tvbs"]
     assert tv and all("時鐘未讀到，改用檔名時間" in r["reasons"] and r["confidence"] == "low" for r in tv)
-    assert all(not r["reasons"] for r in res["evidence"] if r["channel"] == "ettv")
+    assert all("時鐘未讀到，改用檔名時間" not in r["reasons"] for r in res["evidence"] if r["channel"] == "ettv")

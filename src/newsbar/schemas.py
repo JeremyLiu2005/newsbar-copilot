@@ -94,6 +94,8 @@ class Event:
     signals: dict[str, Any] = field(default_factory=dict)
     fallback: str | None = None
     reasons: list[str] = field(default_factory=list)  # why a human should look at this cell (review queue only)
+    notes: list[dict[str, Any]] = field(default_factory=list)  # REV-1: {level, reason, detail?} per note
+    ocr: list[dict[str, Any]] = field(default_factory=list)  # OCR-V*: ocr_raw / ocr_corrected … per title
 
     def __post_init__(self) -> None:
         self.type = EventType(self.type)

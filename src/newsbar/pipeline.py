@@ -9,7 +9,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from . import ad_state, cross_channel, delivery, evidence, excel_writer, labeler, segmenter, textfilter
+from . import ad_state, cross_channel, delivery, evidence, excel_writer, labeler, ocr_check, segmenter, textfilter
 from .minute_mapper import map_events
 from .schemas import Event, EventType, Labels, SecondObs, Source
 
@@ -36,6 +36,47 @@ def title_confidence(obs: list[SecondObs]) -> dict[str, float]:
     return {t: sorted(cs)[len(cs) // 2] for t, cs in by.items()}
 
 
+# 規則 REV-1：換題／擷取層的旗標對應到哪一級
+SEG_FALLBACK_NOTES = {"FB-1": (labeler.LEVEL_INFO, "換題訊號偏弱（只有標題佐證）"),
+                      "FB-3": (labeler.LEVEL_FAIL, "標題讀不到，靠語音定名")}
+
+
+def _story_obs(obs: list[SecondObs], start: float, end: float | None) -> list[SecondObs]:
+    hi = end if end is not None else start + 1
+    return [o for o in obs if start <= o.sec < hi and o.bar_text]
+
+
+def decide_story(channel: str, bar_texts: list[str], asr_text: str, obs: list[SecondObs],
+                 generator: labeler.Generator | None, rules: dict | None,
+                 conf_of: dict[str, float] | None = None, freq=None) -> dict:
+    """One story: OCR check → short title → review notes (levels). Also used by the regression replay."""
+    lab = (rules or {}).get("labeler") or {}
+    lrules = labeler.LabelRules.from_rules(rules)
+    titles, ocr_recs, avoid = ocr_check.check_story(list(bar_texts), obs, asr_text, ocr_check.confusions_from(rules), freq)
+    res = labeler.make_label(labeler.LabelSource(titles, asr_text), generator,
+                             lab.get("retries", labeler.DEFAULT_RETRIES), lrules, avoid)
+    return _story_result(res, titles, ocr_recs, rules, conf_of)
+
+
+def _story_result(res: labeler.LabelResult, titles: list[str], ocr_recs: list[dict], rules: dict | None,
+                  conf_of: dict[str, float] | None) -> dict:
+    notes = list(res.notes)
+    for r in ocr_recs:
+        if r["review_status"] == ocr_check.STATUS_FIXED:
+            notes.append({"level": labeler.LEVEL_INFO, "reason": "標題 OCR 已依證據修正",
+                          "detail": f"{r['ocr_raw']} → {r['ocr_corrected']}（{r['correction_reason']}）"})
+        for sp in r["suspects"]:
+            used = sp["text"] in (res.label or "")
+            notes.append({"level": labeler.LEVEL_CHECK if used else labeler.LEVEL_INFO,
+                          "reason": "標題有可疑字" + ("（短標有用到）" if used else "（未用於短標）"),
+                          "detail": f"「{sp['text']}」{('疑為「' + sp['suggestion'] + '」') if sp['suggestion'] else ''}：{sp['why']}"})
+    ocr_review = float(((rules or {}).get("ocr") or {}).get("review_conf", OCR_REVIEW_CONF))
+    if conf_of and any(conf_of.get(r["ocr_raw"], 1.0) <= ocr_review for r in ocr_recs[:2]):
+        notes.append({"level": labeler.LEVEL_CHECK, "reason": REASON_OCR})
+    return {"label": res.label, "status": res.status, "fallback": res.fallback, "notes": notes,
+            "review_level": labeler.top_level(notes), "ocr": ocr_recs, "titles": titles, "result": res}
+
+
 def run_channel(
     channel: str,
     obs: list[SecondObs],
@@ -53,53 +94,56 @@ def run_channel(
     # 規則 NEW-1、NEW-2a、SAME-3、TIME-1：再依主標題與佐證切出每一則新聞
     segs = segmenter.segment(obs, ad, segmenter.SegParams.from_rules(rules))
     conf_of = title_confidence(obs)
-    ocr_review = float(((rules or {}).get("ocr") or {}).get("review_conf", OCR_REVIEW_CONF))
     events: list[Event] = []
     seg_event: dict[int, Event] = {}
     lab = (rules or {}).get("labeler") or {}
-    # 規則 §6.3：AI 標籤被退件後的重試次數（預設 1 次）
-    retries = lab.get("retries", labeler.DEFAULT_RETRIES)
-    # 規則 LBL-5：字數上下限取自設定檔（labeler.min_len / max_len）
-    lrules = labeler.LabelRules.from_rules(rules)
     # Label all new stories up front, several LLM calls at a time (Ollama serves them in parallel).
-    todo = {i: labeler.LabelSource(s.bar_texts, s.asr_text) for i, s in enumerate(segs)
-            if s.type is EventType.NEWS and s.reuse_of is None}
+    todo = {i: s for i, s in enumerate(segs) if s.type is EventType.NEWS and s.reuse_of is None}
+
+    freq = ocr_check.char_titles(o.bar_text for o in obs)  # the channel's own OCR as the rarity reference
+
+    def _one(seg):
+        return decide_story(channel, seg.bar_texts, seg.asr_text, _story_obs(obs, seg.start, seg.end), generator,
+                            rules, conf_of, freq)
+
     workers = max(1, int(lab.get("parallel", DEFAULT_PARALLEL))) if generator is not None else 1
     if workers > 1 and len(todo) > 1:
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            done = dict(zip(todo, ex.map(lambda src: labeler.make_label(src, generator, retries, lrules), todo.values())))
+            done = dict(zip(todo, ex.map(_one, todo.values())))
     else:
-        done = {i: labeler.make_label(src, generator, retries, lrules) for i, src in todo.items()}
+        done = {i: _one(seg) for i, seg in todo.items()}
     for i, seg in enumerate(segs):
         sigs = {"ids": seg.signals, "boundary": seg.boundary, "end_sec": seg.end}
+        src = Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame)
+        seg_notes = [{"level": lv, "reason": why} for code, (lv, why) in SEG_FALLBACK_NOTES.items()
+                     if code in (seg.fallback or "").split(",")]
+        b = seg.boundary or {}
+        if b.get("review_required"):
+            seg_notes.append({"level": labeler.LEVEL_INFO, "reason": "換題佐證不足",
+                              "detail": "、".join(b.get("reason_codes", []))})
         if seg.type is EventType.NEWS:
             if seg.reuse_of is not None and seg.reuse_of in seg_event:
                 prev = seg_event[seg.reuse_of]
+                notes = [n for n in prev.notes] + seg_notes
                 ev = Event(channel, seg.start, EventType.NEWS, prev.label, prev.story_id,
-                           "low" if prev.reasons else seg.confidence,
-                           Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame),
-                           sigs, seg.fallback, list(prev.reasons))
+                           "low" if labeler.top_level(notes) in (labeler.LEVEL_CHECK, labeler.LEVEL_FAIL) else seg.confidence,
+                           src, sigs, seg.fallback, list(prev.reasons), notes, list(prev.ocr))
             else:
-                res = done[i]
-                fb = ",".join(f for f in (seg.fallback, res.fallback) if f) or None
-                ev = Event(channel, seg.start, EventType.NEWS, res.label, f"{channel}-{i}",
-                           "low" if (fb or res.reasons) else seg.confidence,
-                           Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame), sigs, fb,
-                           list(res.reasons))
+                d = done[i]
+                fb = ",".join(f for f in (seg.fallback, d["fallback"]) if f) or None
+                notes = d["notes"] + seg_notes
+                ev = Event(channel, seg.start, EventType.NEWS, d["label"], f"{channel}-{i}",
+                           "low" if labeler.top_level(notes) in (labeler.LEVEL_CHECK, labeler.LEVEL_FAIL) else seg.confidence,
+                           src, sigs, fb, list(dict.fromkeys(n["reason"] for n in notes)), notes, d["ocr"])
         else:
-            ev = Event(channel, seg.start, seg.type, confidence=seg.confidence,
-                       source=Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame),
-                       signals=sigs, fallback=seg.fallback)
-        # the label is written from the first two titles (llm.build_user_prompt): check those
-        if seg.type is EventType.NEWS and any(conf_of.get(t, 1.0) <= ocr_review for t in seg.bar_texts[:2]):
-            if REASON_OCR not in ev.reasons:
-                ev.reasons.append(REASON_OCR)
-            ev.confidence = "low"
+            ev = Event(channel, seg.start, seg.type, confidence=seg.confidence, source=src, signals=sigs,
+                       fallback=seg.fallback, notes=seg_notes)
         for r in channel_reasons or []:
             if r not in ev.reasons:
                 ev.reasons.append(r)
+                ev.notes.append({"level": labeler.LEVEL_FAIL, "reason": r})
             ev.confidence = "low"
         seg_event[i] = ev
         events.append(ev)
