@@ -604,6 +604,28 @@ def cmd_cleanup(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_vision_check(a: argparse.Namespace) -> int:
+    """Experimental: re-read low-confidence title crops with a cloud vision model (needs --send)."""
+    import json
+
+    from . import vision
+
+    channels = [c.strip() for c in a.channels.split(",") if c.strip()]
+    backend = None
+    if a.send:  # the key and model are only needed when something is actually sent
+        try:
+            backend = vision.from_env(a.mode, timeout=a.timeout)
+        except vision.VisionConfigError as e:
+            raise SystemExit(str(e))
+    rep = vision.run_check(Path(a.workdir), channels, backend, send=a.send, max_conf=a.max_conf, limit=a.limit)
+    if rep.rows:
+        out = Path(a.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rep.rows), encoding="utf-8")
+        print(f"送出 {rep.sent} 段、失敗 {rep.errors} 段；比對結果 {rep.verdicts} → {out}")
+    return 0
+
+
 def cmd_serve(a: argparse.Namespace) -> int:
     """Operator web UI on this machine: pick recordings, run, watch, download."""
     from . import server
@@ -817,6 +839,17 @@ def main(argv: list[str] | None = None) -> int:
     cl.add_argument("--workdir", default="data/work")
     cl.add_argument("--older-than-days", type=float, default=7)
     cl.set_defaults(func=cmd_cleanup)
+
+    vc = sub.add_parser("vision-check", help="（實驗）低信心標題截圖交雲端視覺模型重讀並比對；預設只乾跑，加 --send 才送出")
+    vc.add_argument("--workdir", default="data/work", help="跑過 newsbar run 的工作資料夾（要有各台 obs.jsonl 與截圖）")
+    vc.add_argument("--channels", default="tvbs,ettv,ftv,cts")
+    vc.add_argument("--mode", default="anthropic", choices=["mock", "anthropic"], help="mock＝不連網，只驗證流程")
+    vc.add_argument("--max-conf", type=float, default=0.6, help="平均信心低於這個值才處理")
+    vc.add_argument("--limit", type=int, help="最多處理幾段（先小量試）")
+    vc.add_argument("--timeout", type=float, default=30.0)
+    vc.add_argument("--out", default="out/vision_check.jsonl")
+    vc.add_argument("--send", action="store_true", help="真的把標題截圖送出去；沒加就只列出會送什麼")
+    vc.set_defaults(func=cmd_vision_check)
 
     from . import kb as kbm
     from . import ml as mlm
