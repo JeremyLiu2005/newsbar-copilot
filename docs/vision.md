@@ -32,7 +32,37 @@ export NEWSBAR_VISION_MODEL="供應商文件上的模型代號"
 uv run newsbar vision-check --workdir data/work_final --send --limit 10 --out out/vision_check.jsonl
 ```
 
-目前只實作 Anthropic 的 Messages API（`--mode anthropic`）。要接別家，在 `src/newsbar/vision.py` 照 `AnthropicVision` 的形狀加一個 `read_title()` 即可；`NEWSBAR_VISION_BASE_URL` 可指到相容的代理位址。
+目前有兩種接法：
+
+| `--mode` | 介面 | 金鑰環境變數 |
+|---|---|---|
+| `anthropic` | Anthropic Messages API（強制工具輸出） | `NEWSBAR_VISION_API_KEY` 或 `ANTHROPIC_API_KEY` |
+| `nvidia` | NVIDIA 託管模型（OpenAI 相容的 chat completions，回 JSON） | `NEWSBAR_VISION_API_KEY` 或 `NVIDIA_API_KEY` |
+
+NVIDIA 的模型代號用 `GET https://integrate.api.nvidia.com/v1/models` 列出；不是每個模型都能看圖，也不是每個列出的模型都能呼叫。要接別家，在 `src/newsbar/vision.py` 照 `read_title()` 的形狀加一個類別即可；`NEWSBAR_VISION_BASE_URL` 可指到相容的位址。
+
+## 送哪一張截圖
+
+每段標題的文字是前後 5 秒多數決的結果，所以某一秒可能「有標題」、但那一秒的畫面其實沒有標題條（主播走位、地圖、轉場）。有 `ocr_raw.jsonl`（每秒未投票的 OCR 讀數）時，程式會挑 OCR 當下真的讀到字的那一秒的截圖：同字優先，其次最接近、信心最高、最靠中間。整段都沒讀到字的標題不送，另外計數。
+
+失敗處理：模型回空白或伺服器 5xx 時重試一次；4xx（金鑰錯、模型不存在、超過額度）不重試。
+
+## 一次小實驗（2026-11-23，僅供參考）
+
+資料：11/06 四台一小時的最新重跑；模型 `nvidia/nemotron-3.5-super-vl-120b-a12b`；每次抽 40 段（四台各 10 段）。
+
+| | 挑中間那張 | 挑 OCR 當下讀到字的那張 |
+|---|---|---|
+| 和 OCR 幾乎一樣（same） | 4 | 8 |
+| 接近（close，多半只差標點與空格） | 23 | 24 |
+| 差很多（differs） | 1 | 1 |
+| 模型說讀不到（unreadable） | 10 | 2 |
+| 錯誤（空白答案、HTTP 502） | 2 | 5 |
+
+- 兩次的 40 段有 33 段相同，不是完全相同的樣本。第二次多了 5 個錯誤，當時還沒有重試機制。
+- 剩下的 2 段「讀不到」和 1 段「差很多」，OCR 讀到的是台標、注意事項或廣告字，不是新聞標題，模型的判斷是對的。
+- 模型能修正明顯的錯字（如「數子」→「數字」、「專冢澬金」→「專家:資金」），但也會讀錯（「張俊傑」讀成「張傑傑」），所以只能當重讀參考，不能直接取代。
+- 沒有人工標準答案，以上只是兩種讀法的比較，不是準確率。
 
 ## 輸出怎麼看
 

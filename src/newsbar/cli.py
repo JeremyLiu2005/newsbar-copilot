@@ -843,7 +843,7 @@ def main(argv: list[str] | None = None) -> int:
     vc = sub.add_parser("vision-check", help="（實驗）低信心標題截圖交雲端視覺模型重讀並比對；預設只乾跑，加 --send 才送出")
     vc.add_argument("--workdir", default="data/work", help="跑過 newsbar run 的工作資料夾（要有各台 obs.jsonl 與截圖）")
     vc.add_argument("--channels", default="tvbs,ettv,ftv,cts")
-    vc.add_argument("--mode", default="anthropic", choices=["mock", "anthropic"], help="mock＝不連網，只驗證流程")
+    vc.add_argument("--mode", default="anthropic", choices=["mock", "anthropic", "nvidia"], help="mock＝不連網，只驗證流程；nvidia＝NVIDIA 託管模型（OpenAI 相容格式）")
     vc.add_argument("--max-conf", type=float, default=0.6, help="平均信心低於這個值才處理")
     vc.add_argument("--limit", type=int, help="最多處理幾段（先小量試）")
     vc.add_argument("--timeout", type=float, default=30.0)

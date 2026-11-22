@@ -196,3 +196,137 @@ def test_cli_mock_send_writes_the_comparison_file(tmp_path, capsys):
                      "--send", "--out", str(out)]) == 0
     rec = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     assert rec["verdict"] == "same" and rec["channel"] == "tvbs"
+
+
+# ---- OpenAI-compatible backend (NVIDIA hosted models) --------------------------------------------
+
+def nv_backend(opener):
+    b = vision.OpenAICompatVision(api_key="SECRET-KEY", model="some-vl-model")
+    b.opener = staticmethod(opener)
+    return b
+
+
+def chat(content):
+    return FakeResp(json.dumps({"choices": [{"message": {"content": content}}]}).encode())
+
+
+def test_nvidia_request_shape_and_json_answer():
+    seen = {}
+
+    def opener(req, timeout):
+        seen["req"] = req
+        return chat('{"title": "台股殺3737點", "readable": true}')
+
+    res = nv_backend(opener).read_title(b"\xff\xd8jpeg", "image/jpeg", "台股殺3737點")
+    body = json.loads(seen["req"].data)
+    assert (res.text, res.readable) == ("台股殺3737點", True)
+    assert body["model"] == "some-vl-model" and body["temperature"] == 0 and body["max_tokens"] >= 1000
+    parts = body["messages"][0]["content"]
+    assert parts[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert "台股殺3737點" not in json.dumps(parts[0])  # the OCR text is not sent along
+    assert seen["req"].get_header("Authorization") == "Bearer SECRET-KEY"
+
+
+@pytest.mark.parametrize("answer,text,readable", [
+    ('好的：{"title": "甲乙丙", "readable": true} 以上', "甲乙丙", True),
+    ('{"title": "", "readable": false}', "", False),
+    ("甲乙丙丁", "甲乙丙丁", True),  # a short plain answer is taken as the title
+])
+def test_parse_title_answer(answer, text, readable):
+    r = vision.parse_title_answer(answer)
+    assert (r.text, r.readable) == (text, readable)
+
+
+def test_parse_rejects_long_free_text():
+    with pytest.raises(vision.VisionError):
+        vision.parse_title_answer("這是一段很長的說明" * 20)
+
+
+@pytest.mark.parametrize("content", [None, "", "   "])
+def test_nvidia_empty_answer_is_an_error(content):
+    with pytest.raises(vision.VisionError, match="empty"):
+        nv_backend(lambda req, timeout: chat(content)).read_title(b"x", "image/jpeg", "t")
+
+
+def test_nvidia_http_error_has_no_key():
+    def opener(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 429, "SECRET-KEY", {}, io.BytesIO(b"SECRET-KEY"))
+
+    with pytest.raises(vision.VisionError) as e:
+        nv_backend(opener).read_title(b"x", "image/jpeg", "t")
+    assert str(e.value) == "HTTP 429"
+
+
+def test_nvidia_from_env_needs_key_and_model():
+    with pytest.raises(vision.VisionConfigError, match="金鑰"):
+        vision.from_env("nvidia", env={})
+    with pytest.raises(vision.VisionConfigError, match="模型"):
+        vision.from_env("nvidia", env={"NVIDIA_API_KEY": "k"})
+    b = vision.from_env("nvidia", env={"NVIDIA_API_KEY": "k", "NEWSBAR_VISION_MODEL": "m"})
+    assert (b.api_key, b.model, b.url) == ("k", "m", vision.NVIDIA_URL)
+
+
+def test_limit_samples_every_channel(tmp_path):
+    wd = tmp_path / "work"
+    for ch in ("tvbs", "ettv"):
+        (wd / ch / "frames" / "main_bar").mkdir(parents=True)
+        data = rows(f"{ch}標題標題標題", 9, conf=0.5)
+        for r in data:
+            (wd / ch / "frames" / "main_bar" / f"{r['sec']:05d}.jpg").write_bytes(b"\xff\xd8x")
+        (wd / ch / "obs.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in data), encoding="utf-8")
+    rep = vision.run_check(wd, ["tvbs", "ettv"], Spy(), send=True, limit=2, say=lambda s: None)
+    assert sorted(r["channel"] for r in rep.rows) == ["ettv", "tvbs"]
+
+
+# ---- which crop is sent ---------------------------------------------------------------------------
+
+def test_pick_crop_where_ocr_itself_read_the_title():
+    data = rows("住宅區槍響標題", 9, conf=0.5)
+    raw = {r["sec"]: {"text": "", "conf": 0.0} for r in data}  # voting filled the title in…
+    raw[2] = {"text": "住宅區槍響標題", "conf": 0.5}            # …but only second 2 really shows the bar
+    raw[7] = {"text": "別的字", "conf": 1.0}
+    run = vision.stable_runs("cts", data, raw=raw)[0]
+    assert run.frame == "frames/main_bar/00002.jpg" and run.visible_secs == 2
+
+
+def test_run_without_any_visible_bar_is_not_sent_and_counted(tmp_path):
+    wd = make_workdir(tmp_path)
+    (wd / "tvbs" / "ocr_raw.jsonl").write_text(
+        "".join(json.dumps({"sec": s, "text": "", "conf": 0.0}) + "\n" for s in range(9)), encoding="utf-8")
+    spy = Spy()
+    rep = vision.run_check(wd, ["tvbs"], spy, send=True, say=lambda s: None)
+    assert (rep.candidates, rep.no_bar, spy.calls) == (0, 1, 0)
+
+
+def test_without_raw_reads_the_middle_crop_is_used():
+    run = vision.stable_runs("tvbs", rows("甲乙丙丁戊", 9))[0]
+    assert run.frame == "frames/main_bar/00004.jpg" and run.visible_secs is None
+
+
+# ---- retry -----------------------------------------------------------------------------------------
+
+class Flaky:
+    def __init__(self, errors):
+        self.errors, self.calls = list(errors), 0
+
+    def read_title(self, image, media_type, ocr_text):
+        self.calls += 1
+        if self.errors:
+            raise vision.VisionError(self.errors.pop(0))
+        return vision.VisionResult(text=ocr_text)
+
+
+@pytest.mark.parametrize("errors,calls,ok", [
+    (["empty answer"], 2, True),       # empty answer: retried once, then fine
+    (["HTTP 502"], 2, True),           # server error: retried once
+    (["HTTP 502", "HTTP 502"], 2, False),
+    (["HTTP 401"], 1, False),          # bad key: not retried
+])
+def test_retry_once_except_client_errors(errors, calls, ok):
+    b = Flaky(errors)
+    if ok:
+        assert vision._read_with_retry(b, b"x", "標題").text == "標題"
+    else:
+        with pytest.raises(vision.VisionError):
+            vision._read_with_retry(b, b"x", "標題")
+    assert b.calls == calls

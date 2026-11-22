@@ -23,6 +23,7 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from itertools import zip_longest
 from pathlib import Path
 from typing import Protocol
 
@@ -111,13 +112,82 @@ class AnthropicVision:
         raise VisionError("no tool_use block in the answer")
 
 
+NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+NVIDIA_KEY_ENVS = ("NEWSBAR_VISION_API_KEY", "NVIDIA_API_KEY")
+_JSON_OBJ = re.compile(r"\{.*\}", re.S)
+_PROMPT = ('Copy the main headline printed in this Taiwanese TV news title bar. Do not add, translate or fix words; '
+           'ignore tickers and logos. Answer with JSON only: {"title": "<headline>", "readable": true}. '
+           'If there is no readable headline: {"title": "", "readable": false}.')
+
+
+def parse_title_answer(text: str) -> VisionResult:
+    """Models without forced tool use answer in free text; take the JSON object if there is one,
+    otherwise treat a short plain answer as the title. Anything else is an error, not a guess."""
+    m = _JSON_OBJ.search(text or "")
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            return VisionResult(text=str(obj.get("title") or "").strip(), readable=bool(obj.get("readable", True)))
+        except ValueError:
+            pass
+    plain = (text or "").strip().strip("\"'「」")
+    if 0 < len(plain) <= 60 and "\n" not in plain:
+        return VisionResult(text=plain, readable=True, note="plain-text answer")
+    raise VisionError("unusable answer")
+
+
+@dataclass
+class OpenAICompatVision:
+    """OpenAI-style chat completions with an image (NVIDIA's hosted models use this shape)."""
+
+    api_key: str
+    model: str
+    timeout: float = 60.0
+    url: str = NVIDIA_URL
+    opener = staticmethod(urllib.request.urlopen)
+
+    def read_title(self, image: bytes, media_type: str, ocr_text: str) -> VisionResult:
+        data_uri = f"data:{media_type};base64,{base64.b64encode(image).decode('ascii')}"
+        body = json.dumps({
+            "model": self.model, "max_tokens": 2000, "temperature": 0,  # reasoning models spend tokens thinking first
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": _PROMPT},
+                {"type": "image_url", "image_url": {"url": data_uri}},
+            ]}],
+        }).encode("utf-8")
+        req = urllib.request.Request(self.url, data=body, method="POST", headers={
+            "content-type": "application/json", "accept": "application/json", "authorization": f"Bearer {self.api_key}"})
+        try:
+            with self.opener(req, timeout=self.timeout) as r:
+                data = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:  # never put the key or request body in the message
+            raise VisionError(f"HTTP {e.code}") from None
+        except (OSError, ValueError) as e:
+            raise VisionError(type(e).__name__) from None
+        try:
+            text = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            raise VisionError("no choices in the answer") from None
+        if not isinstance(text, str) or not text.strip():
+            raise VisionError("empty answer (a reasoning model may have run out of tokens)")
+        return parse_title_answer(text)
+
+
 def from_env(mode: str, env: dict | None = None, timeout: float = 30.0) -> VisionBackend | None:
-    """mode: off | mock | anthropic. Raises VisionConfigError with a plain message when something is missing."""
+    """mode: off | mock | anthropic | nvidia. Raises VisionConfigError with a plain message when something is missing."""
     env = os.environ if env is None else env
     if mode in (None, "", "off"):
         return None
     if mode == "mock":
         return MockVision()
+    if mode == "nvidia":
+        key = next((env[k] for k in NVIDIA_KEY_ENVS if env.get(k)), "")
+        if not key:
+            raise VisionConfigError(f"沒有 API 金鑰：請在環境變數設 {NVIDIA_KEY_ENVS[0]}（或 {NVIDIA_KEY_ENVS[1]}）；金鑰不要寫進檔案")
+        model = env.get("NEWSBAR_VISION_MODEL", "")
+        if not model:
+            raise VisionConfigError("沒有指定模型：請設 NEWSBAR_VISION_MODEL（可用 GET /v1/models 列出，程式不寫死）")
+        return OpenAICompatVision(api_key=key, model=model, timeout=max(timeout, 60.0), url=env.get("NEWSBAR_VISION_BASE_URL", NVIDIA_URL))
     if mode == "anthropic":
         key = next((env[k] for k in KEY_ENVS if env.get(k)), "")
         if not key:
@@ -145,15 +215,45 @@ class TitleRun:
     end: int  # last second (inclusive)
     text: str
     mean_conf: float
-    frame: str | None = None  # a crop from the middle of the run
+    frame: str | None = None  # the crop to send (see stable_runs)
+    visible_secs: int | None = None  # seconds in the run where OCR itself read text; None = raw reads unknown
 
     @property
     def seconds(self) -> int:
         return self.end - self.start + 1
 
 
-def stable_runs(channel: str, rows: list[dict], min_sec: int = MIN_STABLE_SEC) -> list[TitleRun]:
-    """Consecutive seconds with the same title text; runs shorter than min_sec are jitter or transitions."""
+def _pick_frame(seg: list[dict], text: str, raw: dict[int, dict] | None) -> tuple[str | None, int | None]:
+    """Which crop of a run to send.
+
+    The title text of a second is a 5-second vote, so a second can carry a title while its own crop shows no
+    title bar at all (anchor walking, map, transition). With the raw per-second OCR reads available, send a
+    crop where OCR itself read text — the same text if possible, then the closest, the most confident and the
+    nearest the middle. No such second → no crop (nothing worth sending). Without raw reads: the middle crop."""
+    mid = len(seg) // 2
+    if raw is None:
+        frames = [r.get("frame") for r in seg[mid:] + seg[:mid] if r.get("frame")]
+        return (frames[0] if frames else None), None
+    want = _norm(text)
+    best, best_key, visible = None, None, 0
+    for i, r in enumerate(seg):
+        got = _norm((raw.get(int(r.get("sec", 0))) or {}).get("text"))
+        if not got:
+            continue
+        visible += 1
+        if not r.get("frame"):
+            continue
+        conf = float((raw.get(int(r.get("sec", 0))) or {}).get("conf") or 0)
+        key = (got == want, agreement(want, got)[1], conf, -abs(i - mid))
+        if best_key is None or key > best_key:
+            best, best_key = r.get("frame"), key
+    return best, visible
+
+
+def stable_runs(channel: str, rows: list[dict], min_sec: int = MIN_STABLE_SEC,
+                raw: dict[int, dict] | None = None) -> list[TitleRun]:
+    """Consecutive seconds with the same title text; runs shorter than min_sec are jitter or transitions.
+    raw: per-second OCR reads before voting ({sec: {"text", "conf"}}, from ocr_raw.jsonl) for picking the crop."""
     out: list[TitleRun] = []
     cur: str | None = None
     first = 0
@@ -162,10 +262,11 @@ def stable_runs(channel: str, rows: list[dict], min_sec: int = MIN_STABLE_SEC) -
         if cur and i_end - first >= min_sec:
             seg = rows[first:i_end]
             mid = len(seg) // 2
-            frames = [r.get("frame") for r in seg[mid:] + seg[:mid] if r.get("frame")]
+            text = seg[mid].get("bar_text") or cur
+            frame, visible = _pick_frame(seg, text, raw)
             confs = [float(r.get("bar_conf") or 0) for r in seg]
             out.append(TitleRun(channel, int(seg[0].get("sec", first)), int(seg[-1].get("sec", i_end - 1)),
-                                seg[mid].get("bar_text") or cur, sum(confs) / len(confs), frames[0] if frames else None))
+                                text, sum(confs) / len(confs), frame, visible))
 
     for i, r in enumerate(rows):
         t = _norm(r.get("bar_text"))
@@ -209,6 +310,7 @@ def agreement(ocr_text: str, model_text: str) -> tuple[str, float]:
 @dataclass
 class CheckReport:
     candidates: int = 0
+    no_bar: int = 0  # low-confidence titles skipped because OCR read nothing in any of their seconds
     total_bytes: int = 0
     sent: int = 0
     errors: int = 0
@@ -216,34 +318,61 @@ class CheckReport:
     rows: list = field(default_factory=list)
 
 
+def _read_with_retry(backend: VisionBackend, image: bytes, ocr_text: str, tries: int = 2) -> VisionResult:
+    """Hosted models sometimes answer empty or with a 5xx; one more try usually works. A 4xx (bad key,
+    unknown model, rate limit) is not retried: it will not fix itself within seconds."""
+    for attempt in range(tries):
+        try:
+            return backend.read_title(image, "image/jpeg", ocr_text)
+        except VisionError as e:
+            if attempt == tries - 1 or str(e).startswith("HTTP 4"):
+                raise
+    raise VisionError("unreachable")
+
+
 def run_check(workdir: Path, channels: list[str], backend: VisionBackend | None, send: bool = False,
               max_conf: float = LOW_CONF, limit: int | None = None, say=print) -> CheckReport:
     """Dry run unless send=True AND a backend is given. Never raises for a single bad call."""
     rep = CheckReport()
-    todo: list[tuple[TitleRun, Path]] = []
+    per_channel: list[list[tuple[TitleRun, Path]]] = []
     for ch in channels:
         obs = workdir / ch / "obs.jsonl"
         if not obs.is_file():
             say(f"[{ch}] 找不到 {obs}，略過")
             continue
         rows = [json.loads(line) for line in obs.open(encoding="utf-8")]
-        for run in select_runs(stable_runs(ch, rows), max_conf, None):
+        raw_file = workdir / ch / "ocr_raw.jsonl"
+        raw = None
+        if raw_file.is_file():
+            raw = {}
+            for line in raw_file.open(encoding="utf-8"):
+                r = json.loads(line)
+                raw[int(r.get("sec", 0))] = r
+        runs = stable_runs(ch, rows, raw=raw)
+        rep.no_bar += sum(1 for r in runs if r.mean_conf < max_conf and r.visible_secs == 0)
+        picked = []
+        for run in select_runs(runs, max_conf, None):
             path = resolve_frame(run.frame, workdir, ch) if run.frame else None
             if path:
-                todo.append((run, path))
+                picked.append((run, path))
+        per_channel.append(picked)
+    # round-robin across channels so a small --limit still samples every channel
+    todo = [item for group in zip_longest(*per_channel) for item in group if item]
     todo = todo[:limit] if limit else todo
     rep.candidates = len(todo)
     rep.total_bytes = sum(p.stat().st_size for _, p in todo)
-    say(f"低信心的穩定標題 {rep.candidates} 段，截圖共 {rep.total_bytes / 1024:.0f} KB（每段一張主標題裁切圖）")
+    say(f"低信心的穩定標題 {rep.candidates} 段，截圖共 {rep.total_bytes / 1024:.0f} KB（每段一張主標題裁切圖）"
+        + (f"；另有 {rep.no_bar} 段整段都沒讀到標題條，不送" if rep.no_bar else ""))
     if not (send and backend):
         say("乾跑：沒有送出任何東西。要送出請加 --send，並先設好金鑰與模型（見 docs/vision.md）。")
         return rep
     for run, path in todo:
         try:
-            res = backend.read_title(path.read_bytes(), "image/jpeg", run.text)
+            res = _read_with_retry(backend, path.read_bytes(), run.text)
             verdict, ratio = agreement(run.text, res.text) if res.readable else ("unreadable", 0.0)
             rep.sent += 1
             row = {"channel": run.channel, "start": run.start, "end": run.end, "mean_conf": round(run.mean_conf, 3),
+                   "frame": path.name, "visible_secs": run.visible_secs,
                    "ocr": run.text, "model": res.text, "readable": res.readable, "verdict": verdict, "overlap": ratio}
         except VisionError as e:
             rep.errors += 1
