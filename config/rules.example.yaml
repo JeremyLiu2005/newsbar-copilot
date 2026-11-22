@@ -11,12 +11,16 @@ ad_state:
   return_confirm_sec: 5
   outage_black_sec: 30
   layout_sim_threshold: 0.55
+  mode: rules             # rules（預設）| learned（需 model；見 README「RAG 與 ML」）
+  # model: active         # 模型檔路徑，或 active（data/models/active.json）
 
 segmenter:
   bar_change_jaccard: 0.5
   same_story_cosine: 0.75
   weights: { bar: 0.5, asr: 0.3, visual: 0.2 }
   threshold: 0.6
+  mode: rules             # rules（預設）| learned
+  # model: active
   asr_window_sec: 20
   visual_window_sec: 5
 
@@ -27,6 +31,10 @@ labeler:
   min_len: 4
   max_len: 6
   retries: 1
+  rag:                    # 檢索增強：從 KB 取相似標題的（標題, 五字標）當額外範例；預設關閉
+    enabled: false
+    k: 3
+    kb: data/kb/labels.jsonl
 
 output:
   ad_label: 廣告

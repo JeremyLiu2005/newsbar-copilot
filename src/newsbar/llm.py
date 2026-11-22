@@ -39,6 +39,7 @@ FEW_SHOT = [
     ("台中潭子男子酒駕撞護欄 闖紅燈遭攔查", "潭子酒駕撞"),
 ]
 PROMPT_VERSION = "v3-hedge"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
+PROMPT_VERSION_RAG = "v4-rag"  # used only while retrieval is on; with it off the v3 prompt and cache keys are unchanged
 
 MAX_ASR_CHARS = 200  # NFR-14: never send more speech than needed
 
@@ -51,6 +52,31 @@ def build_user_prompt(source: LabelSource, attempt: int) -> str:
     asr = "" if source.bar_texts else (source.asr_text or "")[:MAX_ASR_CHARS]
     retry = "\n上一次的答案沒有通過檢查（可能用了來源沒有的字、缺地點，或把「疑似／傳出／恐／涉嫌」這類未確認的說法拿掉了），請只用來源裡的字重寫。" if attempt else ""
     return f"主標題：{bar}\n主播與記者語音節錄：{asr or '（無）'}{retry}\n五字標："
+
+
+def _turn(q: str, a: str) -> list[dict]:
+    return [{"role": "user", "content": f"主標題：{q}\n主播與記者語音節錄：（無）\n五字標："},
+            {"role": "assistant", "content": a}]
+
+
+def retrieved_pairs(rag, source: LabelSource, exclude_ids=(), exclude_labels=()) -> list:
+    """KB records most similar to the title on screen (none when RAG is off or no title was read).
+    Pairs the prompt already carries as FEW_SHOT are not repeated."""
+    if rag is None or not source.bar_texts:
+        return []
+    return rag.retrieve(" / ".join(source.bar_texts[:2]), exclude_ids, exclude_labels, set(FEW_SHOT))
+
+
+def build_messages(source: LabelSource, attempt: int, extra: list | None = None) -> list[dict]:
+    """Few-shot turns (FEW_SHOT, then any retrieved pairs) followed by the question. Without
+    `extra` this is exactly the v3 message list."""
+    msgs: list[dict] = []
+    for q, a in FEW_SHOT:
+        msgs += _turn(q, a)
+    for r in extra or []:
+        msgs += _turn(r.title, r.label)
+    msgs.append({"role": "user", "content": build_user_prompt(source, attempt)})
+    return msgs
 
 
 def clean_output(text: str) -> str:
@@ -68,14 +94,20 @@ class OllamaGenerator:
     model: str = "qwen2.5:7b-instruct"
     host: str = "http://127.0.0.1:11434"
     timeout: float = 60.0
+    rag: object = None  # kb.Rag; None = retrieval off
+    rag_exclude_ids: tuple = ()
+    rag_exclude_labels: tuple = ()
     opener = staticmethod(urllib.request.urlopen)
 
+    def rag_pairs(self, source: LabelSource) -> list:
+        return retrieved_pairs(self.rag, source, self.rag_exclude_ids, self.rag_exclude_labels)
+
+    def rag_context(self, source: LabelSource) -> list[str] | None:
+        """Ids (and labels, so a refreshed label changes the key) of the pairs this prompt will carry; None while retrieval is off (cache key stays v3)."""
+        return None if self.rag is None else [f"{r.id}={r.label}" for r in self.rag_pairs(source)]
+
     def generate(self, source: LabelSource, attempt: int) -> str:
-        msgs = [{"role": "system", "content": SYSTEM}]
-        for q, a in FEW_SHOT:
-            msgs += [{"role": "user", "content": f"主標題：{q}\n主播與記者語音節錄：（無）\n五字標："},
-                     {"role": "assistant", "content": a}]
-        msgs.append({"role": "user", "content": build_user_prompt(source, attempt)})
+        msgs = [{"role": "system", "content": SYSTEM}] + build_messages(source, attempt, self.rag_pairs(source))
         body = json.dumps({"model": self.model, "messages": msgs, "stream": False,
                            "options": {"temperature": 0, "seed": 42}}).encode()  # same video, same sheet
         req = urllib.request.Request(f"{self.host}/api/chat", data=body,
@@ -96,7 +128,7 @@ class ExternalCallNotAllowed(RuntimeError):
 class ClaudeGenerator:
     """Anthropic Messages API through the official `anthropic` SDK (`uv add anthropic`)."""
 
-    def __init__(self, model: str = "claude-opus-5-5", allow_external: bool = False, client=None):
+    def __init__(self, model: str = "claude-opus-5-5", allow_external: bool = False, client=None, rag=None):
         if not allow_external:
             raise ExternalCallNotAllowed(
                 "外部 LLM 預設關閉（NFR-14）。要使用請在 rules.yaml 設 labeler.allow_external: true")
@@ -106,13 +138,16 @@ class ClaudeGenerator:
             client = anthropic.Anthropic()
         self.client = client
         self.model = model
+        self.rag = rag
+
+    def rag_pairs(self, source: LabelSource) -> list:
+        return retrieved_pairs(self.rag, source)
+
+    def rag_context(self, source: LabelSource) -> list[str] | None:
+        return None if self.rag is None else [f"{r.id}={r.label}" for r in self.rag_pairs(source)]
 
     def generate(self, source: LabelSource, attempt: int) -> str:
-        msgs = []
-        for q, a in FEW_SHOT:
-            msgs += [{"role": "user", "content": f"主標題：{q}\n主播與記者語音節錄：（無）\n五字標："},
-                     {"role": "assistant", "content": a}]
-        msgs.append({"role": "user", "content": build_user_prompt(source, attempt)})
+        msgs = build_messages(source, attempt, self.rag_pairs(source))
         resp = self.client.beta.messages.create(
             model=self.model,
             max_tokens=4000,
@@ -138,6 +173,10 @@ class GuardedGenerator:
         self.model = getattr(inner, "model", "")
         self._fails = 0
         self._lock = threading.Lock()
+
+    def rag_context(self, source: LabelSource):
+        ctx = getattr(self.inner, "rag_context", None)
+        return ctx(source) if ctx else None
 
     @property
     def tripped(self) -> bool:
@@ -216,8 +255,16 @@ class CachedGenerator:
         self._lock = threading.Lock()
         self._cache: dict[str, str] = json.loads(self.path.read_text()) if self.path.exists() else {}
 
+    def key(self, source: LabelSource, attempt: int) -> str:
+        model, prompt = getattr(self.inner, "model", ""), build_user_prompt(source, attempt)
+        ctx = getattr(self.inner, "rag_context", None)
+        ids = ctx(source) if ctx else None
+        if ids is None:  # retrieval off: the same key as before RAG existed
+            return f"{model}|{PROMPT_VERSION}|{attempt}|{prompt}"
+        return f"{model}|{PROMPT_VERSION_RAG}|{attempt}|{','.join(ids)}|{prompt}"
+
     def generate(self, source: LabelSource, attempt: int) -> str:
-        key = f"{getattr(self.inner, 'model', '')}|{PROMPT_VERSION}|{attempt}|{build_user_prompt(source, attempt)}"
+        key = self.key(source, attempt)
         with self._lock:
             if key in self._cache:
                 return self._cache[key]
@@ -229,14 +276,19 @@ class CachedGenerator:
         return out
 
 
-def from_rules(rules: dict | None):
+def from_rules(rules: dict | None, kb_override: str | None = None):
     """labeler.generator: rule | ollama | claude  (default rule = no LLM)."""
     cfg = (rules or {}).get("labeler", {}) or {}
     kind = cfg.get("generator", "rule")
     if kind == "rule":
         return None
+    from . import kb
+
+    rag = kb.rag_from_rules(rules, kb_override)  # None unless labeler.rag.enabled (or --kb)
     if kind == "ollama":
-        return OllamaGenerator(model=cfg.get("model", OllamaGenerator.model), host=cfg.get("host", OllamaGenerator.host))
+        return OllamaGenerator(model=cfg.get("model", OllamaGenerator.model), host=cfg.get("host", OllamaGenerator.host),
+                               rag=rag)
     if kind == "claude":
-        return ClaudeGenerator(model=cfg.get("model", "claude-opus-5-5"), allow_external=bool(cfg.get("allow_external")))
+        return ClaudeGenerator(model=cfg.get("model", "claude-opus-5-5"), allow_external=bool(cfg.get("allow_external")),
+                               rag=rag)
     raise ValueError(f"unknown labeler.generator {kind!r}")
