@@ -36,11 +36,11 @@ def new_flags(rec: dict) -> tuple[list[str], list[str]]:
     return list(dict.fromkeys(flag)), list(dict.fromkeys(info))
 
 
-def main(old_path: str, new_path: str, out_csv: str) -> int:
+def main(old_path: str, new_path: str, out_csv: str, judgments: str = "docs/review/new_label_judgments.json") -> int:
     old = {(r["channel"], r["minute"]): r for r in map(json.loads, open(old_path, encoding="utf-8"))}
     new = {(r["channel"], r["minute"]): r for r in map(json.loads, open(new_path, encoding="utf-8"))}
     jo = json.loads((ROOT / "docs/review/old_label_judgments.json").read_text(encoding="utf-8"))
-    jn_path = ROOT / "docs/review/new_label_judgments.json"
+    jn_path = ROOT / judgments
     jn = json.loads(jn_path.read_text(encoding="utf-8")) if jn_path.exists() else {}
     rows = []
     for key in sorted(old):
@@ -59,7 +59,11 @@ def main(old_path: str, new_path: str, out_csv: str) -> int:
         if n.get("value") == o["value"]:
             new_bad, new_why = old_bad, "與舊版相同：" + old_why
         else:
-            new_bad, new_why = jn.get(k, [None, "未判定"]) if not is_ad else (False, "廣告格")
+            got = jn.get(k, [None, "未判定", None])
+            # a judgment counts only for the label it was made on
+            new_bad, new_why = (got[0], got[1]) if (len(got) < 3 or got[2] == n.get("value")) else (None, "未判定（標籤已變）")
+            if is_ad:
+                new_bad, new_why = False, "廣告格"
         fixed = bool(old_bad) and new_bad is False
         let_through = bool(new_bad) and not nf
         rows.append({
@@ -96,4 +100,4 @@ def main(old_path: str, new_path: str, out_csv: str) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(*sys.argv[1:4]))
+    raise SystemExit(main(*sys.argv[1:5]))

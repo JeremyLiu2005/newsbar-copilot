@@ -1001,7 +1001,8 @@ def make_label(
                 fb += "；不要使用標題裡無法確認的字：" + "、".join(f"「{x}」" for x in avoid)
     # 規則 FB-4：重寫後仍不合格、或 AI 沒回應 → 詞界式規則備援（不截前 N 字）
     label, bad = fallback_label(source, rules, avoid)
-    notes.append(_note(LEVEL_INFO, REASON_FALLBACK))
+    # 規則 REV-1：規則備援的短標常可辨認度不足（11/22 全備援重放：85 格中 46 格有問題）→ 建議回查
+    notes.append(_note(LEVEL_CHECK, REASON_FALLBACK, detail="AI 未產生合格短標，請確認可辨認"))
     status = STATUS_OK
     if bad:
         status = STATUS_PENDING

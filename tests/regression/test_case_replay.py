@@ -97,7 +97,8 @@ def test_unreadable_name_fragment_not_spliced():
                                          "程式無法自動判定為可疑字（已知未解，需 OCR-V4 重讀截圖）")
 def test_unreadable_name_fragment_flagged():
     _, d = decide("cts_1206_name_unstable")
-    assert d["review_level"] in (labeler.LEVEL_CHECK,)
+    # flagged because of the title's doubtful characters — not merely because the fallback was used
+    assert any(n["level"] == labeler.LEVEL_CHECK and n["reason"].startswith("標題有可疑字") for n in d["notes"])
 
 
 def test_rare_name_character_not_changed():

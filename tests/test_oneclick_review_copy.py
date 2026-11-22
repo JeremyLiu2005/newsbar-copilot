@@ -146,7 +146,7 @@ def test_fix9_review_copy_marks_flagged_cells_and_deliverable_is_clean(tmp_path)
 def test_fix9_unflagged_cells_stay_plain(tmp_path):
     tpl, out, res = _flagged_run(tmp_path)
     rev = tmp_path / "r.xlsx"
-    recs = [dict(r, fallback=None, confidence="high", reasons=[]) for r in res["evidence"]]
+    recs = [dict(r, fallback=None, confidence="high", reasons=[], review_items=[], review_level="無") for r in res["evidence"]]
     excel_writer.write_review_copy(out, rev, recs, {"ettv": "東森"}, None, {})
     ws = load_workbook(rev)["12監看"]
     lay = excel_writer.locate(ws, {"ettv": "東森"})

@@ -376,8 +376,8 @@ RULES: list[Rule] = [
          "AI 回覆 JSON（short_title、evidence、issues）。evidence 每一段都要能在主標題或語音裡逐字（或 8 成以上相同）找到，程式自己比對，不採信模型自稱；對不上就退件重寫。issues 不是空的 → 保留短標並列為「建議回查」。",
          ("labeler.parse_answer", "labeler.evidence_ok")),
     Rule("REV-1", "label",
-         "複查分三級並寫進 evidence 的 review_level：資訊提示（使用備援、短標未含地點、未確認詞不在短標內容上：只留紀錄，不列入複查清單、不標黃）；"
-         "建議回查（短標寫成定論、標題有可疑字且短標用到、無法產生合格短標、模型回報疑義、OCR 信心低：標黃並附原因）；處理失敗（標題讀不到、時鐘未校正、整台失敗）。"
+         "複查分三級並寫進 evidence 的 review_level：資訊提示（短標未含地點、未確認詞不在短標內容上、AI 服務無回應：只留紀錄，不列入複查清單、不標黃）；"
+         "建議回查（使用規則備援生成——11/22 全備援重放 85 格有 46 格可辨認度不足、短標寫成定論、標題有可疑字且短標用到、無法產生合格短標、模型回報疑義、OCR 信心低：標黃並附原因）；處理失敗（標題讀不到、時鐘未校正、整台失敗）。"
          "「備援生成」不等於錯誤；「沒有警告」也不代表正確。",
          ("labeler.review_notes", "evidence.review_level", "excel_writer.flag_reasons")),
     Rule("OCR-V1", "label",
