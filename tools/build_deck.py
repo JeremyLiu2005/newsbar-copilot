@@ -220,22 +220,27 @@ def big_card(s, x, y, w, h, head, num, sub, fill=CARD):
 
 def s_sum(prs):
     s = blank(prs)
-    frame(s, "摘要", "一鍵填好四台「12監看」，人只看標黃的格子", 2, "價值依每日監看 4–18 小時估算，待業師確認。實測：11/06 12:00–13:00 四台。")
-    cards = [("問題痛點與價值", "7–109 萬／年", ["真因：要同時比對多種訊號，一人盯四台跟不上", "結果：漏記、錯位，收視檢討算錯新聞"]),
-             ("核心解決方案", "一鍵、90 格", ["把四台側錄填回原「12監看」", "新聞部主導，創造智能協助"]),
-             ("驗證結果評估", "全部達標", [])]
+    frame(s, "摘要", "一鍵填好四台「12監看」，人只看標黃的格子", 2, "價值依每日監看 4–18 小時估算，待業師確認。實測：11/06 12:00–13:00 四台，現行程式重跑。")
+    cards = [("問題痛點與價值", "7–109 萬／年", "一人盯四台跟不上，收視檢討算錯新聞"),
+             ("核心解決方案", "一鍵、90 格", "四台側錄填回原表；新聞部主導"),
+             ("驗證結果評估", "四項全達標", "換題 0.868、廣告 0.952、44 分鐘")]
     for i, (h, n, sub) in enumerate(cards):
-        big_card(s, 0.67 + i * 4.06, 1.95, 3.86, 4.9, h, n, sub, SOFTRED if i == 2 else CARD)
-    bars = [("換題", 0.885, 0.85), ("廣告", 0.952, 0.90)]
-    for j, (n, v, t) in enumerate(bars):
-        y = 3.35 + j * 0.9
-        x0, wmax = 8.99, 3.4
-        text(s, x0, y, 1.0, 0.3, n, 11, True, INK)
-        box(s, x0, y + 0.32, wmax, 0.26, "FFFFFF", None, 0)
-        box(s, x0, y + 0.32, wmax * v, 0.26, RED, None, 0)
-        box(s, x0 + wmax * t - 0.015, y + 0.24, 0.03, 0.42, INK, None, 0)
-        text(s, x0 + 1.1, y, 2.3, 0.3, f"{v:.3f}（目標 {t:.2f}）", 10.5, False, INK)
-    text(s, 8.99, 5.25, 3.4, 0.8, ["填寫率 100%", "一台 Mac 46 分鐘"], 11.5, True, INK, space=3)
+        x = 0.67 + i * 4.06
+        box(s, x, 1.85, 3.86, 1.75, SOFTRED if i == 2 else CARD, BORDER, 0.08)
+        text(s, x + 0.2, 1.93, 3.5, 0.3, h, 12, True, RED)
+        text(s, x + 0.2, 2.25, 3.5, 0.65, n, 26, True, INK)
+        text(s, x + 0.2, 2.95, 3.5, 0.55, sub, 12, False, INK)
+    text(s, 0.67, 3.8, 8, 0.3, "企業五項評選指標", 13, True, RED)
+    crit = [("準確", "換題 0.868、廣告 0.952", "p.7・9"), ("穩定", "10 種訊號認包框；鏡位切換不算換題", "p.7・8"),
+            ("可交付", "原表格式不變，收視率欄不動", "p.9"), ("可驗證", "每格附畫面與依據；複查版標黃", "p.9"),
+            ("可擴充", "一台 Mac 跟得上全天；換台框一次", "p.6・10")]
+    w = 2.34
+    for i, (k, d, pg) in enumerate(crit):
+        x = 0.67 + i * (w + 0.075)
+        box(s, x, 4.15, w, 2.65, CARD, BORDER, 0.08)
+        label_box(s, x + (w - 0.95) / 2, 4.3, 0.95, 0.95, k, RED, None, 15, True, "FFFFFF", radius=0.47, pad=0)
+        text(s, x + 0.15, 5.4, w - 0.3, 0.9, d, 12, False, INK, PP_ALIGN.CENTER)
+        text(s, x + 0.15, 6.35, w - 0.3, 0.3, pg, 10, True, MUTE, PP_ALIGN.CENTER)
     return s
 
 
@@ -453,12 +458,12 @@ def s_q3(prs):
 
 def s_res(prs):
     s = blank(prs)
-    frame(s, "4.1 評估結果・4.2 結論與選擇", "Q4：四項指標全達標，加權 100 分", 9, "對照答案：TVBS-N 人工標註，逐分鐘比對。Excel 為實際產出節錄。")
+    frame(s, "4.1 評估結果・4.2 結論與選擇", "Q4：四項指標全達標，加權 100 分", 9, "對照答案：TVBS-N 人工標註，逐分鐘比對；現行程式重跑（測試段換題 0.897）。Excel 為實際產出節錄。")
     qtag(s, "Q4")
     text(s, 0.67, 1.85, 5, 0.28, "實測對目標", 13, True, RED)
     cd = CategoryChartData()
     cd.categories = ["換題準確度", "廣告準確度"]
-    cd.add_series("實測", (0.885, 0.952))
+    cd.add_series("實測", (0.868, 0.952))
     cd.add_series("目標", (0.85, 0.90))
     gf = s.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.67), Inches(2.15), Inches(4.4), Inches(1.95), cd)
     ch = gf.chart
@@ -483,7 +488,7 @@ def s_res(prs):
     va.has_major_gridlines = False
     ch.category_axis.reverse_order = True
     label_box(s, 0.67, 4.2, 2.1, 0.5, "填寫率 100%", SOFT, None, 12, True, INK, radius=0.06)
-    label_box(s, 2.97, 4.2, 2.1, 0.5, "46 分鐘完成", SOFT, None, 12, True, INK, radius=0.06)
+    label_box(s, 2.97, 4.2, 2.1, 0.5, "44 分鐘完成", SOFT, None, 12, True, INK, radius=0.06)
     label_box(s, 0.67, 4.85, 4.4, 0.85, [[("加權總分　", {"size": 13}), ("100", {"size": 28, "bold": True})]], RED, None, 12, False, "FFFFFF", radius=0.08)
     text(s, 0.67, 5.85, 4.4, 1.0, ["取捨：多跑語音換準確度", "下一步：開啟 RAG 與 ML"], 11.5, True, INK, space=3)
     pic(s, "excel_annot.png", 5.35, 1.9, w=3.6)
@@ -498,7 +503,7 @@ def s_res(prs):
 
 def s_plan(prs):
     s = blank(prs)
-    frame(s, "5.1 前 90 天・5.2 潛在問題分析與預防・5.3 人與關係", "Q5：一台 Mac 跟得上全天；90 天達標才擴大", 10, "一台 Mac 處理一小時四台 46 分鐘，全天約 18.4 小時。時程為提案設定。")
+    frame(s, "5.1 前 90 天・5.2 潛在問題分析與預防・5.3 人與關係", "Q5：一台 Mac 跟得上全天；90 天達標才擴大", 10, "一台 Mac 處理一小時四台約 44 分鐘，全天約 17.6 小時。時程為提案設定。")
     qtag(s, "Q5")
     lanes = [("前 30 天", "四台答案、統一記法", "一致性 ≥ 0.8"), ("到 60 天", "午間與人工並行", "準確度 ≥ 0.80"), ("到 90 天", "擴到晚間與全天", "準確度 ≥ 0.85")]
     lw = 3.92
