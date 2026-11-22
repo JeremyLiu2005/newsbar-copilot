@@ -81,56 +81,241 @@ table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;white-space:nowrap}
 .preview{overflow:auto;border:1px solid var(--line);border-radius:8px;max-height:360px}
 @media (prefers-reduced-motion:no-preference){.track i{transition:width .25s linear}}
+
+/* tokens for the sheet preview and evidence panel */
+:root{--flag:#FFF0A3;--flag-ink:#3A3000;--shead:#E9EDF2;--san:#F1F3F6;--ov-bar:#D92D3A;--ov-tick:#5B6676;--ov-clock:#E8891A}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--flag:#5C4C0E;--flag-ink:#FFEFA8;--shead:#232C38;--san:#1D2530}}
+:root[data-theme="dark"]{--flag:#5C4C0E;--flag-ink:#FFEFA8;--shead:#232C38;--san:#1D2530}
+.card{min-width:0}
+.wrap>*{min-width:0}
+.pbtn:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.files{display:flex;flex-direction:column;gap:8px}
+.file{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:14px}
+.file .fn{font:13px var(--mono);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file.tpl{border-style:dashed}
+.okt{color:var(--ok);font-size:13px;white-space:nowrap}
+.folder{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.folder .path{font:13px var(--mono);border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--bg);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slotnote{background:var(--ad-soft);color:var(--ad);border-radius:8px;padding:8px 12px;font-size:13.5px}
+select,input[type=time],input[type=number]{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;max-width:100%}
+.chan{grid-template-columns:72px minmax(0,1fr) 170px;align-items:start}
+.chan .stage{padding-top:0}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.chip{font-size:12px;border:1px solid var(--line);color:var(--mute);border-radius:999px;padding:0 8px}
+.chip.done{color:var(--ok);border-color:var(--ok)}
+.chip.on{color:var(--news);border-color:var(--news);background:var(--news-soft);font-weight:700}
+.hic{margin-top:6px;font-size:13px;color:var(--ad);background:var(--ad-soft);border-radius:6px;padding:4px 10px}
+.chan.hicc .track i{background:var(--ad)}
+.sumbox{border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.sumbox h2{margin:0}
+.rs{display:flex;gap:8px;flex-wrap:wrap}
+.rs span{font-size:13.5px;border:1px solid var(--line);border-radius:999px;padding:2px 12px}
+.rs b{font-family:var(--mono)}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;background:var(--flag);border:1px solid var(--line);vertical-align:-2px;margin-right:4px}
+.sheet{overflow:auto;border:1px solid var(--line);border-radius:8px;max-height:520px;background:var(--panel)}
+.sheet table{border-collapse:separate;border-spacing:0;font-size:12.5px;table-layout:fixed;width:max-content}
+.sheet th,.sheet td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:0;white-space:normal;text-align:center;vertical-align:middle}
+.sheet thead th{position:sticky;background:var(--shead);z-index:2;font-weight:700;padding:0 2px;height:24px;line-height:1.2;font-size:12px;color:var(--ink)}
+.sheet thead tr:nth-child(1) th{top:0}.sheet thead tr:nth-child(2) th{top:24px}
+.sheet th.tm,.sheet td.tm{position:sticky;left:0;z-index:1;background:var(--shead);width:48px;font:12px var(--mono);color:var(--mute)}
+.sheet thead th.tm{z-index:3}
+.sheet th.v,.sheet td.v{width:118px}.sheet th.r,.sheet td.r{width:30px;color:var(--mute);font-weight:400}
+.sheet th.s,.sheet td.s{width:60px}
+.sheet td.s,.sheet td.sr{background:var(--san)}
+.sheet td.v button{all:unset;box-sizing:border-box;display:block;width:100%;padding:3px 5px;text-align:left;cursor:pointer;word-break:break-all;line-height:1.35}
+.sheet td.v button:hover{outline:2px solid var(--news);outline-offset:-2px}
+.sheet td.v button:focus-visible{outline:3px solid var(--news);outline-offset:-3px}
+.sheet td.flag{background:var(--flag);color:var(--flag-ink)}
+.sheet td.isad:not(.flag){background:var(--ad-soft)}
+.sheet td.v{min-height:22px}
+.dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:700px){.dl{grid-template-columns:1fr}}
+.dl .btn{text-align:center}.dl small{display:block;font-weight:400;font-size:12.5px;opacity:.9}
+details.adv{border:1px solid var(--line);border-radius:8px;padding:10px 14px}
+details.adv>summary{cursor:pointer;font-weight:700}
+details.adv[open]>summary{margin-bottom:12px}
+details.adv>*+*{margin-top:12px}
+#scrim{position:fixed;inset:0;background:rgba(10,14,20,.5);z-index:40}
+#drawer{position:fixed;top:0;right:0;bottom:0;width:min(580px,100vw);background:var(--panel);border-left:1px solid var(--line);z-index:41;overflow:auto;padding:18px 18px 28px;display:flex;flex-direction:column;gap:14px}
+.dh{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.dh .pbtn{padding:6px 14px;flex:none}
+.frame{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:6px;overflow:visible}
+.frame img{display:block;width:100%;height:100%;border-radius:6px}
+.ov{position:absolute;border:2px solid;box-sizing:border-box;pointer-events:none}
+.ov i{position:absolute;top:0;left:0;font:700 10.5px/1.3 var(--sans);font-style:normal;padding:0 4px;white-space:nowrap;transform:translateY(-100%)}
+.ov.bar{border-color:var(--ov-bar);background:rgba(217,45,58,.16)}.ov.bar i{background:var(--ov-bar);color:#fff}
+.ov.tick{border-color:var(--ov-tick);background:rgba(91,102,118,.2)}.ov.tick i{background:var(--ov-tick);color:#fff;left:auto;right:0}
+.ov.clk{border-color:var(--ov-clock);background:rgba(232,137,26,.2)}.ov.clk i{background:var(--ov-clock);color:#1b1100;top:auto;bottom:0;transform:translateY(100%);left:0}
+.ev{display:grid;grid-template-columns:84px minmax(0,1fr);gap:4px 12px;font-size:14px}
+.ev dt{color:var(--mute);font-size:13px}.ev dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.crop img{max-width:100%;border:1px solid var(--line);border-radius:4px;display:block}
+.why{background:var(--flag);color:var(--flag-ink);border-radius:8px;padding:8px 12px;font-size:13.5px}
+.why ul{margin:0;padding-left:18px}
+.strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.strip figure{margin:0}.strip img{width:100%;border-radius:4px;display:block;aspect-ratio:16/9;background:#000}
+.strip figcaption{font:12px var(--mono);color:var(--mute)}
+.sigs{display:flex;gap:6px;flex-wrap:wrap}
+.sigs span{font-size:13px;background:var(--ad-soft);color:var(--ad);border-radius:999px;padding:1px 10px}
+body.lock{overflow:hidden}
+.scope{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;font-size:13px}
+.scope span{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:2px 12px}
+.scope b{font-weight:700}
+.pipe{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0;font-size:13px;counter-reset:pp}
+.pipe li{counter-increment:pp;background:var(--news-soft);color:var(--news);border-radius:8px;padding:4px 10px}
+.pipe li::before{content:counter(pp)" ";font-weight:700}
+.pipe li+li::after{content:none}
+.mtabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:10px}
+.pane{display:flex;flex-direction:column;gap:18px;min-width:0}
+.kpi.g b{color:var(--ok)}.kpi.y{background:var(--flag);color:var(--flag-ink);border-color:transparent}.kpi.y span{color:var(--flag-ink)}.kpi.a b{color:var(--ad)}
+.kpi small{display:block;font-size:12px;color:var(--mute);margin-top:2px}.kpi.y small{color:var(--flag-ink)}
+.fbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.fbar label.ck{font-size:14px;display:flex;gap:6px;align-items:center;margin-left:auto}
+.sheet td.dim button{opacity:.22}
+.sheet td.none button{color:var(--mute);font-style:italic}
+.mstrip{position:relative;display:flex;height:22px;border-radius:4px;overflow:hidden;background:var(--line)}
+.mstrip i{flex:1;display:block;border-right:1px solid rgba(255,255,255,.25)}
+.mmarks{position:relative;height:30px;font:11px var(--mono);color:var(--mute)}
+.mmarks u[data-r]{transform:translateX(-100%);border-left:0;border-right:2px solid var(--ink);padding:0 3px 0 0;text-align:right}
+.mmarks u{position:absolute;top:0;text-decoration:none;border-left:2px solid var(--ink);padding-left:3px;height:28px;white-space:nowrap;color:var(--ink)}
+.mlg{display:flex;flex-direction:column;gap:2px;font-size:13px}
+.mlg span::before{content:"";display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--c);margin-right:6px;vertical-align:-1px}
+.rvb{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.rvb .btns{gap:8px}.rvb .pbtn{padding:6px 14px}
+.rvb input[type=text]{min-width:0;flex:1}
+.rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:800px){.rules{grid-template-columns:1fr}}
+.rcard{border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.rcard h2{font-size:16px}.rcard ul{margin:0;padding-left:18px;font-size:14px}.rcard li+li{margin-top:3px}
+.rcard.wide{grid-column:1/-1}
+.sim{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.out{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.out .kpi b{font-size:22px}
+.assume{background:var(--ad-soft);color:var(--ad);border-radius:8px;padding:6px 12px;font-size:13px}
+
 </style>
 
 <div class="wrap">
-  <div class="banner"><b>操作原型</b>：照真實流程點著走一遍。分析進度是模擬的；結果與複查用的是後端 11/06 12:00–12:59 的真實輸出。你在複查頁的改動只存在這個瀏覽器，不會送到任何地方。</div>
+  <div class="banner"><b>操作原型</b>：照真實流程點著走一遍。選資料夾與分析進度是模擬的；原表與逐格依據用的是後端 11/06 12:00–12:59 的真實輸出。你在複查頁的改動只存在這個瀏覽器，不會送到任何地方。</div>
+  <div class="scope" aria-label="範圍鎖定"><b>範圍鎖定</b><span>2026/11/06</span><span>12:00–13:00 午間</span><span>目標分頁：12監看</span><span>寫入：民視　TVBS　東森　華視</span><span>三立側錄僅供參考、不填表</span></div>
+  <ol class="pipe" aria-label="處理流程"><li>抽畫面與標題列裁切</li><li>廣告與包框判斷</li><li>秒級換題</li><li>寫五字標</li><li>對分鐘寫回 Excel</li></ol>
   <ol class="steps" id="steps" aria-label="流程"></ol>
 
   <section class="card narrow" id="upload">
-    <h1>NewsBar Copilot：新聞監看自動填表</h1>
-    <p class="sub">放入四台側錄與乾淨版範本，系統自動判斷換題與廣告、寫五字標、填回「12監看」。</p>
-    <div class="row">
-      <div class="field"><label for="d">監看日期</label><input type="text" id="d" value="2026/11/06" readonly></div>
-      <div class="field"><label for="slot">監看時段</label><input type="text" id="slot" value="12:00–13:00" readonly></div>
+    <h1>NewsBar Copilot：一鍵產出「12監看」</h1>
+    <p class="sub">選一個資料夾、選時段、按一次。四台各一則五字標、對齊台別與分鐘，直接填回原本的 Excel。</p>
+    <div class="field"><span class="lab">資料夾（裡面放四台側錄與空白的「12監看」範本）</span>
+      <div class="folder"><div class="path" id="fpath">監看／20261106／</div><button class="pbtn ghost" id="pick" type="button">選擇資料夾</button></div>
     </div>
-    <div class="field"><span class="lab">四台側錄影片（畫面時鐘由系統自動讀取校時）</span><div class="row" id="vids"></div></div>
-    <div class="field"><span class="lab">乾淨版 Excel 範本</span><div class="box"><span class="fn">12監看_範本.xlsx</span><span class="okt">已選擇・只會寫入四台五字標欄</span></div></div>
-    <div class="field"><span class="lab">處理模式</span>
-      <div class="opt">
-        <label><input type="radio" name="mode" value="full" checked><span>準確模式<small>語音轉錄用 small 模型。11/06 四台一小時實測 46 分鐘。</small></span></label>
-        <label><input type="radio" name="mode" value="fast"><span>快速模式<small>語音轉錄用 base 模型，比較快，文字比較不準。</small></span></label>
+    <div class="field"><span class="lab" id="detlab">系統依檔名認出的檔案</span><div class="files" id="vids" aria-labelledby="detlab"></div></div>
+    <div class="field"><span class="lab">監看時段</span>
+      <div class="opt" id="slots">
+        <label><input type="radio" name="slot" value="noon" checked><span>12:00 午間新聞<small>11/06 的四台側錄就是這個時段</small></span></label>
+        <label><input type="radio" name="slot" value="eve"><span>18:00 晚間新聞</span></label>
+        <label><input type="radio" name="slot" value="custom"><span>自訂<small>自己填開始時間與長度</small></span></label>
       </div>
-      <label style="display:flex;gap:8px;align-items:center;margin-top:6px;font-size:14px"><input type="checkbox" id="resume" checked> 沿用已跑過的 OCR 與語音結果（只重跑換題與五字標）</label>
+      <div class="row" id="customrow" hidden>
+        <div class="field"><label for="cst">開始時間</label><input type="time" id="cst" value="12:00"></div>
+        <div class="field"><label for="cmin">長度（分鐘）</label><input type="number" id="cmin" value="60" min="1" step="1"></div>
+      </div>
+      <div class="slotnote" id="slotnote" hidden>這個示範只有 11/06 午間（12:00–13:00）的資料，選這個時段時仍會用午間的資料走完流程。</div>
     </div>
-    <p class="note">正式環境由三立內部側錄每小時自動放入，不需要手動上傳；這一步只在補跑或測試時使用。</p>
-    <div class="btns"><button class="pbtn" id="go">開始分析</button></div>
+    <div class="btns"><button class="pbtn" id="go" type="button">開始分析</button></div>
+    <p class="note">正式使用時，每天把當天的資料夾放進來，按同一個按鈕即可；不需要逐則挑標、修改或補填。</p>
   </section>
 
   <section class="card narrow" id="progress" hidden>
     <h1>正在分析四台影片</h1>
-    <p class="sub">四台同時處理，一台出錯不影響其他台。進度條依 11/06 實跑各階段的時間比例播放。</p>
-    <div id="chans" style="display:flex;flex-direction:column;gap:12px"></div>
+    <p class="sub">四台同時處理，其中一台遇到狀況也不會停下來、不會卡住其他台。這裡的進度是模擬播放。</p>
+    <div id="chans" style="display:flex;flex-direction:column;gap:14px"></div>
     <div class="log" id="log" aria-live="off"></div>
-    <div class="btns"><button class="pbtn" id="toResult" disabled>查看結果</button></div>
+    <div class="sumbox" id="summary" hidden></div>
+    <div class="btns"><button class="pbtn" id="toResult" type="button" disabled>看填好的原表</button></div>
   </section>
 
   <section class="card" id="result" hidden>
-    <h1>分析結果</h1>
-    <div class="kpis" id="kpis"></div>
-    <div class="tabs" id="tabs" role="tablist"></div>
-    <div><div class="lab" style="margin-bottom:4px">這一台的一小時：橘色是廣告破口</div><div class="tl" id="tl"></div></div>
-    <div class="list" id="segs"></div>
-    <p class="note">「列入抽查」的段落照常填進表裡，不會留白或寫「待確認」。換題存疑的格子，可以先請本機模型初判。</p>
-    <div class="btns"><button class="pbtn ghost" id="judge">AI 初判換題</button><span class="note" id="judgenote" style="align-self:center"></span></div>
-    <div class="btns"><button class="pbtn" id="toReview">下一步：人工複查</button></div>
+    <div class="mtabs" id="mtabs" role="tablist" aria-label="工作台分頁"><button type="button" class="tab on" data-p="bench">12監看 工作台</button><button type="button" class="tab" data-p="rules">決策規則</button><button type="button" class="tab" data-p="scale">擴大到全天</button></div>
+
+    <div class="pane" id="p-bench">
+      <h1>「12監看」原表預覽</h1>
+      <div class="kpis" id="kpis"></div>
+      <div class="fbar"><span class="lab">篩選</span><span id="filters" class="tabs"></span>
+        <label class="ck"><input type="checkbox" id="showr" checked> 顯示 A30／M30／A4+ 空欄</label></div>
+      <p class="note"><span class="sw"></span>黃色是待複查的格子（只在這個預覽裡標示，交付版沒有顏色）；橘色是廣告。空白格是延續上一格的同一則新聞或同一段廣告。點任何一格，可以看系統讀了畫面的哪一塊。</p>
+      <div class="sheet" id="sheet" tabindex="0" aria-label="12監看原表預覽，可捲動"></div>
+      <p class="note">收視率欄位（A30、M30、A4+）未動，隔日灌入；三立欄不填。</p>
+      <div class="dl">
+        <a class="btn" id="dl1" href="https://github.com/JeremyLiu2005/newsbar-copilot/raw/main/demo/files/12監看_20261106.xlsx" target="_blank" rel="noopener">下載交付版（原格式）<small>只寫入四台五字標，其餘格式照舊</small></a>
+        <a class="btn ghost" id="dl2" href="https://github.com/JeremyLiu2005/newsbar-copilot/raw/main/demo/files/12監看_20261106_複查版.xlsx" target="_blank" rel="noopener">下載複查版（標黃＋註解）<small>待複查的格子標黃，並附上原因與畫面依據</small></a>
+      </div>
+      <div class="btns"><button class="pbtn" id="toReview" type="button">逐格人工複查</button></div>
+      <details class="adv"><summary>各台分段與 AI 初判換題（進階）</summary>
+        <div class="tabs" id="tabs" role="tablist"></div>
+        <div><div class="lab" style="margin-bottom:4px">這一台的一小時：橘色是廣告</div><div class="tl" id="tl"></div></div>
+        <div class="list" id="segs"></div>
+        <p class="note">待複查的段落照常填進表裡，不會留白或寫「待確認」。換題存疑的格子，可以先請本機模型初判。</p>
+        <div class="btns"><button class="pbtn ghost" id="judge" type="button">AI 初判換題</button><span class="note" id="judgenote" style="align-self:center"></span></div>
+      </details>
+    </div>
+
+    <div class="pane" id="p-rules" hidden>
+      <h1>決策規則</h1>
+      <p class="sub">系統怎麼做決定。這些是 11/06 實跑用的規則，不是設定畫面，不能在這裡改。</p>
+      <div class="rules">
+        <div class="rcard"><h2>何時算換題</h2><ul>
+          <li>標題列出現新標題，並且穩定 7 秒以上。</li>
+          <li>還要有任一項佐證：前後 20 秒的語音話題不同、前後 5 秒是主播鏡頭、說話的人換了、25 秒內出現記者名條。</li>
+          <li>鏡位切換（主播、連線、現場）本身不算換題，只看標題列。</li>
+          <li>3 分鐘內同一個標題又輪回，併回原來那一則。</li></ul></div>
+        <div class="rcard"><h2>何時算廣告</h2><ul>
+          <li>10 種訊號中任兩種同時成立，並持續 10 秒。</li>
+          <li>不到 25 秒的不算廣告破口。</li>
+          <li>兩段廣告之間 8 秒內的空隙，併成一段。</li>
+          <li>回到新聞：版面與標題列底色都恢復，並且出現主播、語音或新標題，維持 5 秒。</li>
+          <li>廣告期間一律填「廣告」，不沿用舊標題。</li></ul></div>
+        <div class="rcard"><h2>五字標怎麼寫</h2><ul>
+          <li>4 到 6 個字，每個字都要出自來源標題。</li>
+          <li>社會新聞要有地點。</li>
+          <li>保留「疑」「涉」等未確認的語氣，不寫成定論。</li>
+          <li>AI 寫不出合格的字時，改用規則直接從標題摘字，並標黃請人看。</li></ul></div>
+        <div class="rcard"><h2>遇到不確定</h2><ul>
+          <li>不停下來：照常填入最可能的寫法，標黃。</li>
+          <li>標黃的格子附上影片時間、標題列畫面與語音節錄，方便回頭核對。</li></ul></div>
+        <div class="rcard wide"><h2>這一格填在哪一分鐘</h2>
+          <p class="note" style="margin:0">依官方範本：從哪一秒開始，就填在那一分鐘。同一分鐘播出好幾則，依播出順序用「/」連起來。下一分鐘只是延續，就留白。廣告的起始分鐘填「廣告」。</p>
+          <div class="field"><label for="exsel">選一個真實的分鐘看看（同分鐘有多則的格子）</label><select id="exsel"></select></div>
+          <div id="exout" style="display:flex;flex-direction:column;gap:8px"></div></div>
+      </div>
+    </div>
+
+    <div class="pane" id="p-scale" hidden>
+      <h1>擴大到全天</h1>
+      <p class="sub">用實測的速度估算：一台 Mac（M4）、快速模式，處理 1 小時四台影片要 46 分鐘。</p>
+      <div class="sim">
+        <div class="field"><label for="sch">頻道數（1–8）</label><input type="number" id="sch" value="4" min="1" max="8" step="1"></div>
+        <div class="field"><label for="shr">每日監看時數</label><select id="shr"><option value="1">1 小時</option><option value="4">4 小時</option><option value="24" selected>24 小時</option><option value="custom">自訂</option></select></div>
+        <div class="field" id="shrc" hidden><label for="shc">自訂時數</label><input type="number" id="shc" value="6" min="0.5" step="0.5"></div>
+      </div>
+      <div class="out" id="scout"></div>
+      <div class="rcard"><h2>人力對照</h2>
+        <div class="assume">以下是假設，待業師確認。</div>
+        <div class="sim"><div class="field"><label for="swg">時薪（NT$）</label><input type="number" id="swg" value="235" min="0" step="5"></div>
+          <div class="field"><label for="stk">系統接手比例（%）</label><input type="number" id="stk" value="85" min="0" max="100" step="5"></div></div>
+        <div id="scman" class="out"></div>
+        <p class="note" style="margin:0">假設一個人同時盯四台（說明會現況），每 4 台需要 1 人，監看時數等於每日時數。</p></div>
+      <div class="rules">
+        <div class="rcard"><h2>每小時自動接手</h2><p class="note" style="margin:0">側錄每小時切成一個檔，自動排入處理。</p></div>
+        <div class="rcard"><h2>換時段</h2><p class="note" style="margin:0">指定開始時間與分鐘數即可。</p></div>
+        <div class="rcard"><h2>換頻道</h2><p class="note" style="margin:0">用校正頁，在畫面上框一次標題列、時鐘、台徽的位置。</p></div>
+        <div class="rcard"><h2>顯示卡版</h2><p class="note" style="margin:0">NVIDIA 顯示卡版程式已備好，四台可同時轉錄；上面的估算只用 Mac 實測速度。</p></div>
+      </div>
+    </div>
   </section>
 
   <section class="card" id="review" hidden>
     <h1>人工複查</h1>
-    <p class="sub">系統把需要人看的格子排成一個佇列：語音定名、規則擷取的五字標最先，換題存疑次之。判定一格約 30 秒，標「對」只要按一個鍵。</p>
+    <p class="sub">系統把需要人看的格子排成一個佇列：語音定名、規則摘字的五字標最先，換題存疑次之。判定一格約 30 秒，標「對」只要按一個鍵。</p>
     <div id="rvroot"></div>
-    <div class="btns"><button class="pbtn" id="toDone">完成複查，產出修正版</button></div>
+    <div class="btns"><button class="pbtn ghost" id="backResult" type="button">回到原表預覽</button><button class="pbtn" id="toDone" type="button">完成複查，產出修正版</button></div>
   </section>
 
   <section class="card narrow" id="done" hidden>
@@ -142,77 +327,176 @@ th,td{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;white-
       <div id="doneline"></div>
     </div>
     <div class="preview" id="donetable"></div>
-    <div class="btns"><button class="pbtn" id="dlj">下載修正紀錄（JSON）</button><button class="pbtn ghost" id="dlc">下載修正對照（CSV）</button><button class="pbtn ghost" id="mkx" disabled>產生修正版 Excel</button></div>
+    <div class="btns"><button class="pbtn" id="dlj" type="button">下載修正紀錄（JSON）</button><button class="pbtn ghost" id="dlc" type="button">下載修正對照（CSV）</button><button class="pbtn ghost" id="mkx" type="button" disabled>產生修正版 Excel</button></div>
     <p class="note">修正版 Excel 由正式後台（<code>newsbar serve</code>）產生。原型只能匯出修正紀錄。</p>
-    <div class="btns"><button class="pbtn ghost" id="restart">回到第一步</button></div>
+    <div class="btns"><button class="pbtn ghost" id="restart" type="button">回到第一步</button></div>
   </section>
 </div>
+
+<div id="scrim" hidden></div>
+<aside id="drawer" role="dialog" aria-modal="true" aria-labelledby="dtitle" hidden>
+  <div class="dh"><div><h2 id="dtitle"></h2><div class="note" id="dsub"></div></div><button class="pbtn ghost" id="dclose" type="button">關閉</button></div>
+  <div id="dstrip"></div>
+  <div class="tabs" id="dtabs"></div>
+  <div id="dbody" style="display:flex;flex-direction:column;gap:14px"></div>
+  <div class="rvb" id="dreview"></div>
+</aside>
 
 <script src="review.js"></script>
 <script>
 const NAMES={tvbs:'TVBS-N',ettv:'東森',ftv:'民視',cts:'華視'};
-const CHS=['ftv','tvbs','ettv','cts'];
-const STEPS=[['upload','1 選影片'],['progress','2 分析'],['result','3 結果'],['review','4 人工複查'],['done','5 完成']];
-const STAGES=[['畫面時鐘校時',.02],['裁切主 bar 與畫面',.06],['主 bar OCR',.10],['畫面訊號與廣告指紋',.12],['語音轉錄',.62],['判定換題與廣告',.04],['五字標生成與校驗',.04]];
+const SHEET=['tvbs','ettv','ftv','cts'];            // 原表欄位順序（三立欄在最前面、不填）
+const CHS=['ftv','tvbs','ettv','cts'];               // 進度頁的處理順序
+const STEPS=[['upload','1 選資料夾與時段'],['progress','2 分析'],['result','3 工作台'],['review','4 人工複查'],['done','5 完成']];
+const STAGES=['讀影片','抽畫面','辨識','判廣告','判換題','寫五字標','對分鐘'];
+// 四台版面（1280×720 的相對座標 x,y,w,h），出自 config/channels.1106.yaml
+const LAYOUT={
+  tvbs:{bar:[.245,.805,.73,.095],tick:[.25,.90,.75,.06],clk:[.08,.90,.17,.06]},
+  ettv:{bar:[0,.805,1,.09],tick:[.23,.90,.75,.065],clk:[.06,.90,.15,.065]},
+  ftv:{bar:[.225,.795,.77,.10],tick:[.22,.90,.78,.07],clk:[.08,.90,.12,.07]},
+  cts:{bar:[.155,.808,.80,.10],tick:[.14,.93,.82,.06],clk:[.03,.93,.10,.06]}};
+const WHYTXT={
+  'FB-3':'換題當下標題沒讀到（或廣告後沒等到新標題），這一格先用語音決定名稱。請對照下方標題列，確認是同一則新聞。',
+  'FB-4':'AI 寫的五字標兩次沒通過逐字檢查，改用規則直接從標題摘字。請看這幾個字是否說得清楚是哪則新聞。',
+  'FB-1':'換題的佐證偏弱。請看這一則的起點，是不是真的換了新聞，或該併回前一則。'};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hm=s=>{const t=12*60+Math.floor(s/60);return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`};
-let D=null, cur='ftv', timer=null, judged=false, reached=0, STORE=null, RV=null;
+const clk=s=>{const t=12*3600+s,h=Math.floor(t/3600),m=Math.floor(t%3600/60);return `${h}:${String(m).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`};
+let REV={}, FILT='all', SHOWR=true, PANE='bench';
+let D=null, cur='ftv', timer=null, judged=false, reached=0, STORE=null, RV=null, CM=null, doneRun=false, openKey=null, lastFocus=null;
 
 function steps(id){
   const k=STEPS.findIndex(s=>s[0]===id); reached=Math.max(reached,k);
-  $('#steps').innerHTML=STEPS.map(([s,t],i)=>`<li><button data-s="${s}" class="${i===k?'on':i<k?'ok':''}" ${i>reached?'disabled':''} ${i===k?'aria-current="step"':''}>${t}</button></li>`).join('');
+  $('#steps').innerHTML=STEPS.map(([s,t],i)=>`<li><button type="button" data-s="${s}" class="${i===k?'on':i<k?'ok':''}" ${i>reached?'disabled':''} ${i===k?'aria-current="step"':''}>${t}</button></li>`).join('');
   $('#steps').querySelectorAll('button').forEach(b=>b.onclick=()=>show(b.dataset.s));
 }
 function show(id){
+  closeDrawer(true);
   STEPS.forEach(([s])=>$('#'+s).hidden=s!==id);
   steps(id); try{history.replaceState(null,'','#'+id)}catch(e){}
   if(id==='progress') runProgress();
+  else clearInterval(timer);
   if(id==='result') renderResult();
   if(id==='review') renderReview();
   if(id==='done') renderDone();
   window.scrollTo({top:0});
 }
 
-$('#vids').innerHTML=CHS.map(c=>`<div class="box"><span><b>${NAMES[c]}</b>　<span class="fn">${c}_20261106_1200.ts</span></span><span class="okt">已選擇</span></div>`).join('');
+/* ---- 1. 資料夾與時段 ---- */
+function renderFiles(){
+  $('#vids').innerHTML=SHEET.map(c=>`<div class="file"><b>${NAMES[c]}</b><span class="fn">${c}_20261106_1200.ts</span><span class="okt">已認出：${NAMES[c]}</span></div>`).join('')+
+    `<div class="file tpl"><b>範本</b><span class="fn">12監看_範本.xlsx</span><span class="okt">空白「12監看」，只寫五字標欄</span></div>`;
+}
+renderFiles();
+$('#pick').onclick=()=>{const b=$('#pick');b.disabled=true;b.textContent='辨識中…';$('#vids').style.opacity='.4';
+  setTimeout(()=>{renderFiles();$('#vids').style.opacity='';b.disabled=false;b.textContent='選擇資料夾'},450)};
+function slotNote(){
+  const v=document.querySelector('input[name=slot]:checked').value;
+  $('#customrow').hidden=v!=='custom';
+  const stdCustom=v==='custom'&&$('#cst').value==='12:00'&&+$('#cmin').value===60;
+  $('#slotnote').hidden=v==='noon'||stdCustom;
+}
+document.querySelectorAll('input[name=slot]').forEach(r=>r.onchange=slotNote);
+$('#cst').oninput=$('#cmin').oninput=slotNote;
 
+/* ---- 2. 進度（模擬）：一台遇到狀況，不停、照樣完成 ---- */
+const cellsOf=ch=>D.cells.filter(c=>c.ch===ch);
+const reasonOf=c=>{const f=c.fb||'';return f.includes('FB-3')?'voice':f.includes('FB-4')?'rule':'change'};
+const RLAB={rule:'規則摘字（AI 的五字標沒通過檢查）',change:'換題證據偏弱',voice:'語音定名（標題沒讀到）'};
 function runProgress(){
   clearInterval(timer);
-  $('#chans').innerHTML=CHS.map(c=>`<div class="chan"><b>${NAMES[c]}</b><div class="track"><i id="bar-${c}"></i></div><div class="stage" id="st-${c}">排隊中</div></div>`).join('');
-  $('#toResult').disabled=true; const log=$('#log'); log.textContent='';
-  const resume=$('#resume').checked, off={ftv:0,tvbs:.04,ettv:.08,cts:.12}, seen={}; let t=0;
+  $('#chans').innerHTML=CHS.map(c=>`<div class="chan" id="row-${c}"><b>${NAMES[c]}</b><div><div class="track"><i id="bar-${c}"></i></div><div class="chips" id="chips-${c}"></div><div class="hic" id="hic-${c}" hidden></div></div><div class="stage" id="st-${c}">排隊中</div></div>`).join('');
+  $('#toResult').disabled=true; $('#summary').hidden=true; const log=$('#log'); log.textContent='';
+  const speed={ftv:1,tvbs:.9,ettv:.82,cts:.86}, lag={ftv:0,tvbs:3,ettv:6,cts:9}, P={}, seen={}, HIC='cts';
+  CHS.forEach(c=>P[c]=0); let tick=0, hic=false;
   const add=m=>{log.textContent+=m+'\n'; log.scrollTop=log.scrollHeight};
-  if(resume) add('沿用已跑過的 OCR 與語音結果：只重跑換題、廣告與五字標');
+  const paint=(c,idx,fin)=>{$('#chips-'+c).innerHTML=STAGES.map((n,i)=>`<span class="chip ${fin||i<idx?'done':i===idx?'on':''}">${n}</span>`).join('')};
+  CHS.forEach(c=>paint(c,-1,false));
   timer=setInterval(()=>{
-    t+=.02; let all=true;
+    tick++; let all=true;
     for(const c of CHS){
-      const p=Math.max(0,Math.min(1,(t-off[c])/0.9)); if(p<1) all=false;
+      if(tick<=lag[c]){all=false;continue}
+      P[c]=Math.min(1,P[c]+.0125*speed[c]); const p=P[c]; if(p<1) all=false;
+      const idx=Math.min(STAGES.length-1,Math.floor(p*STAGES.length)), fin=p>=1;
       $('#bar-'+c).style.width=(p*100)+'%';
-      let acc=0,name='完成',idx=STAGES.length;
-      if(p<1){idx=0;for(const [n,w] of STAGES){acc+=w; if(p<acc){name=n+'中';break}idx++}}
-      $('#st-'+c).textContent=p<=0?'排隊中':name;
-      if(p>0&&seen[c]!==idx){seen[c]=idx; add(`[${c}] ${idx>=STAGES.length?'完成':STAGES[idx][0]+(resume&&idx>=1&&idx<=4?'（沿用）':' …')}`)}
+      $('#st-'+c).textContent=fin?'完成':STAGES[idx]+'中';
+      if(seen[c]!==(fin?99:idx)){seen[c]=fin?99:idx; paint(c,idx,fin); add(`[${NAMES[c]}] ${fin?'完成':STAGES[idx]+' …'}`)}
+      if(c===HIC&&!hic&&idx===5&&p*STAGES.length-5>.3){
+        hic=true; $('#row-'+c).classList.add('hicc'); const h=$('#hic-'+c); h.hidden=false;
+        h.textContent='AI 服務暫時無回應，改用規則摘字，繼續處理';
+        add(`[${NAMES[c]}] AI 服務暫時無回應，改用規則摘字，不中斷（其他台照常進行）`);
+      }
+      if(fin&&c===HIC){const n=cellsOf(c).filter(x=>(x.fb||'').includes('FB-4')).length;
+        $('#hic-'+c).hidden=false; $('#hic-'+c).textContent=`已完成。這一台有 ${n} 格是用規則摘字寫的，已標黃待複查`}
     }
-    if(all){clearInterval(timer);add('四台完成');$('#toResult').disabled=false}
+    if(all){clearInterval(timer);add('四台完成，已對齊台別與分鐘');summaryBox();$('#toResult').disabled=false}
   },100);
 }
+function summaryBox(){
+  const low=D.cells.filter(c=>c.conf==='low'), rc={rule:0,change:0,voice:0}; low.forEach(c=>rc[reasonOf(c)]++);
+  const rows=CHS.map(c=>{const r=D.report[c];return `<tr><td>${NAMES[c]}</td><td>${r.cells}</td><td>${r.low_conf}</td></tr>`}).join('');
+  $('#summary').hidden=false;
+  $('#summary').innerHTML=`<h2>自動填寫 ${D.cells.length} 格，其中 ${low.length} 格標黃待複查</h2>
+    <div class="rs">${['rule','change','voice'].map(k=>`<span>${RLAB[k]}　<b>${rc[k]}</b> 格</span>`).join('')}</div>
+    <table><thead><tr><th>台別</th><th>填寫格數</th><th>待複查</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="note" style="margin:0">待複查的格子照常填了字，不會留白；已先填好的內容可以直接交付，標黃的留給人看一眼。</p>`;
+}
 
-const cellsOf=ch=>D.cells.filter(c=>c.ch===ch);
+/* ---- 3. 原表預覽 ---- */
 const segsOf=ch=>{const o=[];cellsOf(ch).forEach(c=>c.items.forEach(i=>o.push([i.start??(+c.m.slice(2))*60,i.type,i.label||'廣告',c.conf==='low',i,c])));
   o.sort((a,b)=>a[0]-b[0]);return o.filter((s,k)=>!k||s[2]!==o[k-1][2]||s[1]!==o[k-1][1])};
 const isCleared=(c,i)=>judged&&c.fb==='FB-1'&&i.judge&&i.judge.verdict==='different';
 
+const keyOf=c=>c.ch+'_'+c.m;
+const isFlag=c=>c.conf==='low'&&!REV[keyOf(c)];
+const hasAd=c=>c.items.some(i=>i.type==='ad');
+const MATCH={all:()=>true,flag:isFlag,ad:hasAd,multi:c=>c.v.includes('/')};
+function sheetHTML(){
+  const mp=new Map(D.cells.map(c=>[keyOf(c),c])), W=SHOWR?4:1;
+  const grp=[`<th colspan="${W}">三立</th>`,...SHEET.map(c=>`<th colspan="${W}">${NAMES[c]}</th>`)].join('');
+  const rth=SHOWR?'<th class="r">A30</th><th class="r">M30</th><th class="r">A4+</th>':'';
+  const sub=`<th class="s">五字標</th>${rth}`, sub2=SHEET.map(()=>`<th class="v">五字標</th>${rth}`).join('');
+  const rtd=SHOWR?'<td class="r"></td><td class="r"></td><td class="r"></td>':'', rtds=SHOWR?'<td class="r sr"></td><td class="r sr"></td><td class="r sr"></td>':'';
+  let body='';
+  for(let m=0;m<60;m++){
+    const mm='12'+String(m).padStart(2,'0');
+    let r=`<td class="tm">${mm}</td><td class="s"></td>${rtds}`;
+    for(const ch of SHEET){
+      const c=mp.get(ch+'_'+mm);
+      if(c){const rv=REV[keyOf(c)], none=rv&&rv.v==='none', txt=none?'（不填）':rv&&rv.v==='fix'?rv.text:c.v;
+        r+=`<td class="v${isFlag(c)?' flag':''}${hasAd(c)?' isad':''}${none?' none':''}${MATCH[FILT](c)?'':' dim'}"><button type="button" data-k="${keyOf(c)}" title="看這一格讀了畫面的哪一塊">${esc(txt)}</button></td>`}
+      else r+='<td class="v"></td>';
+      r+=rtd;
+    }
+    body+=`<tr>${r}</tr>`;
+  }
+  return `<table><thead><tr><th class="tm" rowspan="2">時間</th>${grp}</tr><tr>${sub}${sub2}</tr></thead><tbody>${body}</tbody></table>`;
+}
+function paintSheet(){
+  const sh=$('#sheet'), t=sh.scrollTop, l=sh.scrollLeft; sh.innerHTML=sheetHTML(); sh.scrollTop=t; sh.scrollLeft=l;
+  const low=D.cells.filter(isFlag), ad=D.cells.filter(hasAd);
+  $('#kpis').innerHTML=`<div class="kpi"><b>${D.cells.length}</b><span>自動填寫格數</span></div>
+    <div class="kpi g"><b>${D.cells.length-low.length}</b><span>不需複查</span></div>
+    <div class="kpi y"><b>${low.length}</b><span>標黃待複查</span><small>不中斷：照常填寫，先交付</small></div>
+    <div class="kpi a"><b>${ad.length}</b><span>廣告格數</span><small>防舊標題殘留</small></div>`;
+  const F=[['all','全部'],['flag','只看標黃'],['ad','只看廣告'],['multi','同分鐘多則']];
+  $('#filters').innerHTML=F.map(([k,t])=>`<button type="button" class="tab${k===FILT?' on':''}" data-f="${k}">${t}（${D.cells.filter(MATCH[k]).length}）</button>`).join('');
+  $('#filters').querySelectorAll('button').forEach(b=>b.onclick=()=>{FILT=b.dataset.f;paintSheet()});
+}
 function renderResult(){
-  const low=D.cells.filter(c=>c.conf==='low'), fb=k=>low.filter(c=>(c.fb||'').includes(k)).length;
-  $('#kpis').innerHTML=`<div class="kpi"><b>${D.cells.length}</b><span>格由系統填寫</span></div><div class="kpi"><b>${D.cells.length-low.length}</b><span>格高信心，直接採用</span></div>
-    <div class="kpi"><b>${low.length}</b><span>格低信心，列入抽查</span></div><div class="kpi"><b>${fb('FB-1')}／${fb('FB-4')}／${fb('FB-3')}</b><span>換題存疑／規則擷取／語音定名</span></div>`;
-  $('#tabs').innerHTML=CHS.map(c=>`<button class="tab${c===cur?' on':''}" role="tab" aria-selected="${c===cur}" data-c="${c}">${NAMES[c]}</button>`).join('');
-  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.c;renderResult()});
+  paintSheet(); setPane(PANE);
+  if(!$('#sheet').dataset.bound){ $('#sheet').dataset.bound=1;
+    $('#sheet').addEventListener('click',e=>{const b=e.target.closest('button[data-k]'); if(b) openCell(b.dataset.k,b)});
+    $('#showr').onchange=e=>{SHOWR=e.target.checked;paintSheet()};
+    document.querySelectorAll('#mtabs .tab').forEach(b=>b.onclick=()=>setPane(b.dataset.p)); }
+  $('#tabs').innerHTML=SHEET.map(c=>`<button type="button" class="tab${c===cur?' on':''}" role="tab" aria-selected="${c===cur}" data-c="${c}">${NAMES[c]}</button>`).join('');
+  document.querySelectorAll('#tabs .tab').forEach(b=>b.onclick=()=>{cur=b.dataset.c;renderResult()});
   const segs=segsOf(cur);
   $('#tl').innerHTML=(D.timeline[cur]||[]).filter(r=>r[0]==='ad').map(r=>`<span style="left:${r[1]/36}%;width:${(r[2]-r[1])/36}%"></span>`).join('');
   $('#segs').innerHTML=segs.map((s,i)=>{
     const end=i+1<segs.length?segs[i+1][0]:3600;
-    const tag=isCleared(s[5],s[4])?'<span class="pill p-soft">AI 已初判</span>':s[3]?'<span class="pill p-low">列入抽查</span>':'<span></span>';
+    const tag=isCleared(s[5],s[4])?'<span class="pill p-soft">AI 已初判</span>':s[3]?'<span class="pill p-low">待複查</span>':'<span></span>';
     return `<div class="seg${s[1]==='ad'?' ad':''}"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${tag}</div>`}).join('');
   $('#judge').disabled=judged;
 }
@@ -223,6 +507,102 @@ $('#judge').onclick=()=>{
     $('#judgenote').textContent=`已初判 ${n} 則；${k} 格判為新的一則，標「AI 已初判」。五字標沒有動，仍可人工覆核。`; renderResult()},700);
 };
 
+/* ---- 分頁、秒級分布、規則範例、全天試算 ---- */
+function setPane(p){
+  PANE=p; document.querySelectorAll('#mtabs .tab').forEach(b=>{b.classList.toggle('on',b.dataset.p===p);b.setAttribute('aria-selected',b.dataset.p===p)});
+  ['bench','rules','scale'].forEach(k=>$('#p-'+k).hidden=k!==p);
+  if(p==='rules') initRules(); if(p==='scale') calcScale();
+}
+const PAL=['var(--news)','#8A63C9','#2E9C8F','#B5651D'];
+function minuteStrip(ch,m){
+  const base=(+m.slice(2))*60, its=D.cells.filter(c=>c.ch===ch).flatMap(c=>c.items).filter(i=>i.end>base&&i.start<base+60).sort((a,b)=>a.start-b.start);
+  let n=0; const col=its.map(i=>i.type==='ad'?'var(--ad)':PAL[n++%PAL.length]);
+  const nm=i=>i.type==='ad'?'廣告':(i.label||'新聞');
+  let bars=''; for(let j=0;j<60;j++){const k=its.findIndex(i=>i.start<=base+j&&base+j<i.end); bars+=`<i style="background:${k<0?'var(--line)':col[k]}" title="${clk(base+j)}"></i>`}
+  const marks=its.filter(i=>i.start>=base&&i.start<base+60).map(i=>`<u style="left:${(i.start-base)/60*100}%" ${(i.start-base)>40?'data-r':''}>${clk(i.start)} 換</u>`).join('');
+  const lg=its.map((i,k)=>`<span style="--c:${col[k]}">${esc(nm(i))}　${clk(i.start)}–${clk(i.end)}${i.start<base?'（這一分鐘之前就已開始）':''}</span>`).join('');
+  return `<div><div class="mstrip" role="img" aria-label="這一分鐘每一秒播的是哪一則">${bars}</div><div class="mmarks"><span style="position:absolute;left:0;top:14px">${clk(base)}</span><span style="position:absolute;right:0;top:14px">${clk(base+59)}</span>${marks}</div><div class="mlg">${lg}</div></div>`;
+}
+function initRules(){
+  const sel=$('#exsel'); if(sel.options.length) return;
+  const cs=D.cells.filter(c=>c.v.includes('/')).sort((a,b)=>a.m.localeCompare(b.m)||a.ch.localeCompare(b.ch));
+  sel.innerHTML=cs.map(c=>`<option value="${keyOf(c)}">${NAMES[c.ch]}　${c.m.slice(0,2)}:${c.m.slice(2)}　${esc(c.v)}</option>`).join('');
+  sel.onchange=exampleOut; exampleOut();
+}
+function exampleOut(){
+  const c=D.cells.find(x=>keyOf(x)===$('#exsel').value); if(!c) return;
+  const base=(+c.m.slice(2))*60, steps=c.items.map(i=>{const nm=i.type==='ad'?'廣告':i.label;
+    return i.start<base?`<li>${nm}：在這一分鐘之前就已在播，${c.m==='1200'?'12:00 這一格從它開始':'已歸在前面的分鐘'}</li>`:`<li>${clk(i.start)} 開始播「${esc(nm)}」，起始秒在 12:${c.m.slice(2)}，所以歸這一格</li>`}).join('');
+  $('#exout').innerHTML=minuteStrip(c.ch,c.m)+`<ol style="margin:0;padding-left:20px;font-size:14px">${steps}</ol><div>依播出順序用「/」連起來，這一格填：<b>${esc(c.v)}</b></div>`;
+}
+const RATE=46/60;
+function calcScale(){
+  const ch=Math.max(1,Math.min(8,Math.round(+$('#sch').value)||1)), sel=$('#shr').value; $('#shrc').hidden=sel!=='custom';
+  const h=Math.max(.5,sel==='custom'?(+$('#shc').value||.5):+sel), vid=h*ch, proc=h*ch/4*RATE, macs=Math.max(1,Math.ceil(proc/24)), f=x=>(Math.round(x*10)/10).toLocaleString('zh-TW');
+  $('#scout').innerHTML=`<div class="kpi"><b>${f(vid)} 小時</b><span>每日影片總長（${ch} 台 × ${f(h)} 小時）</span></div>
+    <div class="kpi"><b>${f(proc)} 小時</b><span>一台 Mac 要處理的時間</span></div>
+    <div class="kpi ${proc<=24?'g':'y'}"><b>${proc<=24?'跑得完':'跑不完'}</b><span>一台 Mac 在 24 小時內${proc<=24?'完成':'完不成'}</span></div>
+    <div class="kpi"><b>${macs} 台</b><span>需要的 Mac 數量</span></div>
+    <div class="kpi g"><b>NT$0</b><span>API 費用（全部在本機處理）</span></div>`;
+  const wg=Math.max(0,+$('#swg').value||0), tk=Math.max(0,Math.min(100,+$('#stk').value||0));
+  const ppl=Math.ceil(ch/4), man=h*ppl;
+  $('#scman').innerHTML=`<div class="kpi"><b>${f(man)} 小時</b><span>人工監看時數（${ppl} 人 × ${f(h)} 小時，假設）</span></div><div class="kpi"><b>NT$${Math.round(man*wg).toLocaleString('zh-TW')}</b><span>全人工每日人力成本（假設）</span></div><div class="kpi g"><b>NT$${Math.round(man*wg*tk/100).toLocaleString('zh-TW')}</b><span>系統接手後每日省下（假設）</span></div>`;
+}
+['#sch','#shr','#shc','#swg','#stk'].forEach(q=>{$(q).oninput=calcScale;$(q).onchange=calcScale});
+
+/* ---- 4. 逐格依據面板 ---- */
+function reviewBlock(c){
+  const k=keyOf(c), rv=REV[k], st=rv?(rv.v==='ok'?'已確認，轉為一般格':rv.v==='fix'?`已改寫為「${esc(rv.text)}」`:'已設為不該填'):(c.conf==='low'?'待複查（黃）':'系統高信心');
+  $('#dreview').innerHTML=`<b>五字標覆核</b><div class="note">目前：${st}。只存在這個預覽，不會送到任何地方。</div>
+    <div class="btns"><button type="button" class="pbtn" data-a="ok">對</button><button type="button" class="pbtn ghost" data-a="none">不該填</button>${rv?'<button type="button" class="pbtn ghost" data-a="undo">復原</button>':''}</div>
+    <div class="btns" style="flex-wrap:nowrap"><input type="text" id="rwt" value="${esc(rv&&rv.text||c.v)}" aria-label="改寫五字標"><button type="button" class="pbtn ghost" data-a="fix">改寫</button></div>`;
+  $('#dreview').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    const a=b.dataset.a; if(a==='undo') delete REV[k]; else if(a==='fix'){const t=$('#rwt').value.trim(); if(!t) return; REV[k]={v:'fix',text:t}} else REV[k]={v:a};
+    paintSheet(); reviewBlock(c)});
+}
+function ovBox(cls,label,r){return `<div class="ov ${cls}" style="left:${r[0]*100}%;top:${r[1]*100}%;width:${r[2]*100}%;height:${r[3]*100}%"><i>${label}</i></div>`}
+function itemHTML(c,it){
+  const L=LAYOUT[c.ch];
+  const why=c.conf==='low'?`<div class="why"><b>為什麼標黃</b><ul>${(c.fb||'').split(',').filter(Boolean).map(f=>`<li>${esc(WHYTXT[f]||'')}</li>`).join('')}</ul></div>`:'';
+  if(it.type==='ad'){
+    const sg=(it.signals||[]).length?`<div><div class="lab" style="margin-bottom:4px">判斷是廣告的依據</div><div class="sigs">${it.signals.map(s=>`<span>${esc(s)}</span>`).join('')}</div></div>`:'';
+    const st=(it.strip||[]).length?`<div><div class="lab" style="margin-bottom:4px">廣告期間的畫面（填「廣告」，不沿用舊標題）</div><div class="strip">${it.strip.map(f=>`<figure><img src="${esc(f.src)}" alt="廣告畫面 ${clk(f.sec)}" loading="lazy"><figcaption>${clk(f.sec)}</figcaption></figure>`).join('')}</div></div>`:'';
+    return `${why}<dl class="ev"><dt>這一段</dt><dd>廣告</dd><dt>影片時間</dt><dd>${clk(it.start)}–${clk(it.end)}</dd></dl>${sg}${st}`;
+  }
+  const asr=it.asr?([...it.asr].length>60?[...it.asr].slice(0,59).join('')+'…':it.asr):'';
+  const fr=it.full?`<div><div class="lab" style="margin-bottom:6px">換題那一秒的畫面（${clk(it.shot??it.start)}）</div><div class="frame"><img src="${esc(it.full)}" alt="換題畫面">${ovBox('bar','標題列：只讀這裡',L.bar)}${ovBox('tick','跑馬燈：不採用',L.tick)}${ovBox('clk','畫面時鐘：對時',L.clk)}</div></div>`:'';
+  return `${why}${fr}${it.img?`<div class="crop"><div class="lab" style="margin-bottom:4px">標題列裁切</div><img src="${esc(it.img)}" alt="標題列裁切"></div>`:''}
+    <dl class="ev"><dt>標題原文</dt><dd>${esc(it.bar||'（沒讀到）')}</dd><dt>語音節錄</dt><dd>${esc(asr||'（無）')}</dd><dt>影片時間</dt><dd>${clk(it.start)} 起</dd><dt>五字標</dt><dd><b>${esc(it.label||'')}</b></dd></dl>`;
+}
+function showItem(i){
+  const c=CM, it=c.items[i];
+  document.querySelectorAll('#dtabs .tab').forEach((b,k)=>{b.classList.toggle('on',k===i);b.setAttribute('aria-selected',k===i)});
+  $('#dbody').innerHTML=itemHTML(c,it);
+}
+function openCell(k,from){
+  const c=D.cells.find(x=>x.ch+'_'+x.m===k); if(!c) return;
+  CM=c; openKey=k; lastFocus=from||document.activeElement;
+  $('#dtitle').textContent=`${NAMES[c.ch]}　${c.m.slice(0,2)}:${c.m.slice(2)}`;
+  $('#dsub').innerHTML=`表上填的是：<b>${esc(c.v)}</b>`;
+  $('#dtabs').innerHTML=c.items.length>1?c.items.map((it,i)=>`<button type="button" class="tab" role="tab" data-i="${i}">${it.type==='ad'?'廣告':esc(it.label||'新聞')}</button>`).join(''):'';
+  document.querySelectorAll('#dtabs .tab').forEach(b=>b.onclick=()=>showItem(+b.dataset.i));
+  $('#dstrip').innerHTML=`<div class="lab" style="margin-bottom:4px">這一分鐘的秒級分布</div>${minuteStrip(c.ch,c.m)}<p class="note" style="margin:4px 0 0">每一則歸在「起始秒」所在的那一分鐘；同一分鐘有多則，依播出順序用「/」連起來。</p>`;
+  reviewBlock(c); showItem(0);
+  $('#scrim').hidden=false; $('#drawer').hidden=false; document.body.classList.add('lock'); $('#drawer').scrollTop=0; $('#dclose').focus();
+}
+function closeDrawer(quiet){
+  if($('#drawer').hidden) return;
+  $('#scrim').hidden=true; $('#drawer').hidden=true; document.body.classList.remove('lock');
+  if(!quiet&&lastFocus&&lastFocus.focus) lastFocus.focus();
+}
+$('#dclose').onclick=()=>closeDrawer(); $('#scrim').onclick=()=>closeDrawer();
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') closeDrawer();
+  if(e.key==='Tab'&&!$('#drawer').hidden){const f=[...$('#drawer').querySelectorAll('button')]; if(!f.length) return;
+    const a=f[0],z=f[f.length-1]; if(e.shiftKey&&document.activeElement===a){e.preventDefault();z.focus()} else if(!e.shiftKey&&document.activeElement===z){e.preventDefault();a.focus()}}
+});
+
+/* ---- 人工複查（沿用共用元件） ---- */
 function dataForReview(){
   if(judged) return D;
   const c=JSON.parse(JSON.stringify(D)); c.cells.forEach(x=>x.items.forEach(i=>{i.judge=null})); return c;
@@ -250,6 +630,7 @@ $('#dlc').onclick=()=>{const q=v=>`"${String(v??'').replace(/"/g,'""')}"`;
 $('#go').onclick=()=>show('progress');
 $('#toResult').onclick=()=>show('result');
 $('#toReview').onclick=()=>show('review');
+$('#backResult').onclick=()=>show('result');
 $('#toDone').onclick=()=>show('done');
 $('#restart').onclick=()=>{reached=0;show('upload')};
 
