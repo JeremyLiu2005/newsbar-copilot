@@ -586,7 +586,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--rules", default="config/rules.example.yaml")
     r.add_argument("--workdir", default="data/work")
     r.add_argument("--backend", default="auto", choices=["auto", "vision", "paddle"])
-    r.add_argument("--asr", default="none", choices=["none", "auto", "mlx", "faster-whisper"])
+    r.add_argument("--asr", default="faster-whisper", choices=["none", "auto", "mlx", "faster-whisper"],
+                   help="語音轉錄；預設 faster-whisper（與網頁版相同），none 只看標題文字")
     r.add_argument("--asr-model", help="例：small（Mac）、large-v3-turbo（GPU）")
     r.add_argument("--asr-parallel", type=int, default=None,
                    help="同時轉錄幾台；預設 Mac 1、其他 2（8 GB 顯示卡），16 GB 以上可設 4")
