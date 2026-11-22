@@ -1,6 +1,6 @@
 # NewsBar Copilot 系統架構
 
-> 版本 v0.3（2026-11-18）｜狀態：決策邏輯與抽取端已實作（101 個自動測試），尚未用真實側錄驗證
+> 版本 v0.3（文件日期 2026-11-22）｜狀態：決策邏輯與抽取端已實作並有自動測試；已用一段真實側錄驗證（11/06 12:00–13:00），標準答案為單一標註者的暫定版（TVBS 一台、一位研究員），尚無獨立驗證
 > 對應提案：UNEXT AI 企業創新實戰營 S36「新聞監看全自動填表」
 > **需求來源：[requirements.md](requirements.md)**（Contextual Design 工作模型 → 親和圖 → UED → 需求清單）。本文件的每個模組都標出它實現的需求 ID。
 
@@ -42,7 +42,7 @@ flowchart LR
     subgraph IN[輸入]
         V[四台側錄<br/>MP4/TS]
         T[12監看範本 xlsx]
-        C[台別設定檔<br/>channels.yaml]
+        C[台別設定檔<br/>channels.*.yaml]
     end
 
     subgraph P[每台獨立的處理管線 ×4]
@@ -61,7 +61,8 @@ flowchart LR
     end
 
     subgraph X[跨台處理]
-        LB[labeler<br/>五字標產生＋校驗]
+        LB[labeler<br/>五字標產生＋校驗<br/>預設：規則＋本機 LLM]
+        OPT[選配・預設關閉<br/>RAG kb／ML ml]
         XC[cross_channel<br/>跨台同事件統一命名]
         MN[minute_mapper<br/>秒轉分鐘格]
         W[excel_writer<br/>寫回範本]
@@ -70,6 +71,8 @@ flowchart LR
     V --> I
     C --> I
     SG --> LB --> XC --> MN --> W
+    OPT -.->|啟用才參與| SG
+    OPT -.->|啟用才參與| LB
     T --> W
     W --> OUT1[12監看_填寫結果.xlsx]
     MN --> OUT2[run_report.csv<br/>依據・信心・異常]
@@ -114,8 +117,8 @@ flowchart LR
 
 ### 4.2 ocr：主 bar 文字流
 
-- 只讀 `channels.yaml` 定義的 `main_bar` ROI；跑馬燈、快訊、天氣角、側欄不在 ROI 內。
-- 信心 < 0.6 的讀數丟棄。
+- 只讀台別設定檔（`config/channels.*.yaml`，見 §8）定義的 `main_bar` ROI；跑馬燈、快訊、天氣角、側欄不在 ROI 內。
+- 信心低於門檻的讀數丟棄，門檻依 OCR 後端而定：PaddleOCR 0.6；Apple Vision 的信心值只有 0.3、0.5、1.0 三級，門檻為 0.3（以 [rules.md](rules.md) TXT-4 為準）。
 - **5 秒滑動窗口多數決**：同一個 bar 在 5 秒內取出現最多次的讀法，抵銷單張辨識錯誤（Third Eye 原始 OCR 錯誤率高的教訓）。
 - 跑馬燈防呆：若 ROI 內文字逐秒水平位移，判定為跑馬燈，整段丟棄並告警「ROI 可能設錯」。
 - 輸出 `ocr/{channel}.jsonl`：`{sec, text, conf, votes}`
@@ -156,15 +159,22 @@ stateDiagram-v2
     中斷 --> 新聞: 訊號恢復
 ```
 
-進廣告訊號（任兩項同時成立）：
+進廣告訊號（十種，任兩種同時成立且連續 10 秒）。**以 [rules.md](rules.md)（AD-1、AD-a 至 AD-j）為準**，下表為摘要：
 
-| 代號 | 訊號 | 來源 |
-|---|---|---|
-| a | 主畫面版面改變（包框） | visual.layout_sim |
-| b | 台徽或新聞字卡消失 | visual.logo_score |
-| c | 黑場或靜音破口 | visual.black |
-| d | ASR 出現品牌、價格、促銷詞，且無主播或記者語音 | asr |
-| e | 音訊指紋命中廣告庫 | fingerprint |
+| 代號 | 訊號 |
+|---|---|
+| a | 主畫面版面改變（包框） |
+| b | 標題條底色和該台設定的顏色差太遠 |
+| c | 台標消失或位置改變 |
+| d | 黑畫面 |
+| e | 語音出現品牌、價格、促銷詞，且無主播或記者講話 |
+| f | 聲音指紋命中已知廣告 |
+| g | 新聞跑馬燈不見（僅限多數時間有跑馬燈的頻道） |
+| h | 標題條位置出現廣告文案（電話、0800、「廣告後」等） |
+| i | 標題輪播（廣告包框內的新聞預告輪播） |
+| j | 頻道時鐘消失 |
+
+回新聞條件（上方狀態圖為簡化版）：完整五項條件見 rules.md AD-7，其中第（5）項為「此時廣告訊號不能還有兩種以上」。
 
 規則細節：
 
@@ -196,7 +206,7 @@ stateDiagram-v2
 s > 0.6 → 換題；時間取新 bar 第一次穩定出現的秒數
 ```
 
-權重與門檻放在 `config/rules.yaml`，用 12:00–12:20 調參，12:20–13:00 只測試。
+權重與門檻放在規則設定檔（`config/rules.*.yaml`，範本為 `rules.example.yaml`；`config/rules.yaml` 為本機自建、已 gitignore），用 12:00–12:20 調參，12:20–13:00 測試。注意：12:20–13:00 並非獨立保留集，規則在 12:00–12:20 調參，部分門檻參考過 11/06 資料。
 
 輸出 `segments/{channel}_stories.jsonl`：`{story_id, start, end, bar_texts[], asr_text, entities[], confidence}`
 
@@ -264,9 +274,9 @@ flowchart LR
 | 1 執行台 | `newsbar run` CLI，終端顯示各台各階段進度 | 內網 Web，接側錄切檔自動排程 |
 | 2 監看表交付 | `out/12監看_{date}.xlsx` | 原始版＋修正版，放共用資料夾 |
 | 3 抽查台 | `newsbar review` 產生靜態 HTML：四台時間軸並列，低信心與 fallback 排最前，每格附 bar 截圖、依據、信心 | 內網 Web，可播放 ±10 秒片段、標對錯、輸入正確寫法，寫入修正紀錄 |
-| 4 ROI 校正 | `tools/calibrate_roi.py`：開截圖框選，存 channels.yaml，即時印出 OCR 結果 | 內網 Web 版 |
+| 4 ROI 校正 | `newsbar calibrate`（實作在 `src/newsbar/calibrate_ui.py`）：開截圖框選，存進台別設定檔，即時印出 OCR 結果 | 內網 Web 版 |
 | 5 品質日報 | `newsbar eval` 輸出 HTML 報告 | 每日自動寄送＋告警 |
-| 6 規則版本 | rules.yaml 進 git | Web 檢視版本與各版 F1、一鍵退版 |
+| 6 規則版本 | 規則設定檔（`config/rules.*.yaml`）進 git | Web 檢視版本與各版 F1、一鍵退版 |
 
 抽查台的錯誤類型與 eval 的錯誤歸類共用同一份清單（`schemas.ErrorType`）：漏換題、過度換題、包框誤判、角落廣告誤判、標不可辨認、捏造、格式錯誤。
 
@@ -294,7 +304,7 @@ flowchart LR
 | 句向量 | `Embedder.encode(texts)` | bge-m3 或同級多語模型 | 同左 | 判斷同則與跨台同事件 |
 | 版面／鏡頭 | — | OpenCV、PySceneDetect | 同左 | — |
 | 音訊指紋 | — | Chromaprint (`fpcalc`) | 同左 | — |
-| LLM | `Labeler.generate(event) -> str` | Ollama 地端小模型 | Ollama 地端模型；雲端 API 只作備援 | 會捏造，所以一定經過校驗 |
+| LLM | `Labeler.generate(event) -> str` | Ollama 地端小模型（目前結果用 qwen2.5:7b） | Ollama 地端模型；外部 LLM（Claude）為選配、預設關閉，只作備援 | 會捏造，所以一定經過校驗 |
 | Excel | — | openpyxl | openpyxl | 保留原格式 |
 
 語言：Python 3.11（套件相容性最好）。套件管理：uv。
@@ -305,32 +315,38 @@ flowchart LR
 newsbar-copilot/
 ├── README.md
 ├── pyproject.toml
-├── config/
-│   ├── channels.example.yaml   # 每台 ROI、台徽、bar 色
-│   └── rules.example.yaml      # 門檻與融合權重
+├── config/                     # channels.yaml／rules.yaml 為本機自建、已 gitignore
+│   ├── channels.example.yaml   # 每台 ROI、台徽、bar 色（範本）
+│   ├── channels.1106.yaml      # 11/06 四台實際設定
+│   ├── rules.example.yaml      # 門檻與融合權重（範本）
+│   ├── rules.1106.yaml、rules.1106.fast.yaml、rules.gpu.yaml
+│   └── lexicon.yaml
 ├── src/newsbar/
-│   ├── cli.py                  # newsbar run / eval / calibrate
+│   ├── cli.py                  # newsbar run / eval / calibrate / annotate / gold-import / review / serve ...
 │   ├── pipeline.py             # 串接各階段，支援從任一階段重跑
-│   ├── ingest.py
-│   ├── ocr/        {base.py, vision_backend.py, paddle_backend.py}
-│   ├── asr/        {base.py, mlx_backend.py, faster_whisper_backend.py}
+│   ├── ingest.py、extract.py、clock.py
+│   ├── ocr/        {__init__.py, base.py, vision_backend.py, paddle_backend.py, stream.py}
+│   ├── asr/        {__init__.py, mlx_backend.py, faster_whisper_backend.py}
 │   ├── visual.py
 │   ├── fingerprint.py
 │   ├── ad_state.py
 │   ├── segmenter.py
-│   ├── labeler/    {base.py, prompt.py, validator.py, rule_fallback.py}
+│   ├── labeler.py              # 五字標產生＋校驗＋規則擷取（單一檔案）
+│   ├── llm.py、lexicon.py、rulebook.py、judge.py
+│   ├── kb.py、ml.py、mlmodel.py # 選配（RAG／ML），預設關閉
 │   ├── cross_channel.py
 │   ├── minute_mapper.py
 │   ├── excel_writer.py
 │   ├── evidence.py             # 每格的證據包
-│   ├── review/                 # 抽查台：產生 HTML、讀寫修正紀錄
+│   ├── review.py               # 抽查台：產生 HTML
+│   ├── evaluate.py             # 換題 F1、廣告 F1、錯誤歸類
+│   ├── annotate.py             # 標註頁與雙人標準答案（newsbar annotate／gold-import）
+│   ├── calibrate_ui.py         # ROI 圖形化校正（newsbar calibrate）
+│   ├── server.py、web/         # newsbar serve 網頁後台
 │   └── schemas.py              # 所有中間產物的資料結構與 ErrorType
-├── tools/
-│   ├── calibrate_roi.py        # 開一張截圖，框選 ROI，存進 channels.yaml
-│   └── annotate.py             # 標註工具：產生標準答案
+├── tools/                      # 11/06 實跑、評分與 demo 用的輔助腳本（score_provisional.py、seg_score_tvbs.py、build_demo.py 等）
 ├── eval/
-│   ├── metrics.py              # 換題 F1、廣告 F1、五字標 rubric
-│   └── gold/                   # 雙人標註結果（不含影片）
+│   └── gold/                   # 標準答案（不含影片）
 ├── tests/
 └── data/                       # 影片與中間產物，.gitignore 排除
 ```
@@ -347,7 +363,7 @@ newsbar-copilot/
 | 處理速度 | 每 1 小時四台影片 | ≤15 分鐘 | 10% |
 | 單位成本 | 年成本 ÷ 處理台時數 | ≤NT$10／台時 | 5% |
 
-- 標準答案：兩人依判準手冊獨立標註，Cohen's κ ≥0.8，分歧由第三人裁決。
+- 標準答案：兩人依判準手冊獨立標註，Cohen's κ ≥0.8，分歧由第三人裁決。（目標做法；目前只有單人暫定標準答案，雙人標註與 κ 尚未完成，見 §12。）
 - 對照組：(a) 只看 bar 文字變化的單訊號基線；(b) 本系統。
 - `newsbar eval` 一次跑完所有指標並輸出錯誤歸類（漏換題、過度換題、包框誤判、捏造…）。
 
@@ -384,11 +400,11 @@ flowchart LR
 | 1 骨架與契約 | schemas、minute_mapper、excel_writer、evidence | ✅ |
 | 2 抽取端 | ingest、OCR（Apple Vision／PaddleOCR）、投票、跑馬燈防呆、圖形化 ROI 校正（`calibrate_ui.py`）、畫面時鐘讀取與校時（`clock.py`） | ✅ |
 | 3 廣告 | 狀態機、畫面訊號（版面邊界、包框樣板、bar 底色、台徽、黑場、靜音）、聲音指紋庫 | ✅ |
-| 4 換題 | 穩定 bar、同則判斷（字詞基線）、語音主題佐證、主播鏡頭（NEW-2b）、語者切換（音高跳變，NEW-2c）、記者名條、OCR 失效改用語音 | ✅ 語者切換以音高判斷，未用聲紋模型 |
-| 5 五字標 | 校驗器、規則擷取、Ollama／Claude 產生器、答案快取、提示詞版本 | ✅ |
+| 4 換題 | 穩定 bar、同則判斷（字詞基線）、語音主題佐證、主播鏡頭（NEW-2b）、語者切換（音高跳變，NEW-2c）、記者名條、OCR 失效改用語音；學習式判斷（`ml.py`）為選配、預設關閉 | ◐ 正式 F1 待雙人標準答案（requirements FR-03），目前數字見下方「最新實測」；語者切換以音高判斷，未用聲紋模型 |
+| 5 五字標 | 校驗器、規則擷取、Ollama 產生器（預設，本機）、答案快取、提示詞版本；Claude 外部 LLM 與 RAG 知識庫（`kb.py`）為選配、預設關閉 | ◐ 實作完成，尚未在真實資料上評分（最新 run 49／86 格低信心，其中 27 格走規則擷取） |
 | 6 評估與抽查 | `newsbar eval`、抽查 HTML、修正版（`apply-corrections`）、標註頁與雙人 κ（`annotate`、`gold-import`） | ✅ |
 | 7 營運 | `newsbar run`：平行、續跑、單台失敗隔離、處理報告、跨台命名 | ✅ |
-| 8 營運補強 | `newsbar watch` 每小時自動處理、截圖保留期限清理、抽查審核者、歷史檢索（`search`）、日報（`daily`，填 smtp 才寄送）、規則自動退版（`rules-check`） | ✅ 寄送與退版沒有在真實環境跑過 |
+| 8 營運補強 | `newsbar watch` 每小時自動處理、截圖保留期限清理、抽查審核者、歷史檢索（`search`）、日報（`daily`，填 smtp 才寄送）、規則自動退版（`rules-check`） | ◐ 退版演練與 SMTP 寄送為模擬／未實跑，沒有在真實環境跑過 |
 | 9 網頁後台 | `newsbar serve`：選影片、進度、結果、人工複查（對、改寫、不該填）、修正版下載；換題存疑的 AI 初判（`judge.py`） | ✅ 只用假的處理程序測過端到端，真實長時間處理靠命令列驗證 |
 | 10 NVIDIA GPU 版 | CUDA float16 語音轉錄、PaddleOCR 自動用顯示卡、同時轉錄台數可設定、`gpu` 安裝組、`config/rules.gpu.yaml` | ◐ 程式已備，**尚未在 NVIDIA 機器上實測** |
 | 11 未做 | 自動補抓（要接內部側錄）、內部系統 API、BI 匯出、抽查台的使用者測試、聲紋語者辨識 | ○ |
@@ -396,6 +412,13 @@ flowchart LR
 **已知限制**：
 - 本機 7B 模型當 FB-4（規則擷取）五字標的裁判不可靠，後台只接了換題存疑的 AI 初判。
 - 中斷 `newsbar run` 時，語音轉錄的子程序不會跟著結束，需要手動清理（`pgrep -f spawn_main`）。
-- 規則擷取（FB-4）的五字標不重新驗證，已標低信心；11/06 的 85 個五字標中有 4 個不符合「社會新聞要有地點」，全部都是規則擷取產生的。
+- 規則擷取（FB-4）的五字標不重新驗證，已標低信心；較早一次 run 的 85 個五字標中有 4 個不符合「社會新聞要有地點」，全部都是規則擷取產生的（舊 run 的數字，未用最新 run 重算）。
+- 處理速度未達標：每 1 小時四台影片需 46 分鐘（Mac M4、fast 模式、base whisper），目標 ≤15 分鐘；GPU 平行處理未實測。
 
-**下一步**：拿到 11/06 側錄後依 requirements §7 先做自我觀察與雙人標註，再以 12:00–12:20 調參、12:20–13:00 測試，把 NFR-01–03 的實測值填回需求表。
+**最新實測**（11/06 12:00–13:00 四台；最新重跑共 86 個五字標；以規則加本機 LLM qwen2.5:7b 產生，RAG 與 ML 預設關閉）：標準答案為暫定版，僅 TVBS 一台、一位研究員標註（換題 27 點、廣告 10 段），非雙人 κ 驗證。
+- 換題 F1：全小時 0.868；測試段 12:20–12:59 為 0.897，但該段不是獨立保留集（規則在 12:00–12:20 調參，部分門檻參考過 11/06）。拿掉語音訊號為 0.758。
+- 廣告 F1：0.952。
+- 五字標：86 格中 49 格低信心、27 格走規則擷取；未用真實資料評分可用率與捏造率。
+- 以上皆為單一時段、單一標註者的結果，不能視為已達驗收標準。
+
+**下一步**：依 requirements §7 完成雙人標註與獨立測試資料（新時段或新日期）的驗證，把 NFR-01–03 的實測值填回需求表。

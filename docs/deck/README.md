@@ -12,6 +12,8 @@ python3 tools/build_deck.py 底稿.pptx 輸出.pptx 素材資料夾
 
 ## 素材（不放進 repo）
 
+底稿 .pptx（`data/deck/base.pptx`）和下列素材都不在 repo 裡，所以無法從乾淨的 clone 重建簡報。
+
 截圖含電視台畫面，版權屬各台，放在 `data/deck/assets/`（`data/` 不進版本控制）。需要的檔案：
 
 | 檔名 | 來源 |
