@@ -111,3 +111,61 @@ def events_from_column(col: dict[str, str], channel: str) -> list[Event]:
 def test_T24_round_trip_real_example_column():
     cells = map_events(events_from_column(TVBS_1026, "tvbs"), CH)
     assert values(cells, "tvbs") == TVBS_1026
+
+
+# ---- minute_rule = "next"（三立 11/22：秒級換題從下一分鐘起寫，一格一則） ----------------------
+
+def test_next_rule_mid_minute_change_goes_to_next_minute():
+    evs = [Event("tvbs", 3 * 60 + 40, T.NEWS, "談判砍男傷")]
+    assert values(map_events(evs, CH, minute_rule="next"), "tvbs") == {"1204": "談判砍男傷"}
+
+
+def test_next_rule_change_on_the_minute_stays():
+    evs = [Event("tvbs", 3 * 60, T.NEWS, "談判砍男傷")]
+    assert values(map_events(evs, CH, minute_rule="next"), "tvbs") == {"1203": "談判砍男傷"}
+
+
+def test_next_rule_one_entry_per_cell_last_one_wins():
+    evs = [Event("tvbs", 28 * 60 + 5, T.NEWS, "持刀警開槍"), Event("tvbs", 28 * 60 + 40, T.NEWS, "台股二補跌")]
+    assert values(map_events(evs, CH, minute_rule="next"), "tvbs") == {"1229": "台股二補跌"}
+
+
+def test_next_rule_overwrite_back_to_same_story_is_continuation():
+    evs = [Event("tvbs", 0, T.NEWS, "土城翁輾亡", "s1"), Event("tvbs", 60 + 10, T.NEWS, "高金遭起訴", "s2"),
+           Event("tvbs", 60 + 50, T.NEWS, "土城翁輾亡", "s1")]
+    assert values(map_events(evs, CH, minute_rule="next"), "tvbs") == {"1200": "土城翁輾亡"}
+
+
+def test_next_rule_ad_and_return():
+    evs = [Event("cts", 30 * 60, T.NEWS, "妙慘遭排擠", "s1"), Event("cts", 32 * 60 + 5, T.AD),
+           Event("cts", 35 * 60 + 2, T.NEWS, "妙慘遭排擠", "s1")]
+    assert values(map_events(evs, CH, minute_rule="next"), "cts") == {"1230": "妙慘遭排擠", "1233": "廣告", "1236": "妙慘遭排擠"}
+
+
+def test_next_rule_change_in_last_minute_is_dropped():
+    evs = [Event("tvbs", 59 * 60 + 30, T.NEWS, "周星馳女足")]
+    assert values(map_events(evs, CH, minute_rule="next"), "tvbs") == {}
+
+
+def test_next_rule_from_labels():
+    from newsbar.schemas import Labels
+
+    evs = [Event("tvbs", 3 * 60 + 40, T.NEWS, "談判砍男傷")]
+    labels = Labels.from_rules({"output": {"minute_rule": "next"}})
+    assert values(map_events(evs, CH, labels=labels), "tvbs") == {"1204": "談判砍男傷"}
+
+
+def test_unknown_minute_rule_rejected():
+    with pytest.raises(ContractError):
+        map_events([Event("tvbs", 0, T.AD)], CH, minute_rule="round")
+
+
+def test_enforce_max_caps_labels_at_five_units():
+    from newsbar.labeler import LabelRules, enforce_max, label_length
+
+    r = LabelRules()
+    assert r.max_len == 5
+    assert enforce_max("土城翁輾亡", r) == "土城翁輾亡"
+    capped = enforce_max("新北土城翁輾亡", r)
+    assert label_length(capped) <= 5 and capped.startswith("新北土城")
+    assert label_length(enforce_max("MUSIC EXPO 開幕大秀", r)) <= 5

@@ -27,7 +27,7 @@ SRC = LabelSource(["新北土城一七旬老翁 轉彎不慎遭貨車輾亡"])
 def test_fix1_llm_failure_falls_back_and_is_flagged():
     gen = DeadGenerator()
     res = make_label(SRC, gen)
-    assert res.fallback == "FB-4" and res.label == "土城輾亡"
+    assert res.fallback == "FB-4" and res.label == "土城車輾亡"
     assert "AI 服務無回應" in res.reasons
     assert gen.calls == 1  # no second call against a dead service
 

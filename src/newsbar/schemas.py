@@ -50,6 +50,10 @@ class Labels:
     weather: str = "氣象"
     outage: str = "訊號中斷"
     multi_sep: str = "/"
+    # 規則 MAP-3：秒級換題寫在哪一格。next＝下一分鐘起算、一格只放一則（三立 11/22 說明，
+    # 設定檔 output.minute_rule 預設採用）；floor＝捨去到所在分鐘、同分鐘多則用 multi_sep 連接
+    # （10/26 範例的寫法，程式內建預設，維持舊測試與舊輸出可重現）
+    minute_rule: str = "floor"
 
     @classmethod
     def from_rules(cls, rules: dict[str, Any] | None) -> "Labels":
@@ -59,6 +63,7 @@ class Labels:
             weather=out.get("weather_label", cls.weather),
             outage=out.get("outage_label", cls.outage),
             multi_sep=out.get("multi_sep", cls.multi_sep),
+            minute_rule=out.get("minute_rule", cls.minute_rule),
         )
 
 

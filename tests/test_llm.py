@@ -75,7 +75,7 @@ def test_claude_generator_sends_only_text_and_uses_fallbacks():
 def test_claude_refusal_goes_to_rule_fallback():
     gen = ClaudeGenerator(allow_external=True, client=FakeClaude("", stop="refusal"))
     res = make_label(SRC, gen)
-    assert res.fallback == "FB-4" and res.label == "土城輾亡"
+    assert res.fallback == "FB-4" and res.label == "土城車輾亡"
 
 
 def test_from_rules():

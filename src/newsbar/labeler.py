@@ -27,6 +27,7 @@ _CJK = re.compile(r"[一-鿿]")
 class LabelSource:
     bar_texts: list[str] = field(default_factory=list)
     asr_text: str = ""
+    feedback: str = ""  # 規則 §6.3：回饋重試，上一個答案錯在哪（字數、不在標題裡的字），只用在提示詞
 
     @property
     def text(self) -> str:
@@ -38,8 +39,9 @@ class Generator(Protocol):
 
 
 def label_length(label: str) -> int:
-    """CJK characters count 1 each; an ASCII word counts 1 (LBL-5)."""
-    return len(_CJK.findall(label)) + len(_ASCII_WORD.findall(label))
+    """Visible characters (LBL-5, 三立 11/22：五字標只能 5 個字): every CJK character and every
+    ASCII letter or digit counts 1, so 「泰山3100階」 is 7 characters, not 4."""
+    return len(_CJK.findall(label)) + sum(len(w) for w in _ASCII_WORD.findall(label))
 
 
 def is_social(text: str) -> bool:
@@ -62,10 +64,94 @@ def hedge_basis(source: "LabelSource") -> str:
 
 @dataclass(frozen=True)
 class LabelRules:
-    min_len: int = 4
-    max_len: int = 6
+    min_len: int = 5  # 三立 11/22：五字標剛好 5 個字
+    max_len: int = 5
     status_words: tuple[str, ...] = ("廣告", "氣象", "訊號中斷")
     sep: str = "/"
+
+    @classmethod
+    def from_rules(cls, rules: dict | None) -> "LabelRules":
+        lab = (rules or {}).get("labeler") or {}
+        return cls(min_len=int(lab.get("min_len", cls.min_len)), max_len=int(lab.get("max_len", cls.max_len)))
+
+
+_TOKEN = re.compile(r"[A-Za-z0-9]|[^\sA-Za-z0-9]")
+
+
+def enforce_max(label: str, rules: "LabelRules") -> str:
+    """Hard cap (LBL-5): never let a label longer than max_len reach the sheet.
+    Counts like label_length (each CJK char 1, each English/number word 1) and cuts at a unit
+    boundary; trailing connectors (的 了 …) are dropped after the cut."""
+    if label_length(label) <= rules.max_len:
+        return label
+    out, n = "", 0
+    for m in _TOKEN.finditer(label):
+        tok = m.group(0)
+        unit = 1 if _CJK.fullmatch(tok) or tok.isalnum() else 0
+        if n + unit > rules.max_len:
+            break
+        out += tok
+        n += unit
+    while out and _bad_end(out[-1]) and label_length(out) > 1:
+        out = out[:-1]
+    return out.strip() or label[: rules.max_len]
+
+
+def _visible(text: str) -> str:
+    return "".join(ch for ch in text if _CJK.fullmatch(ch) or (ch.isascii() and ch.isalnum()))
+
+
+def pad_to_min(label: str, source: "LabelSource", rules: "LabelRules") -> str:
+    """LBL-5 exact length: a fallback label shorter than min_len is replaced by an exact-length
+    window of the title. Every window is scored by fuzzy overlap with the short label (keeps
+    its focus), word boundaries at both ends (jieba), places / event words, and penalised for a
+    dangling connector or ASCII characters; every character still comes from the source (SRC-2)."""
+    if label_length(label) >= rules.min_len:
+        return label
+    title = _visible(source.bar_texts[0] if source.bar_texts else source.asr_text)
+    need = rules.min_len
+    if len(title) < need:
+        return label
+    try:
+        import jieba  # noqa: PLC0415
+
+        jieba.setLogLevel(60)
+        bounds, pos = {0}, 0
+        for t in jieba.cut(title):
+            pos += len(t)
+            bounds.add(pos)
+    except Exception:  # noqa: BLE001
+        bounds = set(range(len(title) + 1))
+    lex = lexicon.get()
+    core = set(_visible(label))
+    best, best_score = None, None
+    for st in range(len(title) - need + 1):
+        w = title[st:st + need]
+        score = 2 * (st in bounds) + 2 * (st + need in bounds) + 1.5 * sum(ch in core for ch in w)
+        score += 6 * (bool(core) and _visible(label) in w)  # keeps the whole short label intact
+        score += 1 if (lex.places_in(w) or any(k in w for k in lex.social_keywords)) else 0
+        score -= 3 * (_bad_end(w[-1]) or _bad_start(w[0])) + sum(ch.isascii() for ch in w)
+        if best_score is None or score > best_score:
+            best, best_score = w, score
+    return best or title[:need]
+
+
+def feedback_for(cand: str, source: "LabelSource", errs: list[str], rules: "LabelRules") -> str:
+    """One concrete sentence for the model: what exactly was wrong with its last answer."""
+    parts = []
+    n = label_length(cand)
+    if "LBL-5" in errs:
+        parts.append(f"「{cand}」是 {n} 個字，五字標必須剛好 {rules.max_len} 個字")
+    if "SRC-2" in errs:
+        src = set(" ".join(source.bar_texts)) if source.bar_texts else set(source.text)
+        bad = "".join(dict.fromkeys(ch for ch in _CJK.findall(cand) if ch not in src and ch not in FUNCTION_CHARS))
+        if bad:
+            parts.append(f"「{bad}」不在主標題裡，不能用")
+    if "LBL-4" in errs:
+        parts.append("社會新聞要含主標題裡的地點")
+    if "TONE-1" in errs:
+        parts.append("要保留主標題裡「疑似、涉嫌、傳出」這類未確認的字")
+    return "；".join(parts)
 
 
 def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) -> list[str]:
@@ -78,7 +164,7 @@ def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) 
     # 規則 OUT-grammar：不可含斜線，也不可等於「廣告／氣象／訊號中斷」
     if rules.sep in label or label in rules.status_words:
         errors.append("OUT-grammar")
-    # 規則 LBL-5：長度 4–6 個字（英文詞算 1 個字）
+    # 規則 LBL-5：長度剛好 5 個字（英文詞算 1 個字；上下限取自 labeler.min_len / max_len）
     n = label_length(label)
     if not (rules.min_len <= n <= rules.max_len):
         errors.append("LBL-5")
@@ -380,7 +466,20 @@ def make_label(
             # 規則 §6.3：檢查通過就採用；沒通過就退件重試（共 1 次）
             if not errs:
                 return LabelResult(cand, attempt + 1, None, history, review_reasons(cand, source))
+        else:
+            # 規則 §6.3：回饋重試，兩次都沒過，把「錯在哪」具體告訴 AI 再問最後一次
+            fb = feedback_for(cand, source, errs, rules) if history else ""
+            if fb:
+                try:
+                    cand = generator.generate(LabelSource(source.bar_texts, source.asr_text, fb), retries + 1)
+                except Exception:  # noqa: BLE001
+                    reasons.append(REASON_LLM_DOWN)
+                else:
+                    errs = validate(cand, source, rules)
+                    history.append(errs)
+                    if not errs:
+                        return LabelResult(cand, len(history), None, history, review_reasons(cand, source))
     # 規則 FB-4：兩次都沒通過、或 AI 沒回應 → 規則備援
-    label = rule_label(source, rules)
+    label = pad_to_min(enforce_max(rule_label(source, rules), rules), source, rules)
     reasons += [r for r in review_reasons(label, source) if r not in reasons]
     return LabelResult(label, len(history), "FB-4", history, reasons)

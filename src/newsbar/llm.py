@@ -24,12 +24,12 @@ from .labeler import LabelSource
 
 SYSTEM = """你是台灣電視新聞監看員，要替一則新聞寫「五字標」，讓看監看表的人認得是哪則新聞。
 規則：
-1. 4–6 個字（英文專有名詞算一個字），只輸出五字標本身，不要解釋、不要標點、不要引號。
+1. 剛好 5 個字，不能多也不能少（英文專有名詞算一個字），只輸出五字標本身，不要解釋、不要標點、不要引號。
 2. 只能用主標題裡出現過的字（人名、地名、事物、動作、數字）；不得補造，也不要用標題以外的地名。
 3. 社會事件（車禍、命案、竊盜、火警等）一定要含地點，地點必須出現在來源中，優先用較小的地名（例：新北土城→土城）。
 4. 來源只說「起訴」「求刑」「疑似」時，不得寫成「判刑」「確定」等定論；來源有「疑」「疑似」「傳出」「恐」「涉嫌」「涉」「據傳」「爆料」這類未確認的說法，五字標要保留其中一個字（例：疑縱火、傳出離婚），不能寫成肯定句。
 5. 人名可以只取名字（張俊傑→俊傑），機構可用常見簡稱。
-6. 先數字數：超過 6 個字就刪修飾語（時間、程度、「不慎」「怒批」等），只留「地點＋核心動作＋結果」；少於 4 個字就補上地點或結果。"""
+6. 先數字數：超過 5 個字就刪修飾語（時間、程度、「不慎」「怒批」等），只留「地點＋核心動作＋結果」；少於 5 個字就補上地點或結果。"""
 
 FEW_SHOT = [
     ("新北土城一七旬老翁 轉彎不慎遭貨車輾亡", "土城翁輾亡"),
@@ -38,7 +38,7 @@ FEW_SHOT = [
     ("萬聖節派對後垃圾亂丟 民眾怒批", "萬聖節亂丟"),
     ("台中潭子男子酒駕撞護欄 闖紅燈遭攔查", "潭子酒駕撞"),
 ]
-PROMPT_VERSION = "v3-hedge"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
+PROMPT_VERSION = "v6-exact5-fb"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
 PROMPT_VERSION_RAG = "v4-rag"  # used only while retrieval is on; with it off the v3 prompt and cache keys are unchanged
 
 # 規則 NFR-14：外部 AI 最多只送 200 字語音節錄
@@ -53,6 +53,8 @@ def build_user_prompt(source: LabelSource, attempt: int) -> str:
     bar = " / ".join(source.bar_texts[:2]) or "（主標題讀不到）"
     asr = "" if source.bar_texts else (source.asr_text or "")[:MAX_ASR_CHARS]
     retry = "\n上一次的答案沒有通過檢查（可能用了來源沒有的字、缺地點，或把「疑似／傳出／恐／涉嫌」這類未確認的說法拿掉了），請只用來源裡的字重寫。" if attempt else ""
+    if source.feedback:  # 規則 §6.3：回饋重試，明講上一個答案錯在哪
+        retry = f"\n上一次的答案沒有通過檢查：{source.feedback}。請只用主標題裡的字，重寫剛好 5 個字。"
     return f"主標題：{bar}\n主播與記者語音節錄：{asr or '（無）'}{retry}\n五字標："
 
 

@@ -122,7 +122,7 @@ def test_rag_disabled_prompt_and_cache_key_are_the_old_ones(tmp_path):
     legacy.append({"role": "user", "content": llm.build_user_prompt(SRC, 0)})
     assert json.dumps(seen["body"]["messages"], ensure_ascii=False) == json.dumps(legacy, ensure_ascii=False)
     c = llm.CachedGenerator(llm.GuardedGenerator(g), tmp_path / "c.json")
-    assert c.key(SRC, 0) == f"{g.model}|v3-hedge|0|{llm.build_user_prompt(SRC, 0)}"
+    assert c.key(SRC, 0) == f"{g.model}|{llm.PROMPT_VERSION}|0|{llm.build_user_prompt(SRC, 0)}"
     assert llm.from_rules({"labeler": {"generator": "ollama"}}).rag is None
 
 

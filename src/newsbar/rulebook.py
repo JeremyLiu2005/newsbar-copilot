@@ -141,7 +141,7 @@ RULES: list[Rule] = [
          ("schemas.SecondObs", "segmenter.segment")),
     Rule("TXT-4", "noise",
          "同一個畫面，取前後共 5 秒內的多次 OCR 讀數，多數相同的那個當作這一秒的標題；"
-         "信心值低於門檻的讀數丟掉（PaddleOCR 用 0.6；Apple Vision 的信心值只有 0.3、0.5、1.0 三級，所以門檻是 0.3）。",
+         "信心值低於門檻的讀數丟掉（PaddleOCR 用 0.6；Apple Vision 的信心值只有 0.3、0.5、1.0 三級，所以門檻是 0.3；各 OCR 後端的信心值尺度不同，門檻各自設定）。",
          ("ocr.stream.vote",),
          (Param("VoteParams.window_sec", "OCR 多數決視窗", 5, "秒", _dc("ocr.stream", "VoteParams", "window_sec")),
           Param("PaddleBackend.min_conf", "OCR 信心門檻", 0.6, "信心值", _src_const("ocr/paddle_backend.py", r"min_conf\s*=\s*([0-9.]+)")),
@@ -281,9 +281,12 @@ RULES: list[Rule] = [
          ("segmenter.segment",),
          (Param("stable_sec", "標題穩定秒數", 7, "秒", _dc("segmenter", "SegParams", "stable_sec")),)),
     Rule("MAP-3", "minute",
-         "狀態改變發生的秒數，一律捨去到所在的那一分鐘：12:03:59 改變 → 寫在 1203。",
-         ("minute_mapper.map_events",)),
-    Rule("OUT-2", "minute", "某分鐘內發生狀態改變 → 在這一分鐘寫入新狀態；同一分鐘有好幾次改變 → 依先後用斜線連起來（例：持刀警開槍/台股二補跌）。",
+         "秒級換題寫在哪一格由設定檔 output.minute_rule 決定。next（11/06 設定檔採用，依三立 11/22 說明）："
+         "不是整分 00 秒的改變從下一分鐘開始寫，12:03:40 改變 → 寫在 1204；一格只放一則，同一分鐘內的多次改變只留那一分鐘開始時在播的。"
+         "floor（程式內建預設，10/26 範例寫法）：捨去到所在分鐘，12:03:59 改變 → 寫在 1203。",
+         ("minute_mapper.map_events",),
+         (Param("Labels.minute_rule", "秒級換題的寫法（程式內建預設）", "floor", "", _labels("minute_rule")),)),
+    Rule("OUT-2", "minute", "（minute_rule＝floor 時）某分鐘內發生狀態改變 → 在這一分鐘寫入新狀態；同一分鐘有好幾次改變 → 依先後用斜線連起來（例：持刀警開槍/台股二補跌）。minute_rule＝next 時一格只放一則，不會出現斜線。",
          ("minute_mapper.map_events",),
          (Param("Labels.multi_sep", "同分鐘多則的分隔字元", "/", "字元", _labels("multi_sep")),)),
     Rule("OUT-1", "minute",
@@ -309,10 +312,10 @@ RULES: list[Rule] = [
 
     # ============================== ⑤ 五字標品質 ==============================
     Rule("LBL-5", "label",
-         "五字標長度 4 到 6 個字；英文專有名詞算 1 個字（例：MUSIC EXPO 算 2 個字）。",
+         "五字標長度 4 到 5 個字，超過 5 個字一律退件或截短，不會寫進表格；每個中文字算 1 字，每個英文詞（連續英數字）算 1 字（例：MUSIC EXPO 算 2 字）。",
          ("labeler.validate", "labeler.label_length"),
-         (Param("min_len", "最短字數", 4, "字", _dc("labeler", "LabelRules", "min_len")),
-          Param("max_len", "最長字數", 6, "字", _dc("labeler", "LabelRules", "max_len")))),
+         (Param("min_len", "最短字數", 5, "字", _dc("labeler", "LabelRules", "min_len")),
+          Param("max_len", "最長字數", 5, "字", _dc("labeler", "LabelRules", "max_len")))),
     Rule("SRC-2", "label",
          "標籤裡每個中文字都要出現在這則新聞的主標題裡，英文字母與數字組成的詞也一樣（沒讀到標題時才用語音）；只有少數助詞可以額外加：「中了再又仍已遭被將要的與和」。"
          "有標題時，不能用語音裡的字，因為整段語音幾乎含有所有常用字，會讓任何標籤都過關。",
