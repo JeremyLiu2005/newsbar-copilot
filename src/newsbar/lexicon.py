@@ -70,6 +70,16 @@ class Lexicon:
     def has_hedge(self, text: str) -> bool:
         return bool(self.hedge_hits(text))
 
+    def has_strong_hedge(self, text: str) -> bool:
+        """A hedge of two or more characters (疑似, 涉嫌, 據傳 …); a lone 疑/傳/恐/涉 is too ambiguous
+        to reject a label over, it is only flagged for review."""
+        return any(len(m) >= 2 for _, m in self.hedge_hits(text))
+
+    def has_strong_hedge(self, text: str) -> bool:
+        """A hedge of two or more characters (疑似, 涉嫌, 據傳 …); a lone 疑/傳/恐/涉 is too ambiguous
+        to reject a label over, it is only flagged for review."""
+        return any(len(m) >= 2 for _, m in self.hedge_hits(text))
+
     # ---- overlay tokens -----------------------------------------------------------------
     def strip_overlay(self, text: str | None) -> str | None:
         """Drop standalone overlay tokens from one main-bar reading; None if nothing is left."""

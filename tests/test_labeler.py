@@ -68,3 +68,55 @@ def test_place_only_in_speech_is_not_demanded():
 
 def test_stock_slump_is_not_social_news():
     assert validate("台股崩3737", LabelSource(["史詩崩跌!台股殺3737點台積電聯發科一度跌停"])) == []
+
+
+# ---- 規則 LBL-4 / TONE-1 不過嚴、LBL-7 規則標籤不斷在字中間 -------------------------------------------
+@pytest.mark.parametrize("title", [
+    "卓榮泰信心喊話金管會下午宣布救市措施", "共和黨期中選舉慘敗!范斯切割川普歸咎美伊戰爭",
+    "友邦巴拉圭總統潘尼亞捲入銀行倒閉辭職後遭彈劾", "柯志恩回防果貿掃街賴瑞隆搶攻新住民選票",
+    "史詩崩跌台股殺3737點", "C羅宣布引退球迷哀傷", "張俊傑偷渡接應12分鐘曝光"])
+def test_non_crime_stories_are_not_social_news(title):
+    from newsbar.labeler import is_social
+    assert not is_social(title)
+
+
+@pytest.mark.parametrize("title", ["臨停卸貨未警示.也未申請臨時證違規害婦撞亡", "滿瑞富6號7涉案人員拘提到案6人聲押禁見", "滅火器爆炸", "男子持刀砍殺路人"])
+def test_crime_stories_are_social_news(title):
+    from newsbar.labeler import is_social
+    assert is_social(title)
+
+
+def test_source_without_place_keeps_good_label_and_flags():
+    src = LabelSource(["男二度毒駕拒檢催油門狂逃下秒遭車撞飛"])
+    res = make_label(src, FakeGenerator("毒駕遭車撞"))
+    assert res.fallback is None and res.label == "毒駕遭車撞" and "社會新聞無地點" in res.reasons
+
+
+def test_single_char_hedge_is_flagged_not_rejected():
+    src = LabelSource(["蔣辦安心大遊行 傳出沈嗆他知大家不安"])
+    assert "TONE-1" in validate("蔣辦大遊行", src)  # 傳出 is a two-character hedge
+    src2 = LabelSource(["低溫恐探17度 日系品牌感謝祭"])
+    assert validate("低溫探17度", src2) == []  # a lone 恐 only flags
+    res = make_label(src2, FakeGenerator("低溫探17度"))
+    assert res.fallback is None and "未確認語氣" in res.reasons
+
+
+@pytest.mark.parametrize("title,bad", [
+    ("臨停卸貨未警示.也未申請臨時證違規害婦撞亡", "臨停卸貨未"),
+    ("滿瑞富6號7涉案人員拘提到案6人聲押禁見", "號7涉案人"),
+    ("張俊傑偷瀆關鍵12分鐘中籍地下船長詭助逃10/28深夜疑先登錢春168號", "深夜疑先登"),
+    ("買來防災險變火災!小型滅火器驚傳爆炸", "器驚傳爆炸"),
+])
+def test_rule_label_never_reproduces_broken_labels(title, bad):
+    from newsbar.labeler import END_BAD
+    src = LabelSource([title])
+    lbl = rule_label(src)
+    assert lbl != bad and lbl[-1] not in END_BAD and not lbl[0].isdigit() and 4 <= label_length(lbl) <= 6
+    assert validate(lbl, src) == []
+
+
+def test_rule_label_examples():
+    assert rule_label(TUCHENG) == "土城輾亡"
+    assert rule_label(LabelSource(["臨停卸貨未警示.也未申請臨時證違規害婦撞亡"])) == "害婦撞亡"
+    assert rule_label(LabelSource(["10天內3度同台交鋒江啟臣.何欣純同框並肩聊市政"]))[0] != "1"
+    assert rule_label(LabelSource(["大膽!分局前縱火燒警車男搭小黃逃逸"])) == "縱火燒警車"
