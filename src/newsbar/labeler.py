@@ -146,6 +146,8 @@ def feedback_for(cand: str, source: "LabelSource", errs: list[str], rules: "Labe
         parts.append("evidence 必須逐字引用主標題或語音裡的片段")
     if "TONE-1" in errs:
         parts.append("要保留主標題裡「疑似、涉嫌、傳出」這類未確認的字")
+    if "NEG-DROP" in errs:
+        parts.append(f"來源說的是沒有「{negation_dropped(cand, source)}」，短標不可寫成有")
     if "EVT-MISS" in errs:
         parts.append(f"來源的主要結果是「{event_missing(cand, source)}」，短標漏掉了，要保留撞擊、死亡或受傷的結果")
     if "LBL-9" in errs:
@@ -267,12 +269,35 @@ NUM_UNIT_CHARS = set("萬億千百元人歲度點倍成年天週月名件公噸�
 UNIT_CARRIED_BY = {"度": "溫"}
 
 
+_NEGATION = re.compile(r"(無|未|沒有|沒|免於|不致|並無|所幸無)[^，。!！?？,]{0,4}$")
+
+
+def _negated(text: str, pos: int) -> bool:
+    """「所幸無造成人員傷亡」: the casualty word at pos is negated by what stands just before it."""
+    return bool(_NEGATION.search(text[max(0, pos - 8):pos]))
+
+
 def casualty_in(text: str) -> str | None:
     for w in CASUALTY_WORDS:
-        if w in text:
-            return w
-    m = _CASUALTY_DIE.search(text)
-    return text[max(0, m.start() - 1):m.end()] if m else None
+        for m in re.finditer(re.escape(w), text):
+            if not _negated(text, m.start()):
+                return w
+    for m in _CASUALTY_DIE.finditer(text):
+        if not _negated(text, m.start()):
+            return text[max(0, m.start() - 1):m.end()]
+    return None
+
+
+def negation_dropped(label: str, source: "LabelSource") -> str | None:
+    """NEG-1 (facts): the label states a casualty / damage word that the source negates
+    (所幸無造成人員傷亡 → 「造成人員傷亡」 says the opposite)."""
+    words = [w for w in CASUALTY_WORDS + ("傷亡", "受傷", "死傷", "人員傷") if w in label]
+    for t in source.bar_texts or [source.asr_text]:
+        for w in words:
+            for m in re.finditer(re.escape(w), t):
+                if _negated(t, m.start()) and not re.search(r"(無|未|沒|不)", label):
+                    return w
+    return None
 
 
 def event_missing(label: str, source: "LabelSource") -> str | None:
@@ -367,6 +392,9 @@ def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) 
     # 規則 TONE-1：只在來源有兩字以上的未確認詞、標籤把它拿掉時退件；單字只列入抽查
     if lex.has_strong_hedge(hedge_basis(source)) and not lex.has_hedge(label):
         errors.append("TONE-1")
+    # 規則 NEG-1：來源否定的傷亡不可寫成發生（所幸無造成人員傷亡）
+    if negation_dropped(label, source):
+        errors.append("NEG-DROP")
     # b. 規則 EVT-1：主要結果（傷亡）不可漏
     if event_missing(label, source):
         errors.append("EVT-MISS")

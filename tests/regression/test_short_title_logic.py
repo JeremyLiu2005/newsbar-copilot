@@ -167,3 +167,17 @@ def test_prompt_version_bumped_and_in_cache_key(tmp_path):
     cg = llm.CachedGenerator(llm.OllamaGenerator(), tmp_path / "c.json")
     assert llm.PROMPT_VERSION in cg.key(labeler.LabelSource(["x"]), 0)
     assert "short_title" in llm.SYSTEM and "evidence" in llm.SYSTEM
+
+
+# --- negation kept (CTS 12:32 「所幸無造成人員傷亡」) -----------------------------------------------
+
+def test_negated_casualty_cannot_be_stated():
+    src = labeler.LabelSource(["警消歷經7小時撲滅火勢所幸無造成人員傷亡"])
+    assert "NEG-DROP" in labeler.validate("造成人員傷亡", src, RULES)
+    assert "EVT-MISS" not in labeler.validate("撲滅火勢", src, RULES)
+    assert "傷亡" not in labeler.make_label(src, None, rules=RULES).label
+
+
+def test_real_casualty_still_required():
+    src = labeler.LabelSource(["臨停卸貨未警示.也未申請臨時證違規害婦撞亡"])
+    assert "EVT-MISS" in labeler.validate("臨停卸貨", src, RULES)
