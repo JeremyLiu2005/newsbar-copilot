@@ -56,7 +56,7 @@ def run_channel(
     else:
         done = {i: labeler.make_label(src, generator, retries, lrules) for i, src in todo.items()}
     for i, seg in enumerate(segs):
-        sigs = {"ids": seg.signals}
+        sigs = {"ids": seg.signals, "boundary": seg.boundary, "end_sec": seg.end}
         if seg.type is EventType.NEWS:
             if seg.reuse_of is not None and seg.reuse_of in seg_event:
                 prev = seg_event[seg.reuse_of]
@@ -133,6 +133,8 @@ def run(
     recs = evidence.build(cells, str((rules or {}).get("version", "0")))
     # Evidence first: if the workbook cannot be written the reviewer still gets the per-minute record.
     evidence.save(recs, out.with_suffix(".evidence.jsonl"), out.with_suffix(".report.csv"), failed)
+    # 規則 EVD-1：每個換題點的機率、證據與是否需複核，另存一份（一則新聞一行）
+    evidence.save_stories({ch: by_ch[ch] for ch in cells}, out.with_suffix(".stories.jsonl"))
     try:
         excel_writer.write(template, out, cells, {ch: channel_headers[ch] for ch in cells})
     except (excel_writer.WriterError, OSError, zipfile.BadZipFile) as e:

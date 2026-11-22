@@ -13,7 +13,7 @@ from typing import Protocol
 
 from . import lexicon
 from .ad_state import AD, NEWS, OUTAGE, AdResult, carousel_seconds
-from .schemas import Confidence, EventType, SecondObs
+from .schemas import Confidence, EventType, SecondObs, is_ad_copy
 
 
 MIN_CJK_CHARS = 2  # 規則 TXT-7：主標題讀數至少要有 2 個中文字，否則當雜訊
@@ -96,6 +96,10 @@ class Segment:
     fallback: str | None = None
     reuse_of: int | None = None  # index of an earlier segment this continues (AD-8)
     frame: str | None = None  # main_bar crop at the start second
+    end: int | None = None  # exclusive: start of the next segment (or end of the stream)
+    overlay_sec: int = 0  # AD-OVL: seconds whose bar text was framed-ad copy and was ignored
+    boundary_p: float | None = None  # EVD-1: probability that a new story starts at `start`
+    boundary: dict = field(default_factory=dict)  # EVD-1: evidence behind this boundary
 
     @property
     def asr_text(self) -> str:
@@ -167,6 +171,9 @@ def segment(
     # 規則 TXT-1、TXT-7：只讀主標題條；中文字少於 2 個的讀數視為 OCR 雜訊
     def text_of(o: SecondObs) -> str | None:
         if o.bar_text is None or o.bar_conf < params.min_conf:
+            return None
+        # 規則 AD-OVL：包框廣告時外框上的字不是這則新聞的標題 → 當作沒讀到
+        if o.commercial_overlay:
             return None
         # A Taiwanese news title always has Chinese; a read with fewer than two CJK
         # characters is OCR noise (11/06 ETTV: "(0UU6" before an ad became a story).
@@ -305,6 +312,8 @@ def segment(
             continue
 
         assert cur is not None
+        if o.commercial_overlay:
+            cur.overlay_sec += 1
         if o.asr_text and (not cur.asr_texts or cur.asr_texts[-1] != o.asr_text):
             cur.asr_texts.append(o.asr_text)
 
@@ -348,7 +357,7 @@ def segment(
                 sigs = [k for k, f in (("NEW-1", True), ("NEW-2a", feats["new2a"]), ("NEW-2b", feats["new2b"]),
                                        ("NEW-2c", feats["new2c"]), ("NEW-2d", feats["new2d"])) if f]
                 open_seg(Segment(run_start, EventType.NEWS, bar_texts=[run_text], signals=sigs + ["ML-new"],
-                                 confidence=Confidence.HIGH.value))
+                                 confidence=Confidence.HIGH.value, boundary_p=round(p, 3)))
                 if o.asr_text:
                     cur.asr_texts.append(o.asr_text)  # type: ignore[union-attr]
                 continue
@@ -406,13 +415,95 @@ def segment(
     # Ad copy just before a break (11/06: "watsog", "001536") opens a short pseudo-story
     # that the break then cuts off; anything under min_story_before_ad_sec merges into the ad.
     # 規則 NEW-3：廣告前不到 20 秒、或從沒讀到標題的「新聞」其實是廣告文案 → 併入廣告
+    # 規則 BRIEF-1：但「穩定標題＋換題佐證＋有新聞語音」的短播報是完整的一則，保留
     out: list[Segment] = []
     for k, sg in enumerate(segs):
         nxt = segs[k + 1] if k + 1 < len(segs) else None
         if (sg.type is EventType.NEWS and nxt is not None and nxt.type is EventType.AD
                 and (nxt.start - sg.start < params.min_story_before_ad_sec or not sg.bar_texts)
                 and sg.reuse_of is None and out):
+            recent = [t for o in out if o.type is EventType.NEWS and sg.start - o.start <= params.recur_window_sec
+                      for t in o.bar_texts]
+            # a "brief" that shares a term with a story of the last 180 s is that story's tail, not its own story
+            if is_brief(sg) and not _speech_runs_into(obs, sg, nxt) and not judge.same(sg.bar_texts[0], recent):
+                sg.signals.append("BRIEF-1")
+                out.append(sg)
+                continue
             # a "story" with no title ever read before a break is ad copy (11/06 ETTV 12:35)
             continue
         out.append(sg)
+    stream_end = obs[-1].sec + 1 if obs else 0
+    for k, sg in enumerate(out):
+        sg.end = out[k + 1].start if k + 1 < len(out) else stream_end
+        _attach_boundary(sg, out[k - 1] if k else None)
     return out
+
+
+BRIEF_AD_PROBE_SEC = 10  # BRIEF-1: seconds of the following break checked for the same speech topic
+
+
+def _speech_runs_into(obs: list[SecondObs], sg: Segment, brk: Segment) -> bool:
+    """BRIEF-1: the "brief" talks on the same speech topic as the opening of the break → it is
+    the commercial's own copy and voice (11/06 "watsog" before an ad), not a news brief."""
+    mine = {o.topic for o in obs if sg.start <= o.sec < brk.start and o.topic}
+    ad = {o.topic for o in obs if brk.start <= o.sec < brk.start + BRIEF_AD_PROBE_SEC and o.topic}
+    return bool(mine & ad)
+
+
+def is_brief(sg: Segment) -> bool:
+    """BRIEF-1: a short story that is complete on its own — an anchor read or a reporter's verbal
+    add-on without a full package. It opened on a stable title (NEW-1) with at least one piece of
+    change evidence (high confidence, not FB-1), carries news speech, and none of its titles is ad copy."""
+    return (bool(sg.bar_texts) and sg.confidence == Confidence.HIGH.value and sg.fallback is None
+            and "NEW-1" in sg.signals and bool(sg.asr_text)
+            and not any(is_ad_copy(t) for t in sg.bar_texts))
+
+
+# EVD-1: how much each piece of evidence adds to "a new story starts here" under the rules.
+# The rules decide with counts, not this number; it ranks boundaries for review and is replaced
+# by the learned model's probability when segmenter.mode is "learned".
+_BASE_P = 0.55  # NEW-1 alone (a stable new title): FB-1 territory
+_EVIDENCE_P = {"NEW-2a": 0.2, "NEW-2b": 0.15, "NEW-2d": 0.15}
+REVIEW_P = 0.7  # EVD-2: below this, the boundary goes to the review queue
+
+
+def _attach_boundary(sg: Segment, prev: Segment | None) -> None:
+    """EVD-1/EVD-2: probability, evidence and review flag for the boundary at sg.start."""
+    ids = set(sg.signals)
+    after_break = prev is not None and prev.type in (EventType.AD, EventType.OUTAGE)
+    if sg.type is not EventType.NEWS:
+        kind, p = sg.type.value, 1.0 if sg.type is not EventType.WEATHER else 0.9
+    elif "AD-8" in ids:
+        kind, p = "resume", 0.1  # same story back after the break (AD-8): no new story
+    elif sg.boundary_p is not None:
+        kind, p = "learned", sg.boundary_p
+    elif sg.fallback == "FB-3" or "AD-9" in ids:
+        kind, p = "speech", 0.5  # no title read: speech alone opened or named it
+    else:
+        kind = "after_break" if after_break else "title"
+        p = min(0.95, _BASE_P + sum(w for k, w in _EVIDENCE_P.items() if k in ids))
+        if after_break:
+            p = max(p, 0.8)  # a fresh title after a break is strong on its own
+    sim = 0.0
+    if sg.bar_texts and prev is not None and prev.bar_texts:
+        sim = max(_ratio(a, b) for a in sg.bar_texts for b in prev.bar_texts)
+    sg.boundary_p = round(p, 3)
+    sg.boundary = {
+        "kind": kind,
+        "boundary_probability": sg.boundary_p,
+        "evidence": {
+            "title_change": "NEW-1" in ids,
+            "topic_shift": "NEW-2a" in ids,
+            "anchor_shot": "NEW-2b" in ids,
+            "speaker_change": "NEW-2c" in ids,
+            "name_credit": "NEW-2d" in ids,
+            "title_similarity_prev": round(sim, 2),
+            "after_break": after_break,
+            "merged_recurrence": "SAME-8" in ids,
+            "brief": "BRIEF-1" in ids,
+            "commercial_overlay_sec": sg.overlay_sec,
+        },
+        "review_required": sg.type is EventType.NEWS and (
+            sg.confidence == Confidence.LOW.value or sg.fallback is not None
+            or (p < REVIEW_P and kind != "resume") or "BRIEF-1" in ids or sg.overlay_sec > 0),
+    }

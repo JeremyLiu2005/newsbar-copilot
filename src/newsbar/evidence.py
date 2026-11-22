@@ -27,6 +27,7 @@ def record(cell: Cell, rules_version: str) -> dict:
                 "bar_text": ev.source.bar_text,
                 "asr_text": ev.source.asr_text,
                 "frame": ev.source.frame,
+                "boundary": ev.signals.get("boundary"),
             }
         )
         signals.extend(ev.signals.get("ids", []))
@@ -46,6 +47,37 @@ def record(cell: Cell, rules_version: str) -> dict:
         "reasons": reasons,
         "rules_version": rules_version,
     }
+
+
+def story_records(by_ch: dict[str, list]) -> list[dict]:
+    """EVD-1: one record per segment (story unit, ad, outage) with its boundary evidence."""
+    out = []
+    for ch, events in by_ch.items():
+        for ev in events:
+            b = ev.signals.get("boundary") or {}
+            out.append({
+                "channel": ch,
+                "story_id": ev.story_id,
+                "type": ev.type.value,
+                "label": ev.label,
+                "start_sec": ev.start_sec,
+                "end_sec": ev.signals.get("end_sec"),
+                "bar_text": ev.source.bar_text,
+                "confidence": ev.confidence,
+                "fallback": ev.fallback,
+                "boundary_probability": b.get("boundary_probability"),
+                "boundary_kind": b.get("kind"),
+                "evidence": b.get("evidence", {}),
+                "review_required": bool(b.get("review_required")) or ev.confidence == "low" or bool(ev.fallback),
+                "signals": ev.signals.get("ids", []),
+            })
+    return out
+
+
+def save_stories(by_ch: dict[str, list], path: Path) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        for r in story_records(by_ch):
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
 def review_priority(rec: dict) -> int:

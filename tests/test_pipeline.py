@@ -48,6 +48,11 @@ def test_T23_ocr_dead_for_the_hour_still_fills_every_decision(template, tmp_path
     assert all(r["fallback"] and "FB-3" in r["fallback"] for r in recs)  # FB-R2
     assert out.with_suffix(".report.csv").exists()
     assert ws.max_row >= 60
+    # EVD-1/EVD-2: one story record per segment, each with boundary evidence; FB-3 ones need review
+    stories = [json.loads(line) for line in out.with_suffix(".stories.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert stories and all("boundary_probability" in r and "evidence" in r for r in stories)
+    assert all(r["review_required"] for r in stories if r["type"] == "news")
+    assert all(r["end_sec"] > r["start_sec"] for r in stories)
 
 
 def test_pipeline_writes_sheet_and_evidence(template, tmp_path):

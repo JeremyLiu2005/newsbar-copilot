@@ -260,7 +260,7 @@ stateDiagram-v2
 | XLS-3 | 依表頭文字定位「時間列」與「台別欄」，不得寫死儲存格座標 |
 | XLS-4 | 目標格在寫入前若已有內容，停止並回報錯誤，不覆寫 |
 | XLS-5 | 不新增欄位、分頁或秒級紀錄 |
-| XLS-6 | 檔名：`12監看_YYYYMMDD.xlsx`；另產生同名 `.evidence.jsonl` 與 `.report.csv` |
+| XLS-6 | 檔名：`12監看_YYYYMMDD.xlsx`；另產生同名 `.evidence.jsonl`、`.stories.jsonl` 與 `.report.csv` |
 
 ---
 

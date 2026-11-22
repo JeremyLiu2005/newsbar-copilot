@@ -164,6 +164,23 @@ class SecondObs:
         }
         return [k for k, v in names.items() if v]
 
+    @property
+    def commercial_overlay(self) -> bool:
+        """AD-OVL: this second's main-bar text belongs to a framed ad, not to the story.
+
+        True when the bar shows ad copy (AD-h), or when the picture is boxed (AD-a) together
+        with at least one other ad signal — two more while the news ticker is still on, the
+        same extra proof AD-1 asks for (11/06 TVBS news graphics also draw a frame edge).
+        The segmenter treats such a second as "title not read": it never opens, closes or
+        names a story, and it never becomes the residual title of a break.
+        """
+        if is_ad_copy(self.bar_text):
+            return True
+        if not self.layout_changed:
+            return False
+        need = 2 + (1 if self.ticker_text else 0)
+        return len(self.ad_signals()) >= need
+
 
 class Confidence(str, Enum):
     HIGH = "high"

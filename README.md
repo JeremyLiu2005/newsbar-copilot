@@ -68,7 +68,7 @@ uv run newsbar apply-corrections --sheet out/12監看_20261106.xlsx --correction
 
 `--resume` 會沿用已經跑過的 OCR 與語音結果，只重跑換題和五字標。同一支影片重跑，五字標會逐格相同：模型溫度固定為 0，答案也存在快取裡。改了提示詞要更新 `llm.py` 的 `PROMPT_VERSION`，快取才不會把舊答案又拿出來用。
 
-產出檔案：`*.xlsx`（監看表）、`*.evidence.jsonl`（每格的依據）、`*.report.csv`（抽查清單，低信心排最前面）、`*.report.json`（處理報告）、`*.review.html`（抽查頁）。
+產出檔案：`*.xlsx`（監看表）、`*.evidence.jsonl`（每格的依據）、`*.stories.jsonl`（每個換題點的機率、證據與是否需複查，一則一行）、`*.report.csv`（抽查清單，低信心排最前面）、`*.report.json`（處理報告）、`*.review.html`（抽查頁）。
 
 ## 兩種版本：Mac 與 NVIDIA GPU
 

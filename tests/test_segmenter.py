@@ -1,6 +1,6 @@
 """spec §3, §4 — T08–T12."""
 
-from conftest import news, stream
+from conftest import framed_ad, news, stream
 
 from newsbar.ad_state import detect
 from newsbar.schemas import EventType as T
@@ -159,3 +159,64 @@ def test_untitled_segment_before_an_ad_merges_into_the_ad():
     obs += framed_ad(40, 90, "(0UU6") + news(30, 130, "乙則新聞標題", "t3")
     segs = segs_of(obs)
     assert [s.type for s in segs][:2] == [T.NEWS, T.AD]
+
+
+# ---- AD-OVL, BRIEF-1, EVD-1/EVD-2 ----
+
+def test_ADOVL_framed_ad_bar_text_never_opens_a_story():
+    """Boxed picture + another ad signal: the frame's bar text is programme UI, not the story."""
+    from newsbar.schemas import SecondObs
+    o = SecondObs(0, bar_text="地方創生大展 週末登場", layout_changed=True, bar_color_changed=True)
+    assert o.commercial_overlay
+    # a news graphic that draws a frame edge while the ticker is on needs two more signals
+    assert not SecondObs(0, bar_text="地方創生大展", layout_changed=True, bar_color_changed=True,
+                         ticker_text="快訊").commercial_overlay
+    # 9 s of framed-ad text: long enough to be "stable", too short to enter an ad (AD-1 needs 10 s)
+    obs = news(40, 0, "新北土城七旬翁 遭貨車輾亡", "t1")
+    obs += news(9, 40, "地方創生大展 週末登場", "t1", layout_changed=True, bar_color_changed=True, anchor_shot=True)
+    obs += news(30, 49, "新北土城七旬翁 遭貨車輾亡", "t1")
+    segs = segs_of(obs)
+    assert [s.type for s in segs] == [T.NEWS]
+    assert "地方創生大展 週末登場" not in segs[0].bar_texts
+    assert segs[0].overlay_sec == 9 and segs[0].boundary["review_required"]
+
+
+def test_ADOVL_frame_text_is_not_the_residual_title():
+    from newsbar.ad_state import detect as det
+    obs = news(60, 0, "新北土城七旬翁 遭貨車輾亡", "t1")
+    obs += news(5, 60, "固力伸0800-030-031低至72折", "t1")  # ad copy before the break is confirmed
+    obs += framed_ad(60, 65, "固力伸0800-030-031低至72折")
+    obs += news(40, 125, "高金素梅共諜案起訴 求刑14年", "t2")
+    brk = det(obs).breaks
+    assert brk and brk[0].residual_bar == "新北土城七旬翁 遭貨車輾亡"
+
+
+def test_BRIEF1_short_complete_brief_before_a_break_is_kept():
+    """Anchor reads a 15 s brief (new title + anchor shot + its own speech topic), then a break."""
+    obs = news(60, 0, "新北土城七旬翁 遭貨車輾亡", "t1")
+    obs += news(15, 60, "立法院三讀 總預算案過關", "t5", anchor_shot=True)
+    obs += framed_ad(60, 75, None)
+    obs += news(40, 135, "高金素梅共諜案起訴 求刑14年", "t2", anchor_shot=True)
+    segs = segs_of(obs)
+    assert [s.type for s in segs] == [T.NEWS, T.NEWS, T.AD, T.NEWS]
+    brief = segs[1]
+    assert "BRIEF-1" in brief.signals and brief.boundary["evidence"]["brief"]
+    assert brief.boundary["review_required"]
+
+
+def test_EVD1_every_segment_carries_boundary_evidence_and_end():
+    obs = news(40, 0, "新北土城七旬翁 遭貨車輾亡", "t1")
+    obs += news(40, 40, "史詩崩跌台股殺3737點台積電一度跌停", "t2", anchor_shot=True)
+    segs = segs_of(obs)
+    assert len(segs) == 2
+    b = segs[1].boundary
+    assert b["evidence"]["title_change"] and b["evidence"]["topic_shift"] and b["evidence"]["anchor_shot"]
+    assert b["boundary_probability"] == 0.9 and not b["review_required"]
+    assert segs[0].end == 40 and segs[1].end == 80
+
+
+def test_EVD2_title_only_change_is_flagged_for_review():
+    obs = news(40, 0, "新北土城七旬翁 遭貨車輾亡", "t1", asr=None)
+    obs += news(40, 40, "史詩崩跌台股殺3737點台積電一度跌停", "t1", asr=None)
+    segs = segs_of(obs)
+    assert segs[-1].boundary["boundary_probability"] == 0.55 and segs[-1].boundary["review_required"]

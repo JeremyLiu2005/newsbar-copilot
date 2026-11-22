@@ -227,7 +227,8 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                     break
                 j += 1
             if entered_at is None:
-                if last_news is None or o.bar_text is not None:
+                # 規則 AD-OVL：包框廣告外框上的字不能當殘留標題
+                if (last_news is None or o.bar_text is not None) and not o.commercial_overlay:
                     last_news = o
                 i = j if j > i else i + 1
                 continue
@@ -285,7 +286,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
             i = end
             last_news = None
             continue
-        if o.bar_text is not None:
+        if o.bar_text is not None and not o.commercial_overlay:
             last_news = o
         i += 1
     merged: list[AdBreak] = []

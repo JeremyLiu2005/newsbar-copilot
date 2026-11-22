@@ -179,7 +179,7 @@ stateDiagram-v2
 規則細節：
 
 - 角落小廣告不改變主畫面版面，不算進廣告。
-- 包框期間 bar 文字**凍結不採用**。
+- 包框期間 bar 文字**凍結不採用**。廣告還沒確認的前幾秒也一樣：主畫面縮成框又有另一種廣告訊號（跑馬燈還在時要另外兩種），或標題條是廣告文案，這一秒的字當作外框 UI（`commercial_overlay`，規則 AD-OVL），不參與換題比對，也不當殘留標題。
 - 「bar 出現新讀數」= 與進廣告前最後一個讀數不同，避免把殘留文字當成回新聞。
 - 電視台自家節目預告比照廣告【待業師確認】。
 
@@ -187,28 +187,55 @@ stateDiagram-v2
 
 ### 4.7 segmenter：換題引擎
 
-只在「新聞」狀態的區間內計算。
+只在「新聞」狀態的區間內計算。原則：**鏡頭切換不等於換新聞**。換鏡頭、換人臉、LIVE 字樣、標題條消失都不會單獨觸發換題（BAN-1、BAN-2），它們最多是佐證；決定換題的是「穩定的新標題」加上語意或結構上的佐證。規則逐條以 [rules.md](rules.md) ③ 為準，下面是流程摘要。
 
 ```
-候選點：bar 文字改變（字元 Jaccard < 0.5）
+候選點：主標題出現新字，且連續 7 秒讀到同一個（NEW-1、TIME-1）
+        名條、天氣字樣、標題輪播、包框廣告外框上的字不算候選（SAME-7、TXT-5、CAROUSEL、AD-OVL）
          │
          ▼
-同則排除：新舊 bar 句向量相似度 > 0.75，或人名/地名重疊 ≥1
-         → 視為同一則的主標/副標輪播，不換題
+同則排除：和目前這則任何一個標題共有連續兩個中文字 → 主副標輪播，不換題（SAME-3）
          │
          ▼
-融合分數 s = 0.5·S_bar + 0.3·S_asr + 0.2·S_visual
-         S_bar    = 1 − 句向量相似度
-         S_asr    = ASR 主題向量在候選點前後 20 秒的變化量；出現新語者再加分
-         S_visual = 候選點 ±5 秒內有切回主播台 → 1，否則 0
+佐證：NEW-2a 前後 20 秒語音主題不同；NEW-2b 前後 5 秒切回主播台；NEW-2d 名條預告
+      NEW-2c 講話的人換了，只記錄、不單獨算數
          │
          ▼
-s > 0.6 → 換題；時間取新 bar 第一次穩定出現的秒數
+有語音但沒有任何佐證 → 留在同一則（SAME-6）；沒有語音又沒佐證 → 換題但低信心（FB-1）
+         │
+         ▼
+後處理：180 秒內標題回來 → 中間段落併回同一則（SAME-8）
+        廣告前不到 20 秒的「新聞」併入廣告（NEW-3），完整的短播報除外（BRIEF-1）
+        廣告後回來：殘留標題＋同語音主題 → 沿用原則（AD-8）；逾時 → 靠語音命名（AD-9）
 ```
 
-權重與門檻放在規則設定檔（`config/rules.*.yaml`，範本為 `rules.example.yaml`；`config/rules.yaml` 為本機自建、已 gitignore），用 12:00–12:20 調參，12:20–13:00 測試。注意：12:20–13:00 並非獨立保留集，規則在 12:00–12:20 調參，部分門檻參考過 11/06 資料。
+`segmenter.mode: learned` 時，候選點改由模型算出的機率決定（見 rules.md ⑦）。
 
-輸出 `segments/{channel}_stories.jsonl`：`{story_id, start, end, bar_texts[], asr_text, entities[], confidence}`
+四種容易誤判的播出情境怎麼處理：
+
+| 情境 | 處理 |
+|---|---|
+| 主播稿頭背板有動畫、沒有主標題條 | 標題條消失不是候選點；目前這則延續到下一個穩定新標題。還沒讀到任何標題時，靠語音主題換題（FB-3，低信心） |
+| 外場記者先開場、人臉頻繁切換 | 人臉沒有用來判斷；講話的人換了只記錄（NEW-2c），不會單獨換題 |
+| 沒進完整專題的短播報 | 一般情況照常算一則；廣告前不到 20 秒時，符合 BRIEF-1（穩定新標題＋至少一項佐證＋有新聞語音、語音主題沒延續進廣告、和前 180 秒的新聞沒有共同詞、標題不是廣告文案）就保留，並一律送複查 |
+| 廣告包框 | 狀態機判廣告（AD-1、AD-a/i）；確認前的過渡秒數由 AD-OVL 擋掉外框文字；回新聞時重新判斷是同一則回來（AD-8）還是下一則 |
+
+每個段落另外輸出換題證據（EVD-1、EVD-2）：`boundary_probability`、`evidence`（標題換新、語音主題換了、切回主播台、換人講話、名條預告、和前一則標題相似度、是否在廣告後、是否 SAME-8 合併、是否短播報、包框文字秒數）與 `review_required`。規則模式的機率是佐證累加的排序分數（只有新標題 0.55，語音主題 +0.2，主播台 +0.15，名條 +0.15，上限 0.95），規則本身仍用佐證「有沒有」做決定；學習模式改用模型機率。機率低於 0.7、低信心、備援、短播報或出現過包框文字的段落標成需複查。
+
+輸出 `out/12監看_{date}.stories.jsonl`，一個段落一行：`{channel, story_id, type, label, start_sec, end_sec, bar_text, confidence, fallback, boundary_probability, boundary_kind, evidence, review_required, signals}`。
+
+門檻放在規則設定檔（`config/rules.*.yaml`，範本為 `rules.example.yaml`；`config/rules.yaml` 為本機自建、已 gitignore）。程式實際讀的 segmenter 鍵是 `stable_sec`、`credit_max_sec`、`credit_window_sec`、`asr_veto`、`asr_window_sec`、`visual_window_sec`、`mode`、`model`；範本裡的 `bar_change_jaccard`、`same_story_cosine`、`weights`、`threshold` 是早期加權融合設計留下的，程式沒有讀。調參用 12:00–12:20，測試用 12:20–13:00；12:20–13:00 並非獨立保留集，部分門檻參考過 11/06 資料。
+
+#### 4.7.1 還沒做的部分（後續路線）
+
+以下是「新聞故事單元分割」完整做法中，目前程式還沒有的部分，依優先順序：
+
+1. **語意與實體連續性**：現在同則判斷只看標題共有詞（SAME-3）和語音主題編號（NEW-2a）。下一步加句向量相似度與人名、地名、機構重疊，讓「主播稿頭接 SOT」在標題完全換字時也能合併。
+2. **子段類型分類**：在每則新聞內標出主播稿頭、SOT、Live、假連線、說新聞、記者補充。需要人臉／說話人辨識（現在只有音高跳動的簡易版）與棚內／外景版面分類。這不影響五字標，但可以支援更細的監看。
+3. **序列修正**：現在是單次規則掃描加後處理（SAME-8、NEW-3、AD-10、AD-11）。可以改成 HMM、CRF 或動態規劃，把整小時當一條狀態序列一起解。
+4. **背板 OCR**：無標題條的稿頭時，讀主播背板上的字當佐證。
+5. **標註集**：上面幾項都需要三立實際播出的雙人標註資料（故事 ID、起訖、子段類型、難例標籤），並保留一組不參與調參的盲測集。現在只有 TVBS 一小時的研究者初標。
+6. **評估指標**：見 §9。還沒有秒級邊界誤差、廣告誤入新聞率、子段分類 F1、複查比例。
 
 ### 4.8 labeler：五字標產生器
 
@@ -256,16 +283,17 @@ flowchart LR
 ```json
 {
   "channel": "cts", "minute": "1232", "value": "廣告",
-  "event_start_sec": 1924,
-  "source": {"bar_text": "…", "asr_text": "…", "frame": "frames/cts/01924_main_bar.png"},
-  "signals": {"layout_change": true, "black": true, "logo": false},
-  "confidence": 0.91,
+  "items": [{"type": "ad", "label": null, "start_sec": 1924, "bar_text": "…", "asr_text": "…",
+             "frame": "frames/cts/01924_main_bar.png", "boundary": {"kind": "ad", "boundary_probability": 1.0, "evidence": {…}, "review_required": false}}],
+  "signals": ["AD-a", "AD-d"],
+  "confidence": "high",
   "fallback": null,
+  "reasons": [],
   "rules_version": "0.1"
 }
 ```
 
-存成 `out/evidence.jsonl`；`run_report.csv` 是它的扁平版。
+存成 `out/12監看_{date}.evidence.jsonl`；`report.csv` 是它的扁平版（複查清單）。以段落為單位的換題證據另存 `stories.jsonl`（見 §4.7）。
 
 ## 5. 介面層（依 UED，見 requirements §5）
 
@@ -366,6 +394,7 @@ newsbar-copilot/
 - 標準答案：兩人依判準手冊獨立標註，Cohen's κ ≥0.8，分歧由第三人裁決。（目標做法；目前只有單人暫定標準答案，雙人標註與 κ 尚未完成，見 §12。）
 - 對照組：(a) 只看 bar 文字變化的單訊號基線；(b) 本系統。
 - `newsbar eval` 一次跑完所有指標並輸出錯誤歸類（漏換題、過度換題、包框誤判、捏造…）。
+- 尚未實作、有正式標註後要補的分層指標：秒級邊界誤差、同則正確合併率與跨則誤合併率、廣告內容誤入新聞率、子段類型（稿頭／SOT／Live／假連線／說新聞／廣告）各自的 F1、需複查比例（`stories.jsonl` 的 `review_required`）與複查後修正率，以及各台、各時段、各主播的表現差異。
 
 ## 10. 部署
 
