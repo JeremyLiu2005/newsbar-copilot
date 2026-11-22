@@ -128,7 +128,10 @@ def new_run_id(now: dt.datetime | None = None) -> str:
 def manifest(run_id: str, *, started: str, finished: str, inputs: dict[str, dict], template: str | Path,
              channels_cfg: dict, rules: dict, lexicon_path: str | None, ocr_backend: str | None,
              asr: str | None, asr_model: str | None, llm_model: str | None, llm_state: str,
-             resumed: dict[str, str], out_files: list[str]) -> dict[str, Any]:
+             resumed: dict[str, str], out_files: list[str], extraction_run_id: str | None = None,
+             cache: dict | None = None) -> dict[str, Any]:
+    """RUN-2: one manifest per run. A reused extraction without its own version record is stated as
+    「來源版本不完整」 — no version number is made up for it."""
     lex_hash = None
     if lexicon_path and Path(lexicon_path).exists():
         lex_hash = hashlib.sha256(Path(lexicon_path).read_bytes()).hexdigest()[:16]
@@ -145,5 +148,21 @@ def manifest(run_id: str, *, started: str, finished: str, inputs: dict[str, dict
         "models": {"ocr_backend": ocr_backend, "asr": asr, "asr_model": asr_model, "llm_model": llm_model,
                    "llm_state": llm_state},
         "extraction": resumed,
+        "extraction_run_id": extraction_run_id or "來源版本不完整（沿用的擷取結果沒有版本紀錄）",
+        "cache": cache or {"used": False},
+        "label_rules": _label_rules(rules),
+        "prompt_version": _prompt_version(),
         "outputs": out_files,
     }
+
+
+def _label_rules(rules: dict) -> dict:
+    from .labeler import LabelRules
+    r = LabelRules.from_rules(rules)
+    return {"min_len": r.min_len, "max_len": r.max_len, "target_len": r.target_len,
+            "retries": int(((rules or {}).get("labeler") or {}).get("retries", 2))}
+
+
+def _prompt_version() -> str:
+    from . import llm
+    return llm.PROMPT_VERSION

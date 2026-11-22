@@ -10,6 +10,7 @@ first, and the ad library is never updated. Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import datetime as dt
 import json
 import shutil
@@ -75,11 +76,14 @@ def main() -> int:
         llm_state="off" if gen is None else "on",
         resumed={ch: {"mode": "reused", "stages": runinfo.load_stages(work, ch)} for ch in CHANNELS},
         out_files=[str(out), str(out.with_suffix(".evidence.jsonl")), str(out.with_suffix(".stories.jsonl")),
-                   str(out.with_suffix(".report.json")), str(review_xlsx)])
+                   str(out.with_suffix(".report.json")), str(review_xlsx)],
+        extraction_run_id=None,  # data/work_rerun_1122_asr has no version record: stated, not invented
+        cache={"used": gen is not None, "seeded_from_previous": cache_seeded,
+               "path": str(cache) if gen is not None else None})
     man["stage"] = "A (reused extraction, decision pipeline only)"
     man["extraction_dir"] = str(work)
-    man["label_cache"] = {"used": gen is not None, "seeded_from_previous": cache_seeded,
-                          "path": str(cache) if gen is not None else None}
+    man["inputs"] = {ch: {"obs_sha256": hashlib.sha256((work / ch / "obs.jsonl").read_bytes()).hexdigest()[:16]}
+                     for ch in CHANNELS}
     out.with_suffix(".manifest.json").write_text(json.dumps(man, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"→ {out}  ({run_id}); review copy marks {n} cells")
     return 0
