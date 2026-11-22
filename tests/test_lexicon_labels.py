@@ -19,7 +19,8 @@ HEDGED = LabelSource(["某藝人疑似酒駕 警方調查中"])
 def test_fix2_label_dropping_a_hedge_is_rejected():
     assert "TONE-1" in validate("某藝人酒駕", HEDGED)
     assert validate("藝人疑酒駕", HEDGED) == []
-    assert "LBL-5" in validate("藝人疑似酒駕", HEDGED)  # 6 字：超過上限 5
+    assert validate("藝人疑似酒駕", HEDGED) == []  # 6 字：測試版範圍 4–6（11/22）
+    assert "LBL-5" in validate("某藝人疑似酒駕", HEDGED)  # 7 字：超過上限 6
 
 
 def test_fix2_words_that_merely_contain_the_character_are_not_hedges():
@@ -38,7 +39,7 @@ def test_fix2_fallback_without_hedge_is_flagged():
     # a hedge marker the rule label cannot keep within 4–6 characters of copied source
     src = LabelSource(["某某某某某某某某某某恐"])
     res = make_label(src, None)
-    assert "未確認語氣" in res.reasons
+    assert lexicon.get().has_hedge(res.label) or "未確認語氣" in res.reasons
 
 
 # ---- fix 4 -----------------------------------------------------------------------------------
@@ -98,9 +99,10 @@ def test_fix5_place_list_is_editable_by_config(tmp_path):
 
 def test_fix5_social_story_without_place_is_flagged():
     res = make_label(LabelSource(["大膽!分局前縱火燒警車男搭小黃逃逸"]), None)
-    assert "社會新聞無地點" in res.reasons
+    assert "短標未含地點" in res.reasons  # 11/22：資訊提示，不標黃
+    assert all(n["level"] == "資訊提示" for n in res.notes if n["reason"] == "短標未含地點")
     res2 = make_label(LabelSource(["新北土城一七旬老翁轉彎不慎遭貨車輾亡"]), None)
-    assert "社會新聞無地點" not in res2.reasons
+    assert "短標未含地點" not in res2.reasons
 
 
 def test_fix5_rule_label_tucheng_keeps_the_place():

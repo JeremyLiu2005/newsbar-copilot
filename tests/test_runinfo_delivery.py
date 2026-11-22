@@ -57,7 +57,7 @@ def test_QA2_delivery_check():
     recs[0]["quality"]["status"] = REVIEW_REQUIRED
     d = delivery.validate_delivery(cells, recs, ["tvbs"], "1200", 60)
     assert d["status"] == delivery.READY_WITH_REVIEW and d["review_required"] == 1
-    cells["tvbs"]["1206"] = _cell("tvbs", "1206", "太長的標籤啊")
+    cells["tvbs"]["1206"] = _cell("tvbs", "1206", "太長的標籤啊啊")
     d = delivery.validate_delivery(cells, recs, ["tvbs", "cts"], "1200", 60, failed={"cts": "boom"})
     assert d["status"] == delivery.INCOMPLETE
     assert any("cts" in p for p in d["problems"]) and any("1206" in p for p in d["problems"])

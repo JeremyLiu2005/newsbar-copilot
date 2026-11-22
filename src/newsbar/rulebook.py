@@ -354,10 +354,41 @@ RULES: list[Rule] = [
 
     # ============================== ⑤ 五字標品質 ==============================
     Rule("LBL-5", "label",
-         "五字標長度 4 到 5 個字，超過 5 個字一律退件或截短，不會寫進表格；每個中文字算 1 字，每個英文詞（連續英數字）算 1 字（例：MUSIC EXPO 算 2 字）。",
+         "新聞短標（俗稱五字標）測試版 4 到 6 個字、優先約 5 字（官方範例「高金求十四年」是 6 字，正式範圍待需求確認；設定檔 labeler.min_len／max_len 改成 5／5 即回到剛好 5 字）。"
+         "字數是最後一道檢查，排在事實依據、事件重點、語意完整之後；超出範圍就退件重寫，不會截短。每個中文字、每個英數字各算 1 字。",
          ("labeler.validate", "labeler.label_length"),
-         (Param("min_len", "最短字數", 5, "字", _dc("labeler", "LabelRules", "min_len")),
-          Param("max_len", "最長字數", 5, "字", _dc("labeler", "LabelRules", "max_len")))),
+         (Param("min_len", "最短字數", 4, "字", _dc("labeler", "LabelRules", "min_len")),
+          Param("max_len", "最長字數", 6, "字", _dc("labeler", "LabelRules", "max_len")),
+          Param("target_len", "優先字數", 5, "字", _dc("labeler", "LabelRules", "target_len")))),
+    Rule("EVT-1", "label",
+         "事件重點：來源的主要結果是傷亡（撞亡、身亡、不治、致死…；「逃亡」不算）時，短標要保留撞擊或死傷的結果，否則退件並在重寫要求裡指出漏掉的結果（「堆高機警示」不通過，「堆高機撞婦亡」可以）。",
+         ("labeler.event_missing", "labeler.casualty_in")),
+    Rule("SEM-1", "label",
+         "數字要完整：短標裡的數字在標題該處後面接著單位（6人、6號），短標卻把單位丟掉 → 退件（「拘提到案6」）。標題本來就這樣寫的數字合法（0050爆量、3童過馬路）；單位意思已由短標其他字帶出的可省（低溫探17 ←17度）。",
+         ("labeler.number_fragments",)),
+    Rule("SEM-2", "label",
+         "句意要完整：短標停在標題詞句的中途 → 退件。包括結尾是中文數字（台股盤中一｜度）、連接詞或副詞（巴黎鐵塔又｜關）、需要受詞的動詞（法國再陷入｜動亂）、撞擊後被切掉的結果（害婦撞｜亡）、後面接著數量的單字動詞（變電詐園買｜一送一）。",
+         ("labeler.open_ending",)),
+    Rule("EVD-SRC", "label",
+         "AI 回覆 JSON（short_title、evidence、issues）。evidence 每一段都要能在主標題或語音裡逐字（或 8 成以上相同）找到，程式自己比對，不採信模型自稱；對不上就退件重寫。issues 不是空的 → 保留短標並列為「建議回查」。",
+         ("labeler.parse_answer", "labeler.evidence_ok")),
+    Rule("REV-1", "label",
+         "複查分三級並寫進 evidence 的 review_level：資訊提示（使用備援、短標未含地點、未確認詞不在短標內容上：只留紀錄，不列入複查清單、不標黃）；"
+         "建議回查（短標寫成定論、標題有可疑字且短標用到、無法產生合格短標、模型回報疑義、OCR 信心低：標黃並附原因）；處理失敗（標題讀不到、時鐘未校正、整台失敗）。"
+         "「備援生成」不等於錯誤；「沒有警告」也不代表正確。",
+         ("labeler.review_notes", "evidence.review_level", "excel_writer.flag_reasons")),
+    Rule("OCR-V1", "label",
+         "OCR 校驗（短標生成之前）：同一標題在前後影格同位置讀成不同字，且另一讀法至少 2 格、成詞 → 依影格修正；否則列「待回查」。原文一律保留在 ocr_raw，修正放 ocr_corrected，附 supporting_frame_ids。",
+         ("ocr_check.check_title", "ocr_check.check_story")),
+    Rule("OCR-V2", "label",
+         "同則其他標題有只差一個字的真詞，而且標題那個字在本節所有標題中罕見 → 疑似誤辨，列「待回查」並讓短標避開，不自動修正（同則標題常是改寫，沒有截圖重讀不能當證據）。只有語音近似 → 只記在 asr_hints，不警告。",
+         ("ocr_check.check_title", "ocr_check.char_titles")),
+    Rule("OCR-V3", "label",
+         "已知常見誤辨（促鍆→促銷、牙叉→貨叉；設定檔 ocr.confusions）只當線索：同段影格或同則標題出現正確寫法才修正，否則列「待回查」、短標不使用那幾個字。罕見字本身不是理由（人名常是罕見字）。",
+         ("ocr_check.check_title", "ocr_check.confusions_from")),
+    Rule("OCR-V4", "label",
+         "有疑問時重讀原始標題截圖（frames/main_bar）；沒有可用的 OCR 後端或影格時，紀錄寫「not_reverified」，不得聲稱已重驗。",
+         ("ocr_check.reread_frame",)),
     Rule("SRC-2", "label",
          "標籤裡每個中文字都要出現在這則新聞的主標題裡，英文字母與數字組成的詞也一樣（沒讀到標題時才用語音）；只有少數助詞可以額外加：「中了再又仍已遭被將要的與和」。"
          "有標題時，不能用語音裡的字，因為整段語音幾乎含有所有常用字，會讓任何標籤都過關。",
@@ -369,10 +400,8 @@ RULES: list[Rule] = [
          (Param("LabelRules.sep", "分隔字元", "/", "字元", _dc("labeler", "LabelRules", "sep")),
           Param("LabelRules.status_words", "保留給狀態的詞", ["廣告", "氣象", "訊號中斷"], "詞", lambda: list(_dc("labeler", "LabelRules", "status_words")())))),
     Rule("LBL-4", "label",
-         "社會新聞（標題含車禍、撞、輾、火警、爆炸、槍、毒駕、詐騙、殺人、墜樓、逮捕、聲押等犯罪、意外、災害用語；詞表在 config/lexicon.yaml 的 social_keywords）要有地點："
-         "標題裡有地點 → 標籤一定要含其中一個地點（優先用較小的地名，新北土城寫「土城」），沒有就退件重寫，兩次都不過就改用規則備援；"
-         "標題裡沒有地點（地點只在語音裡）→ 不退件，保留標籤，但在複查表標「社會新聞無地點」請人看一眼，不可以因此丟掉好標籤。"
-         "一般新聞（台股、政治、體育、藝人）不適用。",
+         "（11/22 起改為條件提示，不再退件）社會新聞限犯罪、意外、災害（依主標題判斷；詞表在 config/lexicon.yaml 的 social_keywords），短標沒有地點時只記「短標未含地點」資訊提示（附來源有哪些地點），"
+         "不列入複查、不標黃；來源沒有可靠地點不補造。一般新聞（台股、政治、選舉、國際動亂、建設）不適用。",
          ("labeler.validate", "labeler.is_social", "labeler.review_reasons")),
     Rule("TONE-1", "label",
          "標題有兩個字以上的未確認說法（疑似、涉嫌、據傳、傳出、恐將、恐怕、可能、爆料），標籤把它拿掉了 → 退件，因為等於把傳聞寫成定論；"
@@ -382,12 +411,12 @@ RULES: list[Rule] = [
          (Param("hedge_markers（兩字以上）", "會退件的未確認詞", ["疑似", "傳出", "恐將", "恐怕", "涉嫌", "據傳", "可能", "爆料"], "詞", _hedges(True)),
           Param("hedge_markers（單字）", "只標記不退件的未確認字", ["疑", "傳", "恐", "涉"], "字", _hedges(False)))),
     Rule("§6.3", "label",
-         "AI 產生的標籤沒通過上面的檢查 → 退件，把原因告訴 AI 重寫一次；還是不過 → 改用規則備援（FB-4），並標記請人複查。",
+         "AI 產生的短標沒通過上面的檢查 → 退件，把具體原因（漏了哪個結果、切斷哪個詞、哪個數字缺單位）告訴 AI 重寫，最多 2 次；還是不過 → 改用規則備援（FB-4，資訊提示）；備援也無法產生合格短標時保留最佳候選、標「待確認」並列為建議回查。",
          ("labeler.make_label",),
-         (Param("DEFAULT_RETRIES", "退件後重試次數", 1, "次", lambda: _const("labeler", "DEFAULT_RETRIES")()),
-          Param("make_label(retries=)", "make_label 預設重試次數", 1, "次", _call_default("labeler", "make_label", "retries")))),
+         (Param("DEFAULT_RETRIES", "退件後重寫次數", 2, "次", lambda: _const("labeler", "DEFAULT_RETRIES")()),
+          Param("make_label(retries=)", "make_label 預設重寫次數", 2, "次", _call_default("labeler", "make_label", "retries")))),
     Rule("FB-4", "label",
-         "規則備援：把標題照標點和空白切成短句，丟掉開頭的驚嘆片語，挑最像「事件」的短句，從中擷取 4 到 6 字。每個字都是從標題複製來的，不另外編字。"
+         "規則備援：把標題照標點和空白切成短句，丟掉開頭的驚嘆片語，以「完整的詞」組成候選（連續詞串，或句首主詞／地名＋後面的事件詞），只採用通過全部檢查的最佳候選；絕不截取標題前 N 個字。每個字都是從標題複製來的，不另外編字。"
          "社會新聞：優先用「地點＋事件詞（撞、輾、縱火、拘提…）」；其他新聞：選含地名或事件詞的短句，或剛好 4 到 6 字的短句。標題有兩字以上的未確認詞時，標籤會保留它。",
          ("labeler.rule_label",),
          (Param("TARGET_LEN", "目標字數", 5, "字", _const("labeler", "TARGET_LEN")),)),

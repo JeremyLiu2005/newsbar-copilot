@@ -20,7 +20,7 @@ def test_clean_output():
 def test_prompt_caps_speech_excerpt():
     p = build_user_prompt(SRC, 0)
     assert p.count("土城") <= MAX_ASR_CHARS // 2 + 2
-    assert "沒有通過檢查" in build_user_prompt(SRC, 1)
+    assert "沒有通過檢查" in build_user_prompt(LabelSource(SRC.bar_texts, SRC.asr_text, "「土城」不在主標題裡"), 1)
 
 
 def test_ollama_generator_round_trip():
@@ -75,7 +75,7 @@ def test_claude_generator_sends_only_text_and_uses_fallbacks():
 def test_claude_refusal_goes_to_rule_fallback():
     gen = ClaudeGenerator(allow_external=True, client=FakeClaude("", stop="refusal"))
     res = make_label(SRC, gen)
-    assert res.fallback == "FB-4" and res.label == "土城車輾亡"
+    assert res.fallback == "FB-4" and "土城" in res.label and "輾亡" in res.label
 
 
 def test_from_rules():

@@ -42,8 +42,8 @@ def validate_delivery(cells: dict[str, dict], records: list[dict], channels: lis
             for item in str(cell.value).split(sep):
                 if item in special:
                     continue
-                if label_length(item) != rules.max_len:
-                    problems.append(f"{ch} {minute}：「{item}」不是 {rules.max_len} 個字")
+                if not (rules.min_len <= label_length(item) <= rules.max_len):
+                    problems.append(f"{ch} {minute}：「{item}」不在 {rules.min_len}–{rules.max_len} 個字內")
     rec_keys = {(r["channel"], r["minute"]) for r in records}
     for ch, col in cells.items():
         for minute in col:

@@ -117,7 +117,7 @@ def test_rag_disabled_prompt_and_cache_key_are_the_old_ones(tmp_path):
     g.generate(SRC, 0)
     legacy = [{"role": "system", "content": llm.SYSTEM}]
     for q, a in llm.FEW_SHOT:
-        legacy += [{"role": "user", "content": f"主標題：{q}\n主播與記者語音節錄：（無）\n五字標："},
+        legacy += [{"role": "user", "content": f"主標題：{q}\n主播與記者語音節錄：（無）\n請輸出 JSON："},
                    {"role": "assistant", "content": a}]
     legacy.append({"role": "user", "content": llm.build_user_prompt(SRC, 0)})
     assert json.dumps(seen["body"]["messages"], ensure_ascii=False) == json.dumps(legacy, ensure_ascii=False)
@@ -136,7 +136,7 @@ def test_rag_prompt_carries_retrieved_pairs_and_changes_cache_key(tmp_path):
     assert "板橋老翁" in msgs[1 + 2 * n]["content"] and msgs[2 + 2 * n]["content"] == "板橋翁撞亡"
     off = llm.CachedGenerator(llm.OllamaGenerator(), tmp_path / "a.json").key(SRC, 0)
     on = llm.CachedGenerator(llm.GuardedGenerator(g), tmp_path / "b.json").key(SRC, 0)
-    assert on != off and "v4-rag" in on and "k1" in on
+    assert on != off and llm.PROMPT_VERSION_RAG in on and "k1" in on
     g2 = llm.OllamaGenerator(rag=kbm.Rag(kbm.KB(), 3))
     assert llm.CachedGenerator(g2, tmp_path / "c.json").key(SRC, 0) != on  # other retrieved set → other key
 

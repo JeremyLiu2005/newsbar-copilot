@@ -22,25 +22,33 @@ from dataclasses import dataclass
 
 from .labeler import LabelSource
 
-SYSTEM = """你是台灣電視新聞監看員，要替一則新聞寫「五字標」，讓看監看表的人認得是哪則新聞。
+SYSTEM = """你是台灣電視新聞監看員，要替一則新聞寫「新聞短標」（俗稱五字標），讓看監看表的人一眼認得是哪則新聞。
+請依下列順序思考，最後只輸出一個 JSON 物件，不要其他文字：
+{"short_title": "短標", "evidence": ["短標依據的來源原文片段"], "issues": ["來源互相衝突或無法辨認之處；沒有就空陣列"]}
 規則：
-1. 剛好 5 個字，不能多也不能少（英文專有名詞算一個字），只輸出五字標本身，不要解釋、不要標點、不要引號。
-2. 只能用主標題裡出現過的字（人名、地名、事物、動作、數字）；不得補造，也不要用標題以外的地名。一律照主標題的繁體原字，不可寫成簡體字（員不是员、風不是风）。
-3. 社會事件（車禍、命案、竊盜、火警等）一定要含地點，地點必須出現在來源中，優先用較小的地名（例：新北土城→土城）。
-4. 來源只說「起訴」「求刑」「疑似」時，不得寫成「判刑」「確定」等定論；來源有「疑」「疑似」「傳出」「恐」「涉嫌」「涉」「據傳」「爆料」這類未確認的說法，五字標要保留其中一個字（例：疑縱火、傳出離婚），不能寫成肯定句。
-5. 人名可以只取名字（張俊傑→俊傑），機構可用常見簡稱。
-6. 先數字數：超過 5 個字就刪修飾語（時間、程度、「不慎」「怒批」等），只留「地點＋核心動作＋結果」；少於 5 個字就補上地點或結果。
-7. 詞不可從中間切斷：「操場」不能只寫「操」，「元凶」不能只寫「元」；數字和單位一起用或都不用（「60萬人」不能只寫「萬」）。"""
+1. 優先保留主要行為與結果（例：婦人被堆高機撞死 → 要有「撞」或「亡」，不能只寫「堆高機警示」）。
+2. 不得新增來源沒有的人名、地點、數字、傷亡或因果；只能用主標題裡出現過的字，照繁體原字，不可寫成簡體字。
+3. 約 5 個字為目標，測試版允許 4–6 個字（英文專有名詞、每個數字各算一個字）。
+4. 不得直接截取標題前幾個字；詞不可從中間切斷（「一度」不能只寫「一」）；數字和單位要一起用或都不用（「6人」不能只寫「6」）；句子要說完（不能停在「陷入」「再」這類後面還要接東西的字）。
+5. 來源沒有地點就不要補地點；有地點但不影響辨認時可以省略。
+6. 來源只說「起訴」「求刑」「疑似」時，不得寫成「判刑」「確定」等定論；來源有「疑似」「傳出」「涉嫌」「據傳」這類未確認說法，短標要保留。
+7. evidence 必須逐字引用主標題（或沒有標題時的語音）裡的片段，不可改寫。
+8. 標題字看起來是錯字、人名無法辨認或來源互相衝突時，寫進 issues，不要猜。"""
 
 FEW_SHOT = [
-    ("新北土城一七旬老翁 轉彎不慎遭貨車輾亡", "土城翁輾亡"),
-    ("張俊傑「9分鐘偷渡術」曝 高金素梅共諜案起訴求刑14年", "高金遭起訴"),
-    ("過彎不慎墜橋 駕駛送醫不治", "過彎墜橋亡"),
-    ("萬聖節派對後垃圾亂丟 民眾怒批", "萬聖節亂丟"),
-    ("台中潭子男子酒駕撞護欄 闖紅燈遭攔查", "潭子酒駕撞"),
+    ("新北土城一七旬老翁 轉彎不慎遭貨車輾亡",
+     '{"short_title": "土城翁輾亡", "evidence": ["新北土城一七旬老翁", "遭貨車輾亡"], "issues": []}'),
+    ("張俊傑「9分鐘偷渡術」曝 高金素梅共諜案起訴求刑14年",
+     '{"short_title": "高金求刑14年", "evidence": ["高金素梅共諜案起訴求刑14年"], "issues": []}'),
+    ("過彎不慎墜橋 駕駛送醫不治",
+     '{"short_title": "過彎墜橋亡", "evidence": ["過彎不慎墜橋", "送醫不治"], "issues": []}'),
+    ("法國再陷入動亂各城罷工罷課巴黎鐵塔又關",
+     '{"short_title": "法國陷動亂", "evidence": ["法國再陷入動亂"], "issues": []}'),
+    ("台中潭子男子酒駕撞護欄 闖紅燈遭攔查",
+     '{"short_title": "潭子酒駕撞", "evidence": ["台中潭子男子酒駕撞護欄"], "issues": []}'),
 ]
-PROMPT_VERSION = "v7-trad-words"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
-PROMPT_VERSION_RAG = "v4-rag"  # used only while retrieval is on; with it off the v3 prompt and cache keys are unchanged
+PROMPT_VERSION = "v8-event-json"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
+PROMPT_VERSION_RAG = "v5-rag-json"  # used only while retrieval is on
 
 # 規則 NFR-14：外部 AI 最多只送 200 字語音節錄
 MAX_ASR_CHARS = 200  # NFR-14: never send more speech than needed
@@ -53,14 +61,14 @@ def build_user_prompt(source: LabelSource, attempt: int) -> str:
     # 規則 SRC-2：標籤從主標題來；只有讀不到標題時才把語音給 AI（規則 FB-3）
     bar = " / ".join(source.bar_texts[:2]) or "（主標題讀不到）"
     asr = "" if source.bar_texts else (source.asr_text or "")[:MAX_ASR_CHARS]
-    retry = "\n上一次的答案沒有通過檢查（可能用了來源沒有的字、缺地點，或把「疑似／傳出／恐／涉嫌」這類未確認的說法拿掉了），請只用來源裡的字重寫。" if attempt else ""
-    if source.feedback:  # 規則 §6.3：回饋重試，明講上一個答案錯在哪
-        retry = f"\n上一次的答案沒有通過檢查：{source.feedback}。請只用主標題裡的字，重寫剛好 5 個字。"
-    return f"主標題：{bar}\n主播與記者語音節錄：{asr or '（無）'}{retry}\n五字標："
+    retry = ""
+    if source.feedback:  # 規則 §6.3：帶具體原因重寫
+        retry = f"\n上一次的答案沒有通過檢查：{source.feedback}。請依規則重寫，只輸出 JSON。"
+    return f"主標題：{bar}\n主播與記者語音節錄：{asr or '（無）'}{retry}\n請輸出 JSON："
 
 
 def _turn(q: str, a: str) -> list[dict]:
-    return [{"role": "user", "content": f"主標題：{q}\n主播與記者語音節錄：（無）\n五字標："},
+    return [{"role": "user", "content": f"主標題：{q}\n主播與記者語音節錄：（無）\n請輸出 JSON："},
             {"role": "assistant", "content": a}]
 
 
@@ -86,6 +94,11 @@ def build_messages(source: LabelSource, attempt: int, extra: list | None = None)
 
 
 def clean_output(text: str) -> str:
+    """The model's JSON object as text (labeler.parse_answer reads it); a plain one-line answer is
+    still cleaned the old way."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if m:
+        return m.group()
     line = text.strip().splitlines()[0] if text.strip() else ""
     line = re.sub(r"^(五字標|答案)[:：]\s*", "", line)
     return line.strip(" 「」『』\"'。．.")

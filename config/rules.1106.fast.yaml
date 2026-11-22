@@ -2,6 +2,7 @@
 version: 0.1
 
 ocr:
+  confusions: [[促鍆, 促銷], [牙叉, 貨叉]]   # 已知常見誤辨，只當線索（OCR-V3），要影格或同則標題佐證才修正
   # min_conf: 0.6   # 不設定時依後端：PaddleOCR 0.6、Apple Vision 0.3（Vision 信心值只有 0.3/0.5/1.0 三級）
   vote_window_sec: 5
 
@@ -26,9 +27,10 @@ labeler:
   host: http://127.0.0.1:11435   # 專用 Ollama：OLLAMA_NUM_PARALLEL=4（預設 App 只開 1 槽，請求會排隊）
   model: qwen2.5:7b-instruct
   allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
-  min_len: 5
-  max_len: 5
-  retries: 1
+  min_len: 4             # 新聞短標測試版 4–6 字、優先約 5 字；改成 5／5 即回到剛好 5 字
+  max_len: 6
+  target_len: 5
+  retries: 2              # 失敗時帶具體原因重寫，最多 2 次
 
 output:
   ad_label: 廣告

@@ -163,7 +163,7 @@ def test_unknown_minute_rule_rejected():
 def test_enforce_max_caps_labels_at_five_units():
     from newsbar.labeler import LabelRules, enforce_max, label_length
 
-    r = LabelRules()
+    r = LabelRules(min_len=5, max_len=5)  # 剛好 5 字開關
     assert r.max_len == 5
     assert enforce_max("土城翁輾亡", r) == "土城翁輾亡"
     capped = enforce_max("新北土城翁輾亡", r)

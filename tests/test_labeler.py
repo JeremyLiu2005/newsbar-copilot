@@ -3,7 +3,7 @@
 import pytest
 from conftest import FakeGenerator
 
-from newsbar.labeler import LabelRules, LabelSource, label_length, make_label, rule_label, validate
+from newsbar.labeler import LabelRules, LabelSource, label_length, make_label, review_notes, rule_label, validate
 
 TUCHENG = LabelSource(["新北土城一七旬老翁 轉彎不慎遭貨車輾亡"])
 GAO = LabelSource(["張俊傑「9分鐘偷渡術」曝 高金素梅共諜案起訴求刑14年"])
@@ -15,11 +15,12 @@ def test_task_examples_accepted(label, src):
 
 
 def test_T13_wrong_place_rejected():
-    assert {"SRC-2", "LBL-4"} <= set(validate("板橋翁輾亡", TUCHENG))
+    assert "SRC-2" in validate("板橋翁輾亡", TUCHENG)  # 11/22：地點不再退件（LBL-4 改提示），補造的地點仍因 SRC-2 退件
 
 
 def test_social_without_place_rejected():
-    assert "LBL-4" in validate("老翁遭輾亡", TUCHENG)
+    assert "LBL-4" not in validate("老翁遭輾亡", TUCHENG)  # 11/22：缺地點只記資訊提示
+    assert any(n["reason"] == "短標未含地點" and n["level"] == "資訊提示" for n in review_notes("老翁遭輾亡", TUCHENG))
 
 
 def test_T14_unconfirmed_as_fact_rejected():
@@ -49,7 +50,7 @@ def test_T15_two_failures_go_to_rule_fallback():
     gen = FakeGenerator("板橋翁輾亡", "老翁被撞死")
     res = make_label(TUCHENG, gen)
     assert res.fallback == "FB-4"
-    assert res.label == "土城車輾亡"
+    assert "土城" in res.label and "輾亡" in res.label  # 11/22：4–6 字、詞界式備援（不再固定 5 字）
     assert validate(res.label, TUCHENG) == []
 
 
@@ -92,7 +93,7 @@ def test_crime_stories_are_social_news(title):
 def test_source_without_place_keeps_good_label_and_flags():
     src = LabelSource(["男二度毒駕拒檢催油門狂逃下秒遭車撞飛"])
     res = make_label(src, FakeGenerator("毒駕遭車撞"))
-    assert res.fallback is None and res.label == "毒駕遭車撞" and "社會新聞無地點" in res.reasons
+    assert res.fallback is None and res.label == "毒駕遭車撞" and "短標未含地點" in res.reasons
 
 
 def test_single_char_hedge_is_flagged_not_rejected():
@@ -119,8 +120,8 @@ def test_rule_label_never_reproduces_broken_labels(title, bad):
 
 
 def test_rule_label_examples():
-    assert rule_label(TUCHENG) == "土城車輾亡"
+    assert rule_label(TUCHENG, LabelRules(min_len=5, max_len=5)) == "土城車輾亡"  # 剛好 5 字開關
     assert rule_label(LabelSource(["臨停卸貨未警示.也未申請臨時證違規害婦撞亡"]), LabelRules(min_len=4, max_len=6)) == "害婦撞亡"
-    assert label_length(rule_label(LabelSource(["臨停卸貨未警示.也未申請臨時證違規害婦撞亡"]))) == 5  # 三立 11/22：剛好 5 字
+    assert label_length(rule_label(LabelSource(["臨停卸貨未警示.也未申請臨時證違規害婦撞亡"]), LabelRules(min_len=5, max_len=5))) == 5  # 三立 11/22：剛好 5 字
     assert rule_label(LabelSource(["10天內3度同台交鋒江啟臣.何欣純同框並肩聊市政"]))[0] != "1"
-    assert rule_label(LabelSource(["大膽!分局前縱火燒警車男搭小黃逃逸"])) == "縱火燒警車"
+    assert rule_label(LabelSource(["大膽!分局前縱火燒警車男搭小黃逃逸"]), LabelRules(min_len=5, max_len=5)) == "縱火燒警車"
