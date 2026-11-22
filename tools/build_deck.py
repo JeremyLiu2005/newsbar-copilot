@@ -753,7 +753,7 @@ def n_ad(prs):
 
 def n_change(prs):
     s = blank(prs)
-    frame(s, "3.2 解法｜挑戰三", "Q2 換題與分鐘對齊", 8, "例子皆為 11/06 系統產出；RAG 知識庫預設關閉，三立提供歷史監看表後開啟。")
+    frame(s, "3.2 解法｜挑戰三", "Q2 換題與分鐘對齊", 8, "時間軸為示意；短標例子為 11/06 系統產出。RAG 知識庫預設關閉，三立提供歷史監看表後開啟。")
     qtag(s, "Q2")
     x, w = 0.67, 3.9
     text(s, x, 1.82, w, 0.25, "換題條件", 12, True, RED)
@@ -763,21 +763,24 @@ def n_change(prs):
     text(s, x, 4.35, w, 0.25, "不算換題", 12, True, RED)
     text(s, x, 4.65, w, 2.2, ["鏡位切換：主播 → SOT → LIVE → 假連 → 說新聞", "LIVE、直播字樣；5 秒內閃過的名條", "3 分鐘內重複出現的標題，併回原本那則", "沒佐證的第二段標題，留在原本那則", "廣告前不到 20 秒的片段，併進廣告"], 10, False, INK, space=2)
     x, w = 4.85, 3.9
-    text(s, x, 1.82, w, 0.25, "秒 → 分鐘（東森）", 12, True, RED)
+    text(s, x, 1.82, w, 0.25, "秒 → 分鐘", 12, True, RED)
     tx, ty, tw = x, 2.5, w
     per = tw / 180
-    segs = [(0, 50, "台積電"), (50, 94, "德州"), (94, 107, ""), (107, 159, "陳奕光"), (159, 180, "")]
+    segs = [(0, 20, ""), (20, 70, "A"), (70, 180, "B 新聞")]
     for j, (a_, b_, t) in enumerate(segs):
         box(s, tx + a_ * per, ty, (b_ - a_) * per, 0.4, SOFTRED if j % 2 == 0 else "FCA5A5", None, 0)
-        if t:
-            text(s, tx + a_ * per + 0.02, ty, (b_ - a_) * per, 0.4, t, 8.5, True, INK, anchor=MSO_ANCHOR.MIDDLE)
-    cells = ["台積電拉回/德州新州長", "0050爆量股/陳奕光估反彈", "台股急跌點"]
+        text(s, tx + a_ * per + 0.04, ty, (b_ - a_) * per, 0.4, t, 9, True, INK, anchor=MSO_ANCHOR.MIDDLE)
     for m in range(3):
         box(s, tx + m * 60 * per, ty - 0.08, 0.02, 0.56, INK, None, 0)
-        text(s, tx + m * 60 * per, ty - 0.32, 0.8, 0.22, f"12:0{m}", 9, True, INK)
-        arrow(s, tx + (m * 60 + 30) * per, ty + 0.44, tx + (m * 60 + 30) * per, ty + 0.72, RED, 1.0)
-        label_box(s, tx + m * 60 * per + 0.02, ty + 0.75, 60 * per - 0.04, 0.62, cells[m], CARD, INK, 8.5, True, INK, radius=0, pad=0.03)
-    text(s, x, 4.1, w, 2.8, ["從哪一秒開始，就填在那一分鐘（12:00:50 → 12:00）", "同一分鐘開始多則，依播出順序用「/」連接", "同一則延續的分鐘留白；12:00 前已開始的填在 12:00", "廣告起始那分鐘填「廣告」", "四台各讀自己的畫面時鐘，台別與分鐘互不影響"], 10, False, INK, space=4)
+        text(s, tx + m * 60 * per, ty - 0.32, 0.8, 0.22, f"12:0{m + 2}", 9, True, INK)
+    text(s, tx + 70 * per - 0.3, ty + 0.42, 1.2, 0.22, "12:03:10", 8.5, True, RED)
+    text(s, tx + 20 * per - 0.3, ty + 0.42, 1.2, 0.22, "12:02:20", 8.5, True, RED)
+    cells = [("12:03", "A 新聞"), ("12:04", "B 新聞")]
+    for k_, (m_, t_) in enumerate(cells):
+        xx = tx + (60 * k_ + 60) * per if k_ == 0 else tx + 120 * per
+        arrow(s, xx + 0.3, ty + 0.64, xx + 0.3, ty + 0.92, RED, 1.0)
+        label_box(s, xx + 0.02, ty + 0.95, 60 * per - 0.04, 0.55, [[(m_, {"size": 8, "color": MUTE})], [(t_, {"bold": True})]], CARD, INK, 9, False, INK, radius=0, pad=0.03)
+    text(s, x, 4.15, w, 2.7, ["分鐘中途換題，從下一分鐘開始填（12:02:20 → 12:03；12:03:10 → 12:04）", "整分鐘 00 秒換題，填那一分鐘", "一格只放一則，不用「/」；同分鐘多次改變，只留該分鐘開始時在播的", "同一則延續的分鐘留白", "廣告起始那分鐘填「廣告」", "四台各讀自己的畫面時鐘，台別與分鐘互不影響"], 10, False, INK, space=4)
     x, w = 9.0, 3.67
     text(s, x, 1.82, w, 0.25, "五字標", 12, True, RED)
     flow = [("來源", "這則的主標題＋語音"), ("AI 指令", "4–6 字，濃縮人、事、地；不硬切前五字；未定論不寫成定論"), ("RAG", "知識庫找最像的 3 筆三立寫法當範例"),
