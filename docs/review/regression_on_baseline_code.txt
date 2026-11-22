@@ -1,0 +1,180 @@
+FFFFFFFFFFFFFFFFFFFFFF...F.FFFF..FF.F.FFFFFFF..FFFFFF                    [100%]
+=================================== FAILURES ===================================
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_case_replay.py:33: AttributeError: module 'newsbar.pipeline' has no attribute 'decide_story'
+E   assert (5, 5) == (4, 6)
+      At index 0 diff: 5 != 4
+      Use -v to get more diff
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:29: assert (5, 5) == (4, 6)
+E   AssertionError: assert ['LBL-5'] == []
+      Left contains one more item: 'LBL-5'
+      Use -v to get more diff
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:39: AssertionError: assert ['LBL-5'] == []
+E   AssertionError: 台股盤中一 must not pass
+    assert []
+     +  where [] = errs('台股盤中一', 'ettv_1200_taigu_cut')
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:50: AssertionError: 台股盤中一 must not pass
+E   AssertionError: 法國再陷入 must not pass
+    assert []
+     +  where [] = errs('法國再陷入', 'tvbs_1251_france_open')
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:50: AssertionError: 法國再陷入 must not pass
+E   AssertionError: 拘提到案6 must not pass
+    assert []
+     +  where [] = errs('拘提到案6', 'ftv_1209_detain_numfrag')
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:50: AssertionError: 拘提到案6 must not pass
+E   AssertionError: assert ['LBL-5'] == []
+      Left contains one more item: 'LBL-5'
+      Use -v to get more diff
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:60: AssertionError: assert ['LBL-5'] == []
+E   AssertionError: assert ['LBL-5'] == []
+      Left contains one more item: 'LBL-5'
+      Use -v to get more diff
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:60: AssertionError: assert ['LBL-5'] == []
+E   AssertionError: assert 'EVT-MISS' in []
+     +  where [] = errs('堆高機警示', 'cts_1200_forklift_result')
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:71: AssertionError: assert 'EVT-MISS' in []
+E   AssertionError: assert ('拘提到案6' == '6人聲押'
+      - 6人聲押
+      + 拘提到案6)
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:83: AssertionError: assert ('拘提到案6' == '6人聲押'
+E   AssertionError: assert 1 == 3
+     +  where 1 = len([(0, '')])
+     +    where [(0, '')] = <regression.conftest.Scripted object at 0x10a2aacd0>.calls
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:91: AssertionError: assert 1 == 3
+E   AssertionError: assert '台股盤中一' != '台股盤中一'
+     +  where '台股盤中一' = LabelResult(label='台股盤中一', attempts=1, fallback=None, errors=[[]], reasons=[]).label
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:102: AssertionError: assert '台股盤中一' != '台股盤中一'
+E   AssertionError: assert '法國再陷入' != '法國再陷入'
+     +  where '法國再陷入' = LabelResult(label='法國再陷入', attempts=1, fallback=None, errors=[[]], reasons=['社會新聞無地點']).label
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:102: AssertionError: assert '法國再陷入' != '法國再陷入'
+E   AssertionError: assert '拘提到案6' != '拘提到案6'
+     +  where '拘提到案6' = LabelResult(label='拘提到案6', attempts=1, fallback=None, errors=[[]], reasons=['社會新聞無地點', '未確認語氣']).label
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:102: AssertionError: assert '拘提到案6' != '拘提到案6'
+E   AssertionError: assert '堆高機警示' != '堆高機警示'
+     +  where '堆高機警示' = LabelResult(label='堆高機警示', attempts=1, fallback=None, errors=[[]], reasons=['社會新聞無地點', '未確認語氣']).label
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:102: AssertionError: assert '堆高機警示' != '堆高機警示'
+E   AssertionError: assert '變電詐園買' != '變電詐園買'
+     +  where '變電詐園買' = LabelResult(label='變電詐園買', attempts=1, fallback=None, errors=[[]], reasons=['社會新聞無地點']).label
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:102: AssertionError: assert '變電詐園買' != '變電詐園買'
+E   AssertionError: assert 'LBL-4' not in ['LBL-4']
+     +  where ['LBL-4'] = <function validate at 0x109e69c60>('老翁遭輾亡', LabelSource(bar_texts=['新北土城一七旬老翁 轉彎不慎遭貨車輾亡'], asr_text='', feedback=''), LabelRules(min_len=5, max_len=5, status_words=('廣告', '氣象', '訊號中斷'), sep='/'))
+     +    where <function validate at 0x109e69c60> = labeler.validate
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:130: AssertionError: assert 'LBL-4' not in ['LBL-4']
+E   AssertionError: assert '社會新聞無地點' not in ['社會新聞無地點']
+     +  where '社會新聞無地點' = labeler.REASON_NO_PLACE
+     +  and   ['社會新聞無地點'] = <function review_reasons at 0x109e6a480>('法國動亂', LabelSource(bar_texts=['法國再陷入動亂各城罷工罷課巴黎鐵塔又關', '法國大罷工街頭再淪戰場警射催淚瓦斯鎮暴', '燒垃圾桶封路窩中生封校爆發警民推擠', '物價飛漲老百姓到月底根本入不敷出', '通膨物價飆工會...今年4月 從檢普賽大紀入境 不過查劑員員卻發現 他面對檢查時不頂申請經控 連走路姿勢都怪怪的 眼睛員進查覺他的鞋子 異常沉重 要求他多寫受檢 跨國運讀案當場曝光 這批毒品粉末中大約700克 試駕至少285萬元', feedback=''))
+     +    where <function review_reasons at 0x109e6a480> = labeler.review_reasons
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:135: AssertionError: assert '社會新聞無地點' not in ['社會新聞無地點']
+E   AttributeError: module 'newsbar.labeler' has no attribute 'review_notes'
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:140: AttributeError: module 'newsbar.labeler' has no attribute 'review_notes'
+E   AssertionError: assert '規害婦撞亡' == '堆高機撞婦亡'
+      - 堆高機撞婦亡
+      + 規害婦撞亡
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:151: AssertionError: assert '規害婦撞亡' == '堆高機撞婦亡'
+E   AssertionError: assert '張俊傑偷瀆' == '張俊傑偷渡'
+      - 張俊傑偷渡
+      ?     ^
+      + 張俊傑偷瀆
+      ?     ^
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:161: AssertionError: assert '張俊傑偷瀆' == '張俊傑偷渡'
+E   AssertionError: assert 'v7-trad-words' not in ('v7-trad-words',)
+     +  where 'v7-trad-words' = llm.PROMPT_VERSION
+/Users/rei/newsbar-copilot-shorttitle/tests/regression/test_short_title_logic.py:166: AssertionError: assert 'v7-trad-words' not in ('v7-trad-words',)
+=============================== warnings summary ===============================
+tests/regression/test_short_title_logic.py::test_exact_five_switch_still_works
+  /Users/rei/newsbar-copilot-shorttitle/.venv/lib/python3.11/site-packages/jieba/__init__.py:44: DeprecationWarning: invalid escape sequence '\.'
+    re_han_default = re.compile("([\u4E00-\u9FD5a-zA-Z0-9+#&\._%\-]+)", re.U)
+tests/regression/test_short_title_logic.py::test_exact_five_switch_still_works
+  /Users/rei/newsbar-copilot-shorttitle/.venv/lib/python3.11/site-packages/jieba/__init__.py:46: DeprecationWarning: invalid escape sequence '\s'
+    re_skip_default = re.compile("(\r\n|\s)", re.U)
+tests/regression/test_short_title_logic.py::test_exact_five_switch_still_works
+  /Users/rei/newsbar-copilot-shorttitle/.venv/lib/python3.11/site-packages/jieba/finalseg/__init__.py:78: DeprecationWarning: invalid escape sequence '\.'
+    re_skip = re.compile("([a-zA-Z0-9]+(?:\.\d+)?%?)")
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[cts_1200_forklift_result]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[cts_1206_name_unstable]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[ettv_1200_taigu_cut]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[ettv_1210_prefix_ok]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[ettv_1251_scam_unparsable]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[ftv_1209_detain_numfrag]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[ftv_1245_qianzhen_not_social]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[tvbs_1209_forklift_fork_ocr]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[tvbs_1210_three_kids_ok]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[tvbs_1228_promo_ocr]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[tvbs_1251_france_open]
+FAILED tests/regression/test_case_replay.py::test_every_case_yields_a_usable_record[tvbs_1259_name_rare_char_kept]
+FAILED tests/regression/test_case_replay.py::test_old_wrong_label_not_reproduced[ettv_1200_taigu_cut]
+FAILED tests/regression/test_case_replay.py::test_old_wrong_label_not_reproduced[tvbs_1251_france_open]
+FAILED tests/regression/test_case_replay.py::test_old_wrong_label_not_reproduced[ftv_1209_detain_numfrag]
+FAILED tests/regression/test_case_replay.py::test_old_wrong_label_not_reproduced[cts_1200_forklift_result]
+FAILED tests/regression/test_case_replay.py::test_france_not_flagged_for_missing_place
+FAILED tests/regression/test_case_replay.py::test_qianzhen_not_yellow_for_place
+FAILED tests/regression/test_case_replay.py::test_promo_ocr_error_not_in_label_and_raw_kept
+FAILED tests/regression/test_case_replay.py::test_fork_typo_not_guessed_without_support
+FAILED tests/regression/test_case_replay.py::test_unreadable_name_fragment_flagged_not_spliced
+FAILED tests/regression/test_case_replay.py::test_rare_name_character_not_changed
+FAILED tests/regression/test_short_title_logic.py::test_default_length_range_is_four_to_six
+FAILED tests/regression/test_short_title_logic.py::test_six_char_event_title_not_rejected_for_length
+FAILED tests/regression/test_short_title_logic.py::test_incomplete_labels_rejected[\u53f0\u80a1\u76e4\u4e2d\u4e00-ettv_1200_taigu_cut]
+FAILED tests/regression/test_short_title_logic.py::test_incomplete_labels_rejected[\u6cd5\u570b\u518d\u9677\u5165-tvbs_1251_france_open]
+FAILED tests/regression/test_short_title_logic.py::test_incomplete_labels_rejected[\u62d8\u63d0\u5230\u68486-ftv_1209_detain_numfrag]
+FAILED tests/regression/test_short_title_logic.py::test_complete_labels_pass[\u62d8\u63d0\u5230\u6848-ftv_1209_detain_numfrag]
+FAILED tests/regression/test_short_title_logic.py::test_complete_labels_pass[6\u4eba\u8072\u62bc-ftv_1209_detain_numfrag]
+FAILED tests/regression/test_short_title_logic.py::test_label_missing_main_result_rejected
+FAILED tests/regression/test_short_title_logic.py::test_bad_answer_triggers_rewrite_with_concrete_reason
+FAILED tests/regression/test_short_title_logic.py::test_rewrites_are_capped_at_two
+FAILED tests/regression/test_short_title_logic.py::test_fallback_never_cuts_title_prefix_or_words[ettv_1200_taigu_cut]
+FAILED tests/regression/test_short_title_logic.py::test_fallback_never_cuts_title_prefix_or_words[tvbs_1251_france_open]
+FAILED tests/regression/test_short_title_logic.py::test_fallback_never_cuts_title_prefix_or_words[ftv_1209_detain_numfrag]
+FAILED tests/regression/test_short_title_logic.py::test_fallback_never_cuts_title_prefix_or_words[cts_1200_forklift_result]
+FAILED tests/regression/test_short_title_logic.py::test_fallback_never_cuts_title_prefix_or_words[ettv_1251_scam_unparsable]
+FAILED tests/regression/test_short_title_logic.py::test_missing_place_is_not_a_validation_error
+FAILED tests/regression/test_short_title_logic.py::test_non_social_story_gets_no_place_warning
+FAILED tests/regression/test_short_title_logic.py::test_social_story_without_place_is_info_only
+FAILED tests/regression/test_short_title_logic.py::test_model_json_evidence_must_be_in_source
+FAILED tests/regression/test_short_title_logic.py::test_model_issues_become_review_reason
+FAILED tests/regression/test_short_title_logic.py::test_prompt_version_bumped_and_in_cache_key
+43 failed, 10 passed, 3 deselected, 3 warnings in 2.21s

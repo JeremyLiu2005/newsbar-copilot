@@ -1,0 +1,51 @@
+{
+ "case_id": "tvbs_1209_forklift_fork_ocr",
+ "task": "ocr_check",
+ "channel": "tvbs",
+ "broadcast_time": "12:09",
+ "source": {
+  "bar_texts": [
+   "載孫上學撞堆高機牙叉嬷不治查出他違規"
+  ],
+  "asr_text": "阿嬤重衰身亡 小二的孫子 則是受到輕傷 大火車駕駛操作 堆高級 已到車方式 行駛到馬路上 一開始他緩緩倒退 還注意到 由來車經過的 沒有車時退到車尾附近 準備洩貨 結果堆高級 往前一個轉向 一名阿嬤騎機車 在孫子經過 直接撞上了 堆高級的牙茶 下一個出現在畫面中 的直升下 無人機車往前 滑行撞到 名宅圍牆倒下 而祖孫兩已經倒地 學護車到場 58歲的阿嬤 車旁邊就心明中 圍在他的身邊 但老人家 當場沒有呼吸型跳 後座在的 國小二年級 孫子幸好 只有受到輕傷 祖孫兩被送往醫院 但阿嬤搶救後 還是宣告 補治釋法在5號 一早七點多 阿嬤要再孫子 去上學 行進苗栗頭",
+  "start_sec": 491,
+  "end_sec": 544,
+  "frame": "data/work_rerun_1122_asr/tvbs/frames/main_bar/00518.jpg",
+  "ocr_variants": [
+   [
+    "載孫上學撞堆高機牙叉嬷不治查出他違規",
+    45
+   ],
+   [
+    "因為他開始下貨的時候其實裡面他們也不知道",
+    4
+   ],
+   [
+    "後面他們是聽到碰一聲出去看才發現撞到人",
+    4
+   ]
+  ],
+  "origin": "out/baseline_1801 evidence + data/work_rerun_1122_asr obs.jsonl（segmenter 重放）"
+ },
+ "old_output": {
+  "value": "上學撞牙叉",
+  "fallback": null,
+  "reasons": [
+   "社會新聞無地點"
+  ],
+  "confidence": "low"
+ },
+ "expectation": {
+  "required_meaning": "載孫上學撞堆高機貨叉、阿嬤不治",
+  "accepted_example": [
+   "上學撞堆高機",
+   "嬤不治",
+   "撞堆高機嬷不治"
+  ],
+  "forbidden_behavior": [
+   "無依據把「牙叉」改成「貨叉」（同段影格與語音都沒有「貨叉」）",
+   "短標帶入「牙叉」"
+  ]
+ },
+ "annotation_status": "待確認：牙叉→貨叉 只有他台標題佐證，本段無影格／語音依據"
+}

@@ -39,3 +39,5 @@ packages = ["src/newsbar"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: layer-3 tests on raw frames / shared data (run with -m slow)"]
+addopts = "-m 'not slow'"

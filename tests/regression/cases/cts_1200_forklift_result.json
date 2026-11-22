@@ -1,0 +1,54 @@
+{
+ "case_id": "cts_1200_forklift_result",
+ "task": "short_title",
+ "channel": "cts",
+ "broadcast_time": "12:00",
+ "source": {
+  "bar_texts": [
+   "臨停卸貨未警示.也未申請臨時證違規害婦撞亡",
+   "堆高機卸貨沒放警示害婦撞死駕駛涉過失致死"
+  ],
+  "asr_text": "規定設置安全警示及預防措施 也沒有上建立機關申請登記領用排證及零時通行證行使道路０ 帶談的安平區 昨天有民眾拍下 有幼兒園老師帶著整匹藥桶過馬路的畫面 看起來非常可愛 只是這個隊伍似乎是走太快了",
+  "start_sec": -16,
+  "end_sec": 19,
+  "frame": "data/work_rerun_1122_asr/cts/frames/main_bar/00000.jpg",
+  "ocr_variants": [
+   [
+    "臨停卸貨未警示.也未申請臨時證違規害婦撞亡",
+    20
+   ],
+   [
+    "堆高機卸貨沒放警示害婦撞死駕駛涉過失致死",
+    9
+   ],
+   [
+    "離校不到5分鐘!載孫撞違規卸貨嬷亡駕駛送辦",
+    6
+   ]
+  ],
+  "origin": "out/baseline_1801 evidence + data/work_rerun_1122_asr obs.jsonl（segmenter 重放）"
+ },
+ "old_output": {
+  "value": "堆高機警示",
+  "fallback": "FB-1",
+  "reasons": [
+   "社會新聞無地點",
+   "未確認語氣"
+  ],
+  "confidence": "low"
+ },
+ "expectation": {
+  "required_meaning": "堆高機卸貨害婦人被撞死亡（須保留撞擊／死亡結果）",
+  "accepted_example": [
+   "堆高機撞婦亡",
+   "害婦撞亡",
+   "婦撞死",
+   "卸貨害婦撞亡"
+  ],
+  "forbidden_behavior": [
+   "漏掉主要結果（「堆高機警示」）",
+   "六字短標只因字數被拒"
+  ]
+ },
+ "annotation_status": "已依原始 OCR/ASR 紀錄確認"
+}

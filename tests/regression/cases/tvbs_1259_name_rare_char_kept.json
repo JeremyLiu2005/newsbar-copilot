@@ -1,0 +1,45 @@
+{
+ "case_id": "tvbs_1259_name_rare_char_kept",
+ "task": "ocr_guard",
+ "channel": "tvbs",
+ "broadcast_time": "12:59",
+ "source": {
+  "bar_texts": [
+   "蔡阿嘎前員工蘿拉涉侵占逾2千萬遭起訴"
+  ],
+  "asr_text": "今天一倍性 洗錢等最弦起訴 想要請州給何思宇 YouTuber蔡亚加的前員工羅拉 林佩哲從2018年12月 進入蔡其下公司擔任行銷公關 卻利用接洽業配 掌握廠商報價的植物支便 向公司低報合作金額 再透過AB合約 收取中間價差 超過兩千萬 是令基建數 今天依照被信 洗錢等最弦起訴羅拉 另有無虐零難兩人 因為涉嫌開立不實發票 一定遭到起訴 羅拉將一筆合作 採診兩份合約 不過堅定追查發現 低合約沒有實際交易內容 只是用來收取價差的工具 廠商依照兩份合約 付款 採訪其下公司的合作收入 就留入了另一個戶頭 累積超過兩千萬元 不僅如此 羅拉取得款商後 還涉嫌透過轉賬 提令現金 或利用部分款項 購買金品 再將經歷變賣 換取現金 這次嚴該犯罪手的 來源以去向 洗錢金額 超過一千七百萬 看看苗栗對高級 在路中間 卸貨害的 汽車上學的組織 撞上壓",
+  "start_sec": 3502,
+  "end_sec": 3572,
+  "frame": "data/work_rerun_1122_asr/tvbs/frames/main_bar/03529.jpg",
+  "ocr_variants": [
+   [
+    "蔡阿嘎前員工蘿拉涉侵占逾2千萬遭起訴",
+    65
+   ],
+   [
+    "載孫上學撞堆高機牙叉嬷不治查出他違規",
+    5
+   ]
+  ],
+  "origin": "out/baseline_1801 evidence + data/work_rerun_1122_asr obs.jsonl（segmenter 重放）"
+ },
+ "old_output": {
+  "value": "蔡阿嘎員工",
+  "fallback": null,
+  "reasons": [
+   "未確認語氣"
+  ],
+  "confidence": "low"
+ },
+ "expectation": {
+  "required_meaning": "蔡阿嘎前員工蘿拉侵占遭起訴",
+  "accepted_example": [
+   "蘿拉遭起訴",
+   "蔡阿嘎前員工"
+  ],
+  "forbidden_behavior": [
+   "把人名罕見字（蘿）當錯字改掉"
+  ]
+ },
+ "annotation_status": "已依原始 OCR/ASR 紀錄確認"
+}
