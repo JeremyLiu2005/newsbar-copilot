@@ -3,7 +3,7 @@
 import pytest
 from conftest import FakeGenerator
 
-from newsbar.labeler import LabelSource, label_length, make_label, rule_label, validate
+from newsbar.labeler import LabelRules, LabelSource, label_length, make_label, rule_label, validate
 
 TUCHENG = LabelSource(["新北土城一七旬老翁 轉彎不慎遭貨車輾亡"])
 GAO = LabelSource(["張俊傑「9分鐘偷渡術」曝 高金素梅共諜案起訴求刑14年"])
@@ -31,9 +31,12 @@ def test_length_and_grammar(bad):
     assert validate(bad, TUCHENG) != []
 
 
-def test_label_length_counts_ascii_words_as_one():
-    assert label_length("MUSIC EXPO") == 2
-    assert label_length("Youbike椅太高") == 4
+def test_label_length_counts_every_visible_character():
+    # 三立 11/22：五字標只能 5 個字 — 英數字逐字算，「泰山3100階」是 7 個字
+    assert label_length("MUSIC EXPO") == 9
+    assert label_length("Youbike椅太高") == 10
+    assert label_length("泰山3100階") == 7
+    assert label_length("土城車輾亡") == 5
 
 
 def test_retry_then_accept():
@@ -46,7 +49,7 @@ def test_T15_two_failures_go_to_rule_fallback():
     gen = FakeGenerator("板橋翁輾亡", "老翁被撞死")
     res = make_label(TUCHENG, gen)
     assert res.fallback == "FB-4"
-    assert res.label == "土城輾亡"
+    assert res.label == "土城車輾亡"
     assert validate(res.label, TUCHENG) == []
 
 
@@ -67,7 +70,7 @@ def test_place_only_in_speech_is_not_demanded():
 
 
 def test_stock_slump_is_not_social_news():
-    assert validate("台股崩3737", LabelSource(["史詩崩跌!台股殺3737點台積電聯發科一度跌停"])) == []
+    assert validate("台股殺跌停", LabelSource(["史詩崩跌!台股殺3737點台積電聯發科一度跌停"])) == []
 
 
 # ---- 規則 LBL-4 / TONE-1 不過嚴、LBL-7 規則標籤不斷在字中間 -------------------------------------------
@@ -96,8 +99,8 @@ def test_single_char_hedge_is_flagged_not_rejected():
     src = LabelSource(["蔣辦安心大遊行 傳出沈嗆他知大家不安"])
     assert "TONE-1" in validate("蔣辦大遊行", src)  # 傳出 is a two-character hedge
     src2 = LabelSource(["低溫恐探17度 日系品牌感謝祭"])
-    assert validate("低溫探17度", src2) == []  # a lone 恐 only flags
-    res = make_label(src2, FakeGenerator("低溫探17度"))
+    assert validate("低溫探17", src2) == []  # a lone 恐 only flags
+    res = make_label(src2, FakeGenerator("低溫探17"))
     assert res.fallback is None and "未確認語氣" in res.reasons
 
 
@@ -116,7 +119,8 @@ def test_rule_label_never_reproduces_broken_labels(title, bad):
 
 
 def test_rule_label_examples():
-    assert rule_label(TUCHENG) == "土城輾亡"
-    assert rule_label(LabelSource(["臨停卸貨未警示.也未申請臨時證違規害婦撞亡"])) == "害婦撞亡"
+    assert rule_label(TUCHENG) == "土城車輾亡"
+    assert rule_label(LabelSource(["臨停卸貨未警示.也未申請臨時證違規害婦撞亡"]), LabelRules(min_len=4, max_len=6)) == "害婦撞亡"
+    assert label_length(rule_label(LabelSource(["臨停卸貨未警示.也未申請臨時證違規害婦撞亡"]))) == 5  # 三立 11/22：剛好 5 字
     assert rule_label(LabelSource(["10天內3度同台交鋒江啟臣.何欣純同框並肩聊市政"]))[0] != "1"
     assert rule_label(LabelSource(["大膽!分局前縱火燒警車男搭小黃逃逸"])) == "縱火燒警車"

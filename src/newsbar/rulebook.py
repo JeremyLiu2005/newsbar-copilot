@@ -314,7 +314,7 @@ RULES: list[Rule] = [
     Rule("LBL-5", "label",
          "五字標長度 4 到 5 個字，超過 5 個字一律退件或截短，不會寫進表格；每個中文字算 1 字，每個英文詞（連續英數字）算 1 字（例：MUSIC EXPO 算 2 字）。",
          ("labeler.validate", "labeler.label_length"),
-         (Param("min_len", "最短字數", 4, "字", _dc("labeler", "LabelRules", "min_len")),
+         (Param("min_len", "最短字數", 5, "字", _dc("labeler", "LabelRules", "min_len")),
           Param("max_len", "最長字數", 5, "字", _dc("labeler", "LabelRules", "max_len")))),
     Rule("SRC-2", "label",
          "標籤裡每個中文字都要出現在這則新聞的主標題裡，英文字母與數字組成的詞也一樣（沒讀到標題時才用語音）；只有少數助詞可以額外加：「中了再又仍已遭被將要的與和」。"

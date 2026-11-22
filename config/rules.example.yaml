@@ -28,7 +28,7 @@ labeler:
   generator: rule
   model: qwen2.5:7b-instruct
   allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
-  min_len: 4
+  min_len: 5
   max_len: 5
   retries: 1
   rag:                    # 檢索增強：從 KB 取相似標題的（標題, 五字標）當額外範例；預設關閉
