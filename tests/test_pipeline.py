@@ -50,7 +50,7 @@ def test_T23_ocr_dead_for_the_hour_still_fills_every_decision(template, tmp_path
     assert ws.max_row >= 60
     # EVD-1/EVD-2: one story record per segment, each with boundary evidence; FB-3 ones need review
     stories = [json.loads(line) for line in out.with_suffix(".stories.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert stories and all("boundary_probability" in r and "evidence" in r for r in stories)
+    assert stories and all("reason_codes" in r and "evidence" in r and r["score"] is None for r in stories)
     assert all(r["review_required"] for r in stories if r["type"] == "news")
     assert all(r["end_sec"] > r["start_sec"] for r in stories)
 
@@ -71,3 +71,11 @@ def test_pipeline_writes_sheet_and_evidence(template, tmp_path):
     recs = res["evidence"]
     assert recs[0]["rules_version"] == "0.1"
     assert all(r["items"] for r in recs)
+
+
+def test_TXT10_low_ocr_confidence_title_goes_to_review():
+    from newsbar.pipeline import REASON_OCR, run_channel
+    obs = news(60, 0, "新北土城七旬翁 遭貨車輾亡", "t1") + news(60, 60, "專冢澬金收芋 顧好現金流", "t2", anchor_shot=True, bar_conf=0.3)
+    evs = [e for e in run_channel("tvbs", obs) if e.type.value == "news"]
+    assert REASON_OCR not in evs[0].reasons
+    assert REASON_OCR in evs[-1].reasons and evs[-1].confidence == "low"

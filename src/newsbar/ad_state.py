@@ -24,6 +24,7 @@ class AdParams:
     outage_black_sec: int = 30  # FB-6
     merge_gap_sec: int = 8
     min_break_sec: int = 25  # real breaks run ≥30 s; the 13 s programme intro at 12:00 is not one
+    residual_match_ratio: float = 0.85  # AD-7/AD-8: a re-read title this alike counts as the residual title
     mode: str = "rules"  # "rules" (default) | "learned": a trained per-second probability replaces the signal count
     model: str | None = None  # learned: model file, or "active" (data/models/active.json)
 
@@ -36,6 +37,7 @@ class AdParams:
             return_confirm_sec=r.get("return_confirm_sec", cls.return_confirm_sec),
             return_timeout_sec=r.get("return_timeout_sec", cls.return_timeout_sec),
             outage_black_sec=r.get("outage_black_sec", cls.outage_black_sec),
+            residual_match_ratio=r.get("residual_match_ratio", cls.residual_match_ratio),
             mode=r.get("mode", cls.mode),
             model=r.get("model", cls.model),
         )
@@ -55,6 +57,36 @@ class AdBreak:
 class AdResult:
     states: dict[int, str]
     breaks: list[AdBreak]
+    residual_match_ratio: float = 1.0  # AD-8 in the segmenter uses the same tolerance as AD-7 here
+
+
+def title_like(text: str | None) -> bool:
+    """AD-6: may this reading be a break's residual title? Not a reporter credit (洪儀婷程奕翔,
+    高沛羚郭南宏台北報導, 綜合報導), not ad copy, not noise (00415:361.9). On 11/06 the last reading
+    before 9 of 13 breaks was such a credit, so AD-8 could never recognise the story coming back."""
+    import re
+
+    from .schemas import is_ad_copy
+    from .segmenter import is_credit  # lazy: segmenter imports this module
+
+    if not text or is_ad_copy(text):
+        return False
+    cjk = "".join(re.findall(r"[\u4e00-\u9fff]", text))
+    if len(cjk) < 6 or text.endswith(("報導", "報道")) or is_credit(text):
+        return False
+    return not text.startswith(("主播", "記者"))
+
+
+def same_title(a: str | None, b: str | None, ratio: float = 0.85) -> bool:
+    """AD-7/AD-8: the title read after a break is the residual title, allowing OCR differences of a
+    character or two (the 5-second vote cannot bridge a 2-minute break). ratio 1.0 = exact match."""
+    if a is None or b is None:
+        return False
+    if a == b:
+        return True
+    from difflib import SequenceMatcher
+
+    return ratio < 1.0 and SequenceMatcher(None, a, b, autojunk=False).ratio() >= ratio
 
 
 # 規則 AD-7（條件 1、2）：主畫面版面與標題條底色都恢復，這一秒才算「像新聞」
@@ -62,7 +94,8 @@ def _layout_back(o: SecondObs) -> bool:
     return not o.layout_changed and not o.bar_color_changed
 
 
-def _return_ok(o: SecondObs, residual_bar: str | None, residual_topic: str | None, has_asr: bool = True) -> bool:
+def _return_ok(o: SecondObs, residual_bar: str | None, residual_topic: str | None, has_asr: bool = True,
+               ratio: float = 0.85) -> bool:
     """AD-7 (1)–(4) for one second.
 
     Without any ASR on the channel, (3) cannot be observed; the layout and bar
@@ -77,10 +110,11 @@ def _return_ok(o: SecondObs, residual_bar: str | None, residual_topic: str | Non
     if not speech:
         return False
     # 規則 AD-7（條件 4）：標題條出現與殘留標題不同的新標題，或同一則被語音確認
-    new_text = o.bar_text is not None and o.bar_text != residual_bar
+    same = same_title(o.bar_text, residual_bar, ratio)  # 規則 AD-7：允許 OCR 差一兩個字
+    new_text = o.bar_text is not None and not same
     same_story_confirmed = (
         o.bar_text is not None
-        and o.bar_text == residual_bar
+        and same
         and residual_topic is not None
         and o.topic == residual_topic
     )
@@ -228,7 +262,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                 j += 1
             if entered_at is None:
                 # 規則 AD-OVL：包框廣告外框上的字不能當殘留標題
-                if (last_news is None or o.bar_text is not None) and not o.commercial_overlay:
+                if (last_news is None or o.bar_text is not None) and not o.commercial_overlay and title_like(o.bar_text):
                     last_news = o
                 i = j if j > i else i + 1
                 continue
@@ -248,13 +282,19 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
             while k < n:
                 ok = obs[k]
                 sigs.update(sigs_of(ok))
-                if _layout_back(ok):
+                # 規則 AD-7（條件 5）：同 AD-1，台內跑馬燈和時鐘都在畫面上時，要多一種訊號才算「還是廣告」
+                # （11/06 TVBS 3033 起已回新聞，只剩台標偵測失敗＋聲音指紋誤中新聞聲音，卻又多判了 10 秒廣告）
+                own_overlay = bool(ok.ticker_text) and ok.clock_ok is True
+                need_still = params.min_signals + (TICKER_EXTRA_SIGNALS if own_overlay else 0)
+                still_ad = learned[k] if learned is not None else len(sigs_of(ok)) + ("AD-i" in sigs_of(ok)) >= need_still
+                # 規則 AD-9：逾時從「畫面已經不像廣告」（版面恢復、廣告訊號不到兩種）起算。全螢幕廣告不會讓版面變成
+                # 包框，只看版面的話每段全螢幕廣告一開始就在計時，60 秒就被切斷再重新進廣告（11/06 有 10 段如此）
+                if _layout_back(ok) and not still_ad:
                     layout_back_since = k if layout_back_since is None else layout_back_since
                 else:
                     layout_back_since = None
-                still_ad = learned[k] if learned is not None else len(sigs_of(ok)) + ("AD-i" in sigs_of(ok)) >= params.min_signals
                 # 規則 AD-7：回新聞條件連續成立 5 秒 → 廣告結束
-                if _return_ok(ok, residual_bar, residual_topic, has_asr) and not still_ad:
+                if _return_ok(ok, residual_bar, residual_topic, has_asr, params.residual_match_ratio) and not still_ad:
                     ok_run += 1
                     if ok_run >= params.return_confirm_sec:
                         end = k - params.return_confirm_sec + 1
@@ -286,7 +326,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
             i = end
             last_news = None
             continue
-        if o.bar_text is not None and not o.commercial_overlay:
+        if o.bar_text is not None and not o.commercial_overlay and title_like(o.bar_text):
             last_news = o
         i += 1
     merged: list[AdBreak] = []
@@ -298,6 +338,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                     states[s] = AD
             merged[-1].end = b.end
             merged[-1].signals = sorted(set(merged[-1].signals) | set(b.signals))
+            merged[-1].timed_out = b.timed_out  # how the break really ended is how its last piece ended
         else:
             merged.append(b)
     kept = []
@@ -309,4 +350,4 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                     states[s] = NEWS
         else:
             kept.append(b)
-    return AdResult(states=states, breaks=kept)
+    return AdResult(states=states, breaks=kept, residual_match_ratio=params.residual_match_ratio)

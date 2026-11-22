@@ -25,11 +25,12 @@ from .labeler import LabelSource
 SYSTEM = """你是台灣電視新聞監看員，要替一則新聞寫「五字標」，讓看監看表的人認得是哪則新聞。
 規則：
 1. 剛好 5 個字，不能多也不能少（英文專有名詞算一個字），只輸出五字標本身，不要解釋、不要標點、不要引號。
-2. 只能用主標題裡出現過的字（人名、地名、事物、動作、數字）；不得補造，也不要用標題以外的地名。
+2. 只能用主標題裡出現過的字（人名、地名、事物、動作、數字）；不得補造，也不要用標題以外的地名。一律照主標題的繁體原字，不可寫成簡體字（員不是员、風不是风）。
 3. 社會事件（車禍、命案、竊盜、火警等）一定要含地點，地點必須出現在來源中，優先用較小的地名（例：新北土城→土城）。
 4. 來源只說「起訴」「求刑」「疑似」時，不得寫成「判刑」「確定」等定論；來源有「疑」「疑似」「傳出」「恐」「涉嫌」「涉」「據傳」「爆料」這類未確認的說法，五字標要保留其中一個字（例：疑縱火、傳出離婚），不能寫成肯定句。
 5. 人名可以只取名字（張俊傑→俊傑），機構可用常見簡稱。
-6. 先數字數：超過 5 個字就刪修飾語（時間、程度、「不慎」「怒批」等），只留「地點＋核心動作＋結果」；少於 5 個字就補上地點或結果。"""
+6. 先數字數：超過 5 個字就刪修飾語（時間、程度、「不慎」「怒批」等），只留「地點＋核心動作＋結果」；少於 5 個字就補上地點或結果。
+7. 詞不可從中間切斷：「操場」不能只寫「操」，「元凶」不能只寫「元」；數字和單位一起用或都不用（「60萬人」不能只寫「萬」）。"""
 
 FEW_SHOT = [
     ("新北土城一七旬老翁 轉彎不慎遭貨車輾亡", "土城翁輾亡"),
@@ -38,7 +39,7 @@ FEW_SHOT = [
     ("萬聖節派對後垃圾亂丟 民眾怒批", "萬聖節亂丟"),
     ("台中潭子男子酒駕撞護欄 闖紅燈遭攔查", "潭子酒駕撞"),
 ]
-PROMPT_VERSION = "v6-exact5-fb"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
+PROMPT_VERSION = "v7-trad-words"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
 PROMPT_VERSION_RAG = "v4-rag"  # used only while retrieval is on; with it off the v3 prompt and cache keys are unchanged
 
 # 規則 NFR-14：外部 AI 最多只送 200 字語音節錄
@@ -174,10 +175,11 @@ class GuardedGenerator:
     raises at once instead of waiting for its own timeout, so ~100 cells do not cost ~100 minutes
     of 60 s timeouts. One success resets the count. The labeler catches the error per cell."""
 
-    def __init__(self, inner, max_failures: int = 3):
-        self.inner, self.max_failures = inner, max_failures
+    def __init__(self, inner, max_failures: int = 3, cooldown_sec: float = 30.0, clock=time.monotonic):
+        self.inner, self.max_failures, self.cooldown_sec, self.clock = inner, max_failures, cooldown_sec, clock
         self.model = getattr(inner, "model", "")
         self._fails = 0
+        self._tripped_at: float | None = None
         self._lock = threading.Lock()
 
     def rag_context(self, source: LabelSource):
@@ -189,17 +191,25 @@ class GuardedGenerator:
         return self._fails >= self.max_failures
 
     def generate(self, source: LabelSource, attempt: int) -> str:
-        # 規則 R20-2：連續失敗 3 次後，不再等待逾時，直接丟錯讓標籤改用規則備援
-        if self.tripped:
-            raise LLMError("AI 服務連續無回應，本次不再重試")
+        # 規則 R20-2：連續失敗 3 次後，不再等待逾時，直接丟錯讓標籤改用規則備援；
+        # 但每隔 30 秒放一個請求去試（服務恢復或模型載入完成就自動接回），不會整次執行都放棄
+        with self._lock:
+            if self.tripped:
+                now = self.clock()
+                if self._tripped_at is not None and now - self._tripped_at < self.cooldown_sec:
+                    raise LLMError("AI 服務連續無回應，稍後再試")
+                self._tripped_at = now  # this call is the probe; others keep failing fast meanwhile
         try:
             out = self.inner.generate(source, attempt)
         except Exception:
             with self._lock:
                 self._fails += 1
+                if self.tripped and self._tripped_at is None:
+                    self._tripped_at = self.clock()
             raise
         with self._lock:
             self._fails = 0
+            self._tripped_at = None
         return out
 
 
@@ -209,6 +219,29 @@ class UnavailableGenerator:
 
     def generate(self, source: LabelSource, attempt: int) -> str:
         raise LLMError("Ollama 未啟動")
+
+
+def warm_up(gen, timeout: float = 300.0, say=print) -> bool:
+    """Load the model before labeling (R20-2). A cold Ollama needs tens of seconds to load a 7B
+    model; with four channels asking at once the first requests time out and used to trip the
+    breaker for a whole channel (11/22 rerun: TVBS 21 cells 「AI 服務無回應」). One tiny request
+    with a long timeout loads it; False = the service answers /api/tags but cannot generate."""
+    host, model = getattr(gen, "host", None), getattr(gen, "model", None)
+    if not host or not model:
+        return True
+    body = json.dumps({"model": model, "messages": [{"role": "user", "content": "好"}], "stream": False,
+                       "options": {"num_predict": 1}}).encode()
+    req = urllib.request.Request(f"{host}/api/chat", data=body, headers={"Content-Type": "application/json"})
+    t0 = time.monotonic()
+    try:
+        with getattr(gen, "opener", urllib.request.urlopen)(req, timeout=timeout) as r:
+            json.loads(r.read().decode())
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        say(f"⚠ 模型 {model} 無法載入（{type(e).__name__}: {e}）；五字標改用規則擷取，並標為低信心")
+        return False
+    if time.monotonic() - t0 > 5:
+        say(f"模型 {model} 已載入（{time.monotonic() - t0:.0f} 秒）")
+    return True
 
 
 def ollama_up(host: str, timeout: float = 2.0, opener=urllib.request.urlopen) -> bool:

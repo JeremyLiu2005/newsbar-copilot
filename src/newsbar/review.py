@@ -63,10 +63,11 @@ def render(evidence: list[dict], channel_names: dict[str, str], out: Path,
     <span class="val">{e(r['value'])}</span></header>
   {_img(it.get('frame'), inline_images)}
   <p class="src">bar：{e(it.get('bar_text') or '—')}<br>語音：{e((it.get('asr_text') or '—')[:120])}</p>
-  <p class="sig">依據：{e(' '.join(r['signals']) or '—')}｜信心：{e(r['confidence'])}｜fallback：{e(r['fallback'] or '—')}{('｜原因：' + e('；'.join(r['reasons']))) if r.get('reasons') else ''}</p>
+  <p class="sig">依據：{e(' '.join(r['signals']) or '—')}｜信心：{e(r['confidence'])}｜fallback：{e(r['fallback'] or '—')}｜狀態：{e({'REVIEW_REQUIRED': '需複查', 'AUTO_ACCEPTED': '自動通過', 'HUMAN_APPROVED': '已確認', 'REJECTED': '已退回'}.get((r.get('quality') or {}).get('status'), '—'))}{('｜原因：' + e('；'.join(r['reasons']))) if r.get('reasons') else ''}</p>
   <div class="act">
     <label><input type="radio" name="v{i}" value="ok"> 對</label>
-    <label><input type="radio" name="v{i}" value="fix"> 錯，改成 <input class="fix" placeholder="正確寫法"></label>
+    <label><input type="radio" name="v{i}" value="reject"> 不可用</label>
+<label><input type="radio" name="v{i}" value="fix"> 錯，改成 <input class="fix" placeholder="正確寫法"></label>
     <select class="etype"><option value="">錯誤類型</option>{opts}</select>
   </div>
 </article>""")
@@ -125,6 +126,36 @@ def apply_corrections(cells: dict[str, dict[str, str]], corrections: list[dict])
         if c.get("verdict") == "fix" and c.get("correct") is not None:
             fixed.setdefault(c["channel"], {})[c["minute"]] = c["correct"]
     return fixed
+
+
+def apply_review(records: list[dict], corrections: list[dict]) -> dict:
+    """QA-1: a reviewer's verdicts become the cells' quality status — 對 → HUMAN_APPROVED,
+    改成 X → HUMAN_APPROVED with corrected_value X, 不可用 → REJECTED — with reviewer and time.
+    Records are updated in place (callers pass a copy); returns counts for the summary."""
+    from .evidence import HUMAN_APPROVED, REJECTED, REVIEW_REQUIRED
+
+    by_key = {(c["channel"], c["minute"]): c for c in corrections}
+    counts = {"approved": 0, "corrected": 0, "rejected": 0, "still_pending": 0}
+    for r in records:
+        q = r.setdefault("quality", {"status": REVIEW_REQUIRED, "reason_codes": [], "reasons": []})
+        c = by_key.get((r["channel"], r["minute"]))
+        if c:
+            verdict = c.get("verdict")
+            q["reviewer"], q["reviewed_at"] = c.get("reviewer"), c.get("reviewed_at")
+            if c.get("error_type"):
+                q["error_type"] = c["error_type"]
+            if verdict == "reject":
+                q["status"] = REJECTED
+                counts["rejected"] += 1
+            elif verdict == "fix" and c.get("correct"):
+                q["status"], q["corrected_value"] = HUMAN_APPROVED, c["correct"]
+                counts["corrected"] += 1
+            elif verdict == "ok":
+                q["status"] = HUMAN_APPROVED
+                counts["approved"] += 1
+        if q.get("status") == REVIEW_REQUIRED:
+            counts["still_pending"] += 1
+    return counts
 
 
 def load_corrections(path: Path) -> list[dict]:

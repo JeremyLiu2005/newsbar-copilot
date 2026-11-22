@@ -65,18 +65,36 @@ flowchart LR
         OPT[選配・預設關閉<br/>RAG kb／ML ml]
         XC[cross_channel<br/>跨台同事件統一命名]
         MN[minute_mapper<br/>秒轉分鐘格]
+        EV[evidence＋delivery<br/>每格依據・品質狀態・交付檢查]
         W[excel_writer<br/>寫回範本]
+    end
+
+    subgraph R[人工複查]
+        RV[review.html<br/>只看「需複查」的格子＋標題截圖]
+        CO[apply-corrections<br/>另存修正版，原始結果不動]
     end
 
     V --> I
     C --> I
-    SG --> LB --> XC --> MN --> W
+    SG --> LB --> XC --> MN --> EV --> W
     OPT -.->|啟用才參與| SG
     OPT -.->|啟用才參與| LB
     T --> W
-    W --> OUT1[12監看_填寫結果.xlsx]
-    MN --> OUT2[run_report.csv<br/>依據・信心・異常]
+    W --> OUT1[12監看_日期.xlsx<br/>交付檔，零黃底]
+    EV --> OUT2[evidence.jsonl・stories.jsonl<br/>report.csv 複查清單<br/>manifest.json 版本紀錄]
+    OUT2 --> RV --> CO --> OUT3[12監看_日期.修正版.xlsx]
 ```
+
+**一次執行的完整流程**（`newsbar run`）：
+
+1. 讀影片、對畫面時鐘校時；四台平行（語音在 Mac 上一次一台）。
+2. 擷取文字、語音、聲音指紋、版面；結果存成 `obs.jsonl`，旁邊的 `obs.meta.json` 記下影片指紋與擷取設定。`--resume` 只在這些都沒變時沿用（RUN-1）。
+3. 判廣告、判換題（見 §4.6、§4.7），每個換題點附理由代碼與證據。
+4. 寫五字標：AI 先寫、逐條檢查；只差字數或寫成簡體字就直接修正（LBL-10）；仍不過就重試一次，最後才用規則擷取（FB-4）。
+5. 秒轉分鐘格，每一格產生依據與品質狀態：自動通過或需複查（QA-1）。
+6. 交付檢查（QA-2）：範圍、每台第一格、字數、依據齊全、待複查幾格 → 「可直接交付／可交付但含待複查項目／不完整」。
+7. 寫回 Excel（交付檔零黃底；`--review-copy` 另存標黃的複查版），並寫處理報告與版本紀錄 `manifest.json`（RUN-2）。
+8. **人工複查**：監看員開 `review.html`，只看「需複查」的格子（備援標籤、低信心、換題沒有佐證、短播報、包框文字），對照標題截圖與時間點，每格選「對／錯，改成…／不可用」，匯出 `corrections.json`，用 `newsbar apply-corrections` 另存修正版 Excel 與修正版依據檔：「對」→ HUMAN_APPROVED、「改成」→ HUMAN_APPROVED 並記下修正值、「不可用」→ REJECTED，連同複查人與時間。終端機印出確認／修正／退回／仍待複查各幾格。原始結果與依據檔不會被覆寫。
 
 ### 3.1 需求對應
 
@@ -122,6 +140,14 @@ flowchart LR
 - **5 秒滑動窗口多數決**：同一個 bar 在 5 秒內取出現最多次的讀法，抵銷單張辨識錯誤（Third Eye 原始 OCR 錯誤率高的教訓）。
 - 跑馬燈防呆：若 ROI 內文字逐秒水平位移，判定為跑馬燈，整段丟棄並告警「ROI 可能設錯」。
 - 輸出 `ocr/{channel}.jsonl`：`{sec, text, conf, votes}`
+
+**讀錯字的處理（11/22 實測）：**
+
+- 標題中位數信心 0.4 以下的一則，列入複查，理由「標題可能讀錯」（TXT-10）。Apple Vision 的繁中信心只有 0.3／0.5／1.0 三級：0.5 是多數台的正常值，分不出好壞；0.3 幾乎都是讀壞的（專冢澬金收芋、競緦 挨 蟲 沒磑貌、昔曰龍頭）。
+- 試過、沒有採用：
+  - **自訂詞（customWords）**：把詞庫和正確詞（促銷、拒檢、摜破、昔日）餵給 Vision，讀錯的那幾格結果完全不變；Vision 對繁中也只給一個候選讀法，沒有備選可挑。
+  - **用語音自動改錯字**：真正讀錯的 4 個詞裡，只有「偷瀆→偷渡」在附近的語音裡聽得到正確詞；其餘標題出現時記者在講別的、語音本身也有錯。同一套規則卻產生 208 個錯誤修改（例：台達電→台積電）。語音辨識錯的是同音字、文字辨識錯的是形近字，不能拿一個去改另一個。
+- 之後的方向：複查時記錄「錯誤類型＝文字辨識錯字」與正確寫法，累積成本台常見的形近字對照表；資料夠了再考慮微調 PaddleOCR。
 
 ### 4.3 asr：語音轉錄
 
@@ -198,13 +224,15 @@ stateDiagram-v2
          │
          ▼
 佐證：NEW-2a 前後 20 秒語音主題不同；NEW-2b 前後 5 秒切回主播台；NEW-2d 名條預告
+      NEW-2e 之後 30 秒的語音講的是新標題的詞，舊標題的詞已聽不到
       NEW-2c 講話的人換了，只記錄、不單獨算數
          │
          ▼
 有語音但沒有任何佐證 → 留在同一則（SAME-6）；沒有語音又沒佐證 → 換題但低信心（FB-1）
          │
          ▼
-後處理：180 秒內標題回來 → 中間段落併回同一則（SAME-8）
+後處理：180 秒內標題回來（相似度 0.8 或共有 2 組兩字詞）→ 中間段落併回同一則（SAME-8）
+        只靠語音佐證、不到 15 秒的「新聞」→ 是前一則的收尾，併回（SAME-9）
         廣告前不到 20 秒的「新聞」併入廣告（NEW-3），完整的短播報除外（BRIEF-1）
         廣告後回來：殘留標題＋同語音主題 → 沿用原則（AD-8）；逾時 → 靠語音命名（AD-9）
 ```
@@ -220,9 +248,11 @@ stateDiagram-v2
 | 沒進完整專題的短播報 | 一般情況照常算一則；廣告前不到 20 秒時，符合 BRIEF-1（穩定新標題＋至少一項佐證＋有新聞語音、語音主題沒延續進廣告、和前 180 秒的新聞沒有共同詞、標題不是廣告文案）就保留，並一律送複查 |
 | 廣告包框 | 狀態機判廣告（AD-1、AD-a/i）；確認前的過渡秒數由 AD-OVL 擋掉外框文字；回新聞時重新判斷是同一則回來（AD-8）還是下一則 |
 
-每個段落另外輸出換題證據（EVD-1、EVD-2）：`boundary_probability`、`evidence`（標題換新、語音主題換了、切回主播台、換人講話、名條預告、和前一則標題相似度、是否在廣告後、是否 SAME-8 合併、是否短播報、包框文字秒數）與 `review_required`。規則模式的機率是佐證累加的排序分數（只有新標題 0.55，語音主題 +0.2，主播台 +0.15，名條 +0.15，上限 0.95），規則本身仍用佐證「有沒有」做決定；學習模式改用模型機率。機率低於 0.7、低信心、備援、短播報或出現過包框文字的段落標成需複查。
+每個段落另外輸出換題證據（EVD-1、EVD-2）：理由代碼 `reason_codes`（HEADLINE_CHANGED、TOPIC_SHIFT、ANCHOR_SHOT、SPEECH_FOLLOWS_HEADLINE…）、`evidence`（標題換新、語音主題換了、切回主播台、換人講話、名條預告、語音跟著新標題、和前一則標題相似度、是否在廣告後、是否合併、是否短播報、包框文字秒數）與 `review_required`。規則模式**不給分數**：沒有用獨立資料校準過的數字不當機率用；學習模式才附模型原始分數，標明 `learned_model_uncalibrated`。低信心、備援、只有標題換了而沒有佐證、短播報或出現過包框文字的段落標成需複查。
 
-輸出 `out/12監看_{date}.stories.jsonl`，一個段落一行：`{channel, story_id, type, label, start_sec, end_sec, bar_text, confidence, fallback, boundary_probability, boundary_kind, evidence, review_required, signals}`。
+為什麼要 NEW-2e：語音主題編號幾乎每句話都換（11/06 民視 40 秒內 t347→t353），前後 20 秒很少完全不同，NEW-2a 常常抓不到，SAME-6 就把真的換題吞掉（民視巴拉圭總統→幼兒園過馬路→涼圓店被併成一則）。比對「新標題的詞有沒有出現在接下來的語音」比較可靠。
+
+輸出 `out/12監看_{date}.stories.jsonl`，一個段落一行：`{run_id, channel, story_id, type, label, start_sec, end_sec, bar_text, confidence, fallback, boundary_kind, score, score_source, reason_codes, evidence, review_required, signals}`。
 
 門檻放在規則設定檔（`config/rules.*.yaml`，範本為 `rules.example.yaml`；`config/rules.yaml` 為本機自建、已 gitignore）。程式實際讀的 segmenter 鍵是 `stable_sec`、`credit_max_sec`、`credit_window_sec`、`asr_veto`、`asr_window_sec`、`visual_window_sec`、`mode`、`model`；範本裡的 `bar_change_jaccard`、`same_story_cosine`、`weights`、`threshold` 是早期加權融合設計留下的，程式沒有讀。調參用 12:00–12:20，測試用 12:20–13:00；12:20–13:00 並非獨立保留集，部分門檻參考過 11/06 資料。
 
@@ -230,12 +260,12 @@ stateDiagram-v2
 
 以下是「新聞故事單元分割」完整做法中，目前程式還沒有的部分，依優先順序：
 
-1. **語意與實體連續性**：現在同則判斷只看標題共有詞（SAME-3）和語音主題編號（NEW-2a）。下一步加句向量相似度與人名、地名、機構重疊，讓「主播稿頭接 SOT」在標題完全換字時也能合併。
+1. **語意與實體連續性**：現在同則判斷看標題共有詞（SAME-3、SAME-8）、語音主題編號（NEW-2a）和「語音是否跟著新標題」（NEW-2e）。下一步加句向量相似度與人名、地名、機構重疊。已知限制：語音辨識把專有名詞聽錯時（「河口湖」→「核口糊」）NEW-2e 抓不到；共有「起火」這類詞的兩則火災新聞會被 SAME-3 併成一則。
 2. **子段類型分類**：在每則新聞內標出主播稿頭、SOT、Live、假連線、說新聞、記者補充。需要人臉／說話人辨識（現在只有音高跳動的簡易版）與棚內／外景版面分類。這不影響五字標，但可以支援更細的監看。
 3. **序列修正**：現在是單次規則掃描加後處理（SAME-8、NEW-3、AD-10、AD-11）。可以改成 HMM、CRF 或動態規劃，把整小時當一條狀態序列一起解。
 4. **背板 OCR**：無標題條的稿頭時，讀主播背板上的字當佐證。
 5. **標註集**：上面幾項都需要三立實際播出的雙人標註資料（故事 ID、起訖、子段類型、難例標籤），並保留一組不參與調參的盲測集。現在只有 TVBS 一小時的研究者初標。
-6. **評估指標**：見 §9。還沒有秒級邊界誤差、廣告誤入新聞率、子段分類 F1、複查比例。
+6. **評估指標**：秒級邊界、切太碎／併太多、廣告誤入秒數已有（EVAL-2，見 §9）；子段分類 F1、複查後修正率還沒有。
 
 ### 4.8 labeler：五字標產生器
 
@@ -289,9 +319,21 @@ flowchart LR
   "confidence": "high",
   "fallback": null,
   "reasons": [],
-  "rules_version": "0.1"
+  "rules_version": "0.1",
+  "run_id": "run_20261122_173212",
+  "quality": {"status": "AUTO_ACCEPTED", "reason_codes": ["BACK_FROM_BREAK"], "reasons": [],
+              "reviewer": null, "reviewed_at": null, "corrected_value": null}
 }
 ```
+
+`quality.status`（QA-1）：AUTO_ACCEPTED 自動通過、REVIEW_REQUIRED 需複查、HUMAN_APPROVED 人工確認、REJECTED 人工退回。複查版的黃底由它產生，顏色不是唯一紀錄。執行狀態另記在處理報告 `execution_status`（每台 SUCCEEDED／FAILED），兩者不混用。
+
+### 4.13 delivery 與 runinfo：交付檢查與版本紀錄
+
+- `delivery.validate_delivery`（QA-2）：寫 Excel 前檢查範圍、每台第一格、字數、每格有依據、待複查數，結果是 READY／READY_WITH_REVIEW／INCOMPLETE，寫在 `report.json` 的 `delivery` 並印在終端機。只說明，不擋寫入。11/22 實測它抓到一次平行命名時整台失敗（系統斷詞元件在多執行緒下出錯，已修）。
+- `runinfo`（RUN-1、RUN-2）：每次執行寫 `<out>.manifest.json`：執行編號、git commit（含是否有未提交修改）、設定檔雜湊、影片與範本指紋（大小＋頭尾各 4 MB 雜湊）、OCR／語音／AI 模型、哪幾台沿用或重新擷取。每格依據與每則新聞都帶 `run_id`。
+- 各步驟狀態（RUN-3）：每台擷取記下裁切、文字辨識、畫面、語音各自成功／失敗／略過（`stages.json`，也寫進報告與版本紀錄）。語音轉錄失敗回報「失敗」而不是「沒人講話」，下次續跑不沿用；整台失敗的原因分 INPUT／TRANSIENT／BUG。
+- 五字標斷詞（LBL-9）：`words.py` 在 Mac 上用系統內建的繁體中文斷詞（CoreFoundation／ICU），加 jieba 詞典；其他系統只用 jieba。不新增套件。
 
 存成 `out/12監看_{date}.evidence.jsonl`；`report.csv` 是它的扁平版（複查清單）。以段落為單位的換題證據另存 `stories.jsonl`（見 §4.7）。
 
@@ -394,7 +436,9 @@ newsbar-copilot/
 - 標準答案：兩人依判準手冊獨立標註，Cohen's κ ≥0.8，分歧由第三人裁決。（目標做法；目前只有單人暫定標準答案，雙人標註與 κ 尚未完成，見 §12。）
 - 對照組：(a) 只看 bar 文字變化的單訊號基線；(b) 本系統。
 - `newsbar eval` 一次跑完所有指標並輸出錯誤歸類（漏換題、過度換題、包框誤判、捏造…）。
-- 尚未實作、有正式標註後要補的分層指標：秒級邊界誤差、同則正確合併率與跨則誤合併率、廣告內容誤入新聞率、子段類型（稿頭／SOT／Live／假連線／說新聞／廣告）各自的 F1、需複查比例（`stories.jsonl` 的 `review_required`）與複查後修正率，以及各台、各時段、各主播的表現差異。
+- 秒級指標（EVAL-2，已實作）：`newsbar eval --stories <out>.stories.jsonl --annotation <標註.json>` 另算 ±30 秒換題 P／R／F1 與時間差、切太碎、併太多、廣告誤入新聞秒數、新聞誤判廣告秒數。標準答案匯入要加 `--rules`，用和系統相同的分鐘寫法（EVAL-1）；只評估有標註的台。
+- 難例子集（EVAL-3，已實作）：標註項目加 `tags`（無標題稿頭、外場先開場、人臉切換、短播報、廣告包框），評估另外列出每一類的換題找到率與廣告誤入秒數。目前的初標還沒有加標籤。
+- 尚未實作：子段類型（稿頭／SOT／Live／假連線／說新聞）各自的 F1、各台各時段各主播的差異。複查後修正率可由修正版依據檔的 quality 統計。
 
 ## 10. 部署
 

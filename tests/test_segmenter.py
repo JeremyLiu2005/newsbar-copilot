@@ -211,7 +211,8 @@ def test_EVD1_every_segment_carries_boundary_evidence_and_end():
     assert len(segs) == 2
     b = segs[1].boundary
     assert b["evidence"]["title_change"] and b["evidence"]["topic_shift"] and b["evidence"]["anchor_shot"]
-    assert b["boundary_probability"] == 0.9 and not b["review_required"]
+    assert b["score"] is None and b["score_source"] is None  # EVD-1: no made-up probability under the rules
+    assert {"HEADLINE_CHANGED", "TOPIC_SHIFT", "ANCHOR_SHOT"} <= set(b["reason_codes"]) and not b["review_required"]
     assert segs[0].end == 40 and segs[1].end == 80
 
 
@@ -219,4 +220,36 @@ def test_EVD2_title_only_change_is_flagged_for_review():
     obs = news(40, 0, "新北土城七旬翁 遭貨車輾亡", "t1", asr=None)
     obs += news(40, 40, "史詩崩跌台股殺3737點台積電一度跌停", "t1", asr=None)
     segs = segs_of(obs)
-    assert segs[-1].boundary["boundary_probability"] == 0.55 and segs[-1].boundary["review_required"]
+    b = segs[-1].boundary
+    assert "TITLE_ONLY" in b["reason_codes"] and b["review_required"]
+
+
+def test_NEW2e_speech_repeating_the_new_title_splits_a_story():
+    """11/06 FTV: 巴拉圭 → 幼兒園過馬路 had no topic gap, no anchor shot, no credit (SAME-6 merged them);
+    the reporter's words after the new title are the new title's words."""
+    a = "友邦巴拉圭總統辭職後遭彈劾"
+    b = "老師自己走自己的?過馬路孩童跟不上慘摔"
+    obs = news(60, 0, a, "t1", asr="巴拉圭總統宣布辭職 銀行倒閉")
+    obs += news(40, 60, b, "t1", asr="小朋友過馬路 老師走在最前頭 孩童跟不上")
+    segs = segs_of(obs)
+    assert [s.bar_texts[0] for s in segs] == [a, b]
+    assert "NEW-2e" in segs[1].signals and segs[1].boundary["evidence"]["speech_follows_title"]
+
+
+def test_NEW2e_does_not_split_when_speech_stays_on_the_story():
+    a = "友邦巴拉圭總統辭職後遭彈劾"
+    b = "存款領不回來民眾示威抗議"
+    obs = news(60, 0, a, "t1", asr="巴拉圭總統宣布辭職 銀行倒閉")
+    obs += news(40, 60, b, "t1", asr="巴拉圭總統辭職 民眾示威 存款領不回來")
+    assert len(segs_of(obs)) == 1
+
+
+def test_SAME9_short_speech_only_story_is_a_tail():
+    a = "河口湖主嫌心機重高薪徵助理"
+    tail = "憂有其他受害者檢警清查交往關係"
+    c = "高金素梅共諜案起訴 求刑14年"
+    obs = news(60, 0, a, "t1", asr="主嫌徵求助理")
+    obs += news(10, 60, tail, "t1", asr="就怕還有其他受害者 擴大清查交往關係")
+    obs += news(40, 70, c, "t2", asr="高金素梅共諜案起訴", anchor_shot=True)
+    segs = segs_of(obs)
+    assert [s.bar_texts[0] for s in segs] == [a, c] and "SAME-9" in segs[0].signals

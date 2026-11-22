@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from . import lexicon
+from . import words as wordseg
 
 # Characters a label may add that are not content (aspect/voice particles).
 FUNCTION_CHARS = set("中了再又仍已遭被將要的與和")
@@ -104,7 +105,7 @@ def _visible(text: str) -> str:
 def pad_to_min(label: str, source: "LabelSource", rules: "LabelRules") -> str:
     """LBL-5 exact length: a fallback label shorter than min_len is replaced by an exact-length
     window of the title. Every window is scored by fuzzy overlap with the short label (keeps
-    its focus), word boundaries at both ends (jieba), places / event words, and penalised for a
+    its focus), word boundaries at both ends (words.boundaries), places / event words, and penalised for a
     dangling connector or ASCII characters; every character still comes from the source (SRC-2)."""
     if label_length(label) >= rules.min_len:
         return label
@@ -112,16 +113,7 @@ def pad_to_min(label: str, source: "LabelSource", rules: "LabelRules") -> str:
     need = rules.min_len
     if len(title) < need:
         return label
-    try:
-        import jieba  # noqa: PLC0415
-
-        jieba.setLogLevel(60)
-        bounds, pos = {0}, 0
-        for t in jieba.cut(title):
-            pos += len(t)
-            bounds.add(pos)
-    except Exception:  # noqa: BLE001
-        bounds = set(range(len(title) + 1))
+    bounds = wordseg.boundaries(title)  # LBL-9: prefer windows that start and end on word boundaries
     lex = lexicon.get()
     core = set(_visible(label))
     best, best_score = None, None
@@ -151,7 +143,102 @@ def feedback_for(cand: str, source: "LabelSource", errs: list[str], rules: "Labe
         parts.append("社會新聞要含主標題裡的地點")
     if "TONE-1" in errs:
         parts.append("要保留主標題裡「疑似、涉嫌、傳出」這類未確認的字")
+    if "LBL-9" in errs:
+        cut = cut_words(cand, source)
+        if cut:
+            parts.append("不要把詞切斷：" + "、".join(f"「{w}」" for w in cut) + " 要整個用或整個不用")
+        orphan = orphan_units(cand, source)
+        if orphan:
+            parts.append("數字和單位要一起用或都不用：" + "、".join(f"「{w}」" for w in orphan))
     return "；".join(parts)
+
+
+def cut_words(label: str, source: "LabelSource") -> list[str]:
+    """LBL-9: the title words that the label cuts in half at its start or its end.
+
+    Only the label's longest prefix and longest suffix that occur verbatim in a title are checked
+    (≥2 characters each); a label assembled from separate pieces of the title is fine as long as
+    its two ends sit on word boundaries (毒駕拒檢逃 ok; 規害婦撞亡 cuts 違規, 美股重挫元 cuts 元凶)."""
+    out: list[str] = []
+    for title in source.bar_texts:
+        cuts: list[str] = []
+        found = False
+        for k in range(len(label), 1, -1):  # longest prefix found in the title
+            pos = title.find(label[:k])
+            if pos >= 0:
+                found = True
+                # the label's own first two characters being a word (起訴) overrides a doubtful split
+                if pos not in wordseg.boundaries(title) and (wordseg.strong_word_at(title, pos)
+                                                             or not wordseg.is_word(label[:2])):
+                    cuts.append(_word_at(title, pos))
+                break
+        for k in range(len(label), 1, -1):  # longest suffix found in the title
+            piece = label[-k:]
+            pos = title.find(piece)
+            if pos >= 0:
+                found = True
+                end = pos + len(piece)
+                if end not in wordseg.boundaries(title) and (wordseg.strong_word_at(title, end)
+                                                             or not wordseg.is_word(label[-2:])):
+                    cuts.append(_word_at(title, end - 1))
+                break
+        if found and not cuts:
+            return []  # one of the story's titles holds the label cleanly: that is enough
+        out += cuts
+    return list(dict.fromkeys(w for w in out if w))
+
+
+_NUM_UNIT = re.compile(r"([0-9０-９]+)多?([萬億千百元人歲度點倍成年天週月名件公噸分號樓次輛家個票席])")
+
+
+def orphan_units(label: str, source: "LabelSource") -> list[str]:
+    """LBL-9: a counting word kept without its number (串聯60萬人 → 「串聯萬」, 交還7號球衣 → 「號球衣退出」).
+    A number kept without its unit at the label's end is allowed (低溫探17, handbook example)."""
+    out = []
+    for title in source.bar_texts:
+        for m in _NUM_UNIT.finditer(title):
+            num, unit, whole = m.group(1), m.group(2), m.group(0)
+            if whole in label or (num + unit) in label:
+                continue
+            i = label.find(unit)
+            # the unit character may still belong to another word of the title (萬華, 號召): look for the
+            # label's two-character windows around it in the title with this number taken out
+            ctx = [label[k:k + 2] for k in (i - 1, i) if i >= 0 and 0 <= k and k + 2 <= len(label)]
+            unit_alone = i >= 0 and num not in label and not any(
+                c in t.replace(whole, "|") for c in ctx for t in source.bar_texts)
+            if unit_alone:
+                out.append(whole)
+    return list(dict.fromkeys(out))
+
+
+def best_window(label: str, source: "LabelSource", rules: "LabelRules") -> str:
+    """LBL-9 last resort for the rule fallback: the exact-length window of a title that starts and
+    ends on word boundaries, scored like pad_to_min (overlap with the rule label, places, event
+    words, no connector at either end). Returns `label` unchanged when no aligned window exists."""
+    need = rules.min_len
+    lex = lexicon.get()
+    core = set(_visible(label))
+    best, best_score = None, None
+    for raw in source.bar_texts:
+        title = _visible(strip_lead_fragment(raw, rules))
+        bs = sorted(wordseg.boundaries(title))
+        for st, en in ((x, y) for x in bs for y in bs if y > x):
+            w = title[st:en]
+            if label_length(w) != need:
+                continue
+            score = 1.5 * sum(ch in core for ch in w) - 0.2 * st  # earlier = closer to the headline's subject
+            score += 2 if (lex.places_in(w) or any(k in w for k in lex.social_keywords)) else 0
+            score -= 3 * (_bad_end(w[-1]) or _bad_start(w[0])) + 2 * any(ch.isascii() for ch in w)
+            if best_score is None or score > best_score:
+                best, best_score = w, score
+    return best or label
+
+
+def _word_at(text: str, i: int) -> str:
+    for s, e in wordseg.tokens(text):
+        if s <= i < e:
+            return text[s:e]
+    return ""
 
 
 def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) -> list[str]:
@@ -189,6 +276,9 @@ def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) 
         src_places = places_in(basis)
         if src_places and not any(label_has_place(p, label) for p in src_places):
             errors.append("LBL-4")
+    # 規則 LBL-9：標籤的頭尾不可把主標題裡的詞切斷（違規→「規害…」、元凶→「…元」）
+    if source.bar_texts and (cut_words(label, source) or orphan_units(label, source)):
+        errors.append("LBL-9")
     # TONE-1 (R10): a hedged claim (疑似, 傳出, 恐將, 涉嫌 …) must stay hedged in the label.
     lex = lexicon.get()
     # 規則 TONE-1：只在來源有兩字以上的未確認詞、標籤把它拿掉時退件；單字只列入抽查（review_reasons）
@@ -407,7 +497,13 @@ def rule_label(source: LabelSource, rules: LabelRules = LabelRules()) -> str:
         cjk = "".join(_CJK.findall(clean))
         cand = (cjk or clean)[: rules.max_len] or "新聞"
     # 規則 TONE-1、LBL-7：保留兩字以上的未確認詞，且結尾不可是連接詞或單獨數字
-    return _tidy(_tone_fit(_tidy(cand, rules), clean, place, rules), rules)
+    out = _tidy(_tone_fit(_tidy(cand, rules), clean, place, rules), rules)
+    # 規則 LBL-9：頭尾切到詞 → 改取主標題裡頭尾都落在詞界的字（找不到就保留，照常抽查）
+    if source.bar_texts and (cut_words(out, source) or orphan_units(out, source)):
+        win = best_window(out, source, rules)
+        if not (cut_words(win, source) or orphan_units(win, source)):
+            out = win
+    return out
 
 
 @dataclass
@@ -440,6 +536,87 @@ def review_reasons(label: str, source: LabelSource) -> list[str]:
 DEFAULT_RETRIES = 1  # 規則 §6.3：AI 標籤被退件後重試 1 次
 
 
+def repair_length(cand: str, source: LabelSource, rules: LabelRules) -> str | None:
+    """LBL-10: an AI answer that only misses the exact length (4 or 6 characters is the usual 7B
+    miss) is fixed here instead of being thrown away for the weaker rule label — but only when the
+    fix cannot change what the answer says:
+
+    too long  drop function characters / numbers, or whole words at either end of the answer
+              (its own word boundaries), never a piece of a word (工會串聯罷工 → not 工會串聯工)
+    too short the exact-length window of the title that contains the answer unchanged
+              (海光歇業 is not in the title as one piece → no repair)
+    The result must pass every check; otherwise None and the normal retry/fallback goes on."""
+    n = label_length(cand)
+    if n == rules.max_len or not (rules.max_len - 2 <= n <= rules.max_len + 2) or not all(_CJK.match(c) for c in cand):
+        return None
+    tries: list[str] = []
+    if n > rules.max_len:
+        extra = n - rules.max_len
+        soft = [i for i, ch in enumerate(cand) if ch in END_BAD | START_BAD | FUNCTION_CHARS]
+        from itertools import combinations
+        for idxs in combinations(soft, extra):
+            tries.append("".join(ch for i, ch in enumerate(cand) if i not in idxs))
+        b = wordseg.boundaries(cand)
+        for head in range(extra + 1):  # whole words off the front and/or the back
+            tail = extra - head
+            if head in b and len(cand) - tail in b:
+                tries.append(cand[head:len(cand) - tail])
+    else:
+        win = pad_to_min(cand, source, rules)
+        if cand in win:
+            tries.append(win)
+    for c in tries:
+        if label_length(c) == rules.max_len and not validate(c, source, rules):
+            return c
+    return None
+
+
+def repair_source(cand: str, source: LabelSource) -> list[str]:
+    """LBL-10: answers whose characters outside the title line up with title characters (the model
+    wrote Simplified: 台北兒虐严重 ↔ 台北兒虐嚴重, 蔡阿嘎员工 ↔ 蔡阿嘎前員工) rewritten with the title's own
+    characters. For a replaced block the title piece of the same length is taken (from either end
+    when the title piece is longer). Returns the possible rewrites; every character comes from the title."""
+    if not source.bar_texts:
+        return []
+    from difflib import SequenceMatcher
+    from itertools import product
+    src = set(" ".join(source.bar_texts))
+    outs: list[str] = []
+    for title in source.bar_texts:
+        sm = SequenceMatcher(None, cand, title, autojunk=False)
+        if sm.ratio() < 0.4:
+            continue
+        parts: list[list[str]] = []
+        changed = False
+        for op, i1, i2, j1, j2 in sm.get_opcodes():
+            piece = cand[i1:i2]
+            if op == "replace" and any(_CJK.match(c) and c not in src for c in piece) and j2 - j1 >= i2 - i1:
+                n = i2 - i1
+                parts.append(list(dict.fromkeys([title[j2 - n:j2], title[j1:j1 + n]])))
+                changed = True
+            else:
+                parts.append([piece])
+        if changed:
+            for combo in product(*parts):
+                fixed = "".join(combo)
+                if all(c in src or not _CJK.match(c) for c in fixed) and fixed not in outs:
+                    outs.append(fixed)
+    return outs
+
+
+def repair(cand: str, source: LabelSource, rules: LabelRules) -> str | None:
+    """LBL-10: Simplified → title characters, then exact length; None unless the result passes."""
+    for c in repair_source(cand, source) or [cand]:
+        errs = validate(c, source, rules)
+        if not errs:
+            if c != cand:
+                return c
+            continue
+        if set(errs) == {"LBL-5"} and (fixed := repair_length(c, source, rules)):
+            return fixed
+    return None
+
+
 def make_label(
     source: LabelSource,
     generator: Generator | None,
@@ -466,6 +643,9 @@ def make_label(
             # 規則 §6.3：檢查通過就採用；沒通過就退件重試（共 1 次）
             if not errs:
                 return LabelResult(cand, attempt + 1, None, history, review_reasons(cand, source))
+            # 規則 LBL-10：寫成簡體字、或只差字數（多或少一兩個字）→ 直接修正再檢查，不浪費一次重試
+            if fixed := repair(cand, source, rules):
+                return LabelResult(fixed, attempt + 1, None, history, review_reasons(fixed, source))
         else:
             # 規則 §6.3：回饋重試，兩次都沒過，把「錯在哪」具體告訴 AI 再問最後一次
             fb = feedback_for(cand, source, errs, rules) if history else ""
@@ -479,7 +659,14 @@ def make_label(
                     history.append(errs)
                     if not errs:
                         return LabelResult(cand, len(history), None, history, review_reasons(cand, source))
+                    if fixed := repair(cand, source, rules):
+                        return LabelResult(fixed, len(history), None, history, review_reasons(fixed, source))
     # 規則 FB-4：兩次都沒通過、或 AI 沒回應 → 規則備援
     label = pad_to_min(enforce_max(rule_label(source, rules), rules), source, rules)
+    # 規則 LBL-9：補足字數後又切到詞 → 改取主標題裡頭尾都落在詞界的 5 字
+    if source.bar_texts and (cut_words(label, source) or orphan_units(label, source)):
+        win = best_window(label, source, rules)
+        if not (cut_words(win, source) or orphan_units(win, source)):
+            label = win
     reasons += [r for r in review_reasons(label, source) if r not in reasons]
     return LabelResult(label, len(history), "FB-4", history, reasons)

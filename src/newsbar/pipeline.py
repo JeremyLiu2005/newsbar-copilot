@@ -9,7 +9,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from . import ad_state, cross_channel, evidence, excel_writer, labeler, segmenter, textfilter
+from . import ad_state, cross_channel, delivery, evidence, excel_writer, labeler, segmenter, textfilter
 from .minute_mapper import map_events
 from .schemas import Event, EventType, Labels, SecondObs, Source
 
@@ -19,6 +19,21 @@ DEFAULT_PARALLEL = 4  # 同時送出的 AI 請求數
 
 class PipelineError(RuntimeError):
     pass
+
+
+# 規則 TXT-10：標題的文字辨識信心低（Apple Vision 的繁中信心只有 0.3／0.5／1.0 三級；0.3 幾乎都是讀壞的標題，
+# 11/06：專冢澬金收芋、競緦 挨 蟲 沒磑貌、昔曰龍頭）→ 這一則列入複查。0.5 是多數台的正常值，不算。
+OCR_REVIEW_CONF = 0.4
+REASON_OCR = "標題可能讀錯（文字辨識信心低）"
+
+
+def title_confidence(obs: list[SecondObs]) -> dict[str, float]:
+    """Median OCR confidence of each title over the seconds it was on screen."""
+    by: dict[str, list[float]] = {}
+    for o in obs:
+        if o.bar_text:
+            by.setdefault(o.bar_text, []).append(o.bar_conf)
+    return {t: sorted(cs)[len(cs) // 2] for t, cs in by.items()}
 
 
 def run_channel(
@@ -37,6 +52,8 @@ def run_channel(
     ad = ad_state.detect(obs, ad_state.AdParams.from_rules(rules))
     # 規則 NEW-1、NEW-2a、SAME-3、TIME-1：再依主標題與佐證切出每一則新聞
     segs = segmenter.segment(obs, ad, segmenter.SegParams.from_rules(rules))
+    conf_of = title_confidence(obs)
+    ocr_review = float(((rules or {}).get("ocr") or {}).get("review_conf", OCR_REVIEW_CONF))
     events: list[Event] = []
     seg_event: dict[int, Event] = {}
     lab = (rules or {}).get("labeler") or {}
@@ -75,6 +92,11 @@ def run_channel(
             ev = Event(channel, seg.start, seg.type, confidence=seg.confidence,
                        source=Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame),
                        signals=sigs, fallback=seg.fallback)
+        # the label is written from the first two titles (llm.build_user_prompt): check those
+        if seg.type is EventType.NEWS and any(conf_of.get(t, 1.0) <= ocr_review for t in seg.bar_texts[:2]):
+            if REASON_OCR not in ev.reasons:
+                ev.reasons.append(REASON_OCR)
+            ev.confidence = "low"
         for r in channel_reasons or []:
             if r not in ev.reasons:
                 ev.reasons.append(r)
@@ -95,6 +117,8 @@ def run(
     n_minutes: int = 60,
     channel_reasons: dict[str, list[str]] | None = None,
     prior_failed: dict[str, str] | None = None,
+    run_id: str | None = None,
+    channels: list[str] | None = None,
 ) -> dict:
     """One channel failing (segmenter, ad_state, labeling, mapping) is recorded in `failed` and the
     other channels still produce their column (R20). Only when no channel survives, or the workbook
@@ -130,14 +154,18 @@ def run(
     if not cells:
         raise PipelineError("沒有任何一台產出分鐘格：" + "；".join(f"{c} {m}" for c, m in failed.items()))
     # 規則 R20-3：每一格的依據先存檔，Excel 寫失敗也留得下複查資料
-    recs = evidence.build(cells, str((rules or {}).get("version", "0")))
+    recs = evidence.build(cells, str((rules or {}).get("version", "0")), run_id)
     # Evidence first: if the workbook cannot be written the reviewer still gets the per-minute record.
     evidence.save(recs, out.with_suffix(".evidence.jsonl"), out.with_suffix(".report.csv"), failed)
     # 規則 EVD-1：每個換題點的機率、證據與是否需複核，另存一份（一則新聞一行）
-    evidence.save_stories({ch: by_ch[ch] for ch in cells}, out.with_suffix(".stories.jsonl"))
+    evidence.save_stories({ch: by_ch[ch] for ch in cells}, out.with_suffix(".stories.jsonl"), run_id)
+    # 規則 QA-2：交付前檢查（範圍、每台第一格、字數、依據齊全、待複查數），只說明狀態，不擋寫入
+    lab = labeler.LabelRules.from_rules(rules)
+    deliv = delivery.validate_delivery(cells, recs, channels or list(channel_headers), start, n_minutes, failed, lab,
+                                       (labels.ad, labels.weather, labels.outage), labels.multi_sep)
     try:
         excel_writer.write(template, out, cells, {ch: channel_headers[ch] for ch in cells})
     except (excel_writer.WriterError, OSError, zipfile.BadZipFile) as e:
         raise PipelineError(f"無法寫入 Excel：{e}（範本沒有被改動；判斷依據已存為 {out.with_suffix('.evidence.jsonl').name}）") from e
     return {"events": [e for ch in cells for e in by_ch[ch]], "cells": cells, "evidence": recs,
-            "failed": failed, "warnings": warnings}
+            "failed": failed, "warnings": warnings, "delivery": deliv}

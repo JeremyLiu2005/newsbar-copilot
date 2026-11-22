@@ -71,8 +71,10 @@ def extract_channel(
     rois = {k: v for k, v in cfg.items() if k in ("main_bar", "ticker", "alt_bar")}
     log(f"[{channel}] 裁切 ROI …")
     dirs = ingest.extract_rois(video, rois, work / "frames", start=start, duration=duration)
+    stages: dict[str, dict] = {"roi": {"status": "SUCCEEDED"}}
     log(f"[{channel}] OCR …")
     res = ocr_channel(backend, dirs, sec_offset)
+    stages["ocr"] = {"status": "SUCCEEDED", "seconds_read": sum(1 for o in res.obs if o.bar_text)}
     save_jsonl(res.raw, work / "ocr_raw.jsonl")
     save_jsonl(res.voted, work / "ocr.jsonl")
     log(f"[{channel}] 畫面時鐘 …")
@@ -80,6 +82,7 @@ def extract_channel(
     log(f"[{channel}] 畫面訊號 …")
     sig = visual.analyse(video, cfg, sec_offset=sec_offset, start=start, duration=duration)
     obs = visual.merge(res.obs, sig)
+    stages["visual"] = {"status": "SUCCEEDED"}
     log(f"[{channel}] 聲音指紋 …")
     import numpy as np
 
@@ -101,9 +104,24 @@ def extract_channel(
         # processes on one Apple GPU slowed each other down so much that a 2.5-min-per-channel job
         # took 33 min (11/06 fast run). An NVIDIA GPU can run several; size it to the card's memory.
         with asr_slot(workdir, asr_parallel):
-            attach(obs, asr, video, sec_offset, start, duration)
+            segs = attach(obs, asr, video, sec_offset, start, duration)
+        # 規則 RUN-3：語音轉錄失敗要記下來，不能當成「沒人講話」；下次續跑會重新擷取這一台
+        stages["asr"] = {"status": "FAILED", "error": "語音轉錄逾時或失敗"} if segs is None else {"status": "SUCCEEDED"}
+        if segs is None:
+            res.warnings.append("語音轉錄失敗：這一台這次只靠標題與畫面判斷（換題佐證較少），下次續跑會重新擷取")
+    else:
+        stages["asr"] = {"status": "SKIPPED"}
     save_obs(obs, work / "obs.jsonl")
+    save_stages(work, stages)
     return obs, res.warnings
+
+
+def save_stages(work: Path, stages: dict) -> None:
+    """RUN-3: per-stage status of one channel's extraction (work/<ch>/stages.json)."""
+    import json
+
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "stages.json").write_text(json.dumps(stages, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 def default_asr_parallel(platform: str | None = None) -> int:

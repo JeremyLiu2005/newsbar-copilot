@@ -69,3 +69,41 @@ def test_breaks_shorter_than_25_seconds_are_dropped():
     obs += stream(13, 60, ticker_text=None, frame="f", clock_ok=False)
     obs += news(60, 73, "乙則新聞標題", "t2", ticker_text="快訊", frame="f")
     assert detect(obs).breaks == []
+
+
+def test_AD7_AD8_residual_title_allows_ocr_noise():
+    from newsbar.ad_state import same_title
+    a = "高金素梅共諜案起訴 求刑14年"
+    assert same_title(a, "高金素梅共諜案起訴 求刑l4年")  # one character misread
+    assert not same_title(a, "史詩崩跌台股殺3737點")
+    assert not same_title(a, "高金素梅共諜案起訴 求刑l4年", ratio=1.0)  # 1.0 keeps the old exact rule
+    assert not same_title(None, a)
+
+
+def test_AD6_residual_title_skips_credits():
+    from newsbar.ad_state import title_like
+    assert not title_like("高沛羚郭南宏台北報導") and not title_like("綜合報導") and not title_like("洪儀婷程奕翔")
+    assert not title_like("00415:361.9") and not title_like("主播古彩彥")
+    assert title_like("高歌離席!C羅歸還7號戰袍結束國家隊傳奇")
+
+
+def test_AD9_full_screen_break_is_not_cut_by_the_timeout():
+    """A full-screen commercial never boxes the picture: the 60 s timeout must not start at its
+    first second (11/06: 10 breaks were cut into 60 s pieces and glued back)."""
+    obs = news(60, 0, "新北土城七旬翁 遭貨車輾亡", "t1", ticker_text="快訊", frame="f.jpg", clock_ok=True)
+    obs += news(150, 60, None, None, asr="限時特價 現在打電話", ad_speech=True, ticker_text=None, frame="f.jpg",
+                clock_ok=False, logo_missing=True)
+    obs += news(40, 210, "高金素梅共諜案起訴 求刑14年", "t2", ticker_text="快訊", frame="f.jpg", clock_ok=True)
+    brk = detect(obs).breaks
+    assert len(brk) == 1 and not brk[0].timed_out and abs(brk[0].end - 210) <= 1
+
+
+def test_AD7_own_overlay_back_needs_three_signals_to_stay_ad():
+    """Ticker and clock back with a fresh headline: logo misread + a stray fingerprint hit is not an ad."""
+    obs = news(60, 0, "新北土城七旬翁 遭貨車輾亡", "t1", ticker_text="快訊", frame="f.jpg", clock_ok=True)
+    obs += news(100, 60, None, None, asr="限時特價", ad_speech=True, ticker_text=None, frame="f.jpg", clock_ok=False,
+                fingerprint_hit=True)
+    obs += news(40, 160, "高金素梅共諜案起訴 求刑14年", "t2", ticker_text="快訊", frame="f.jpg", clock_ok=True,
+                logo_missing=True, fingerprint_hit=True)
+    brk = detect(obs).breaks
+    assert brk and abs(brk[0].end - 160) <= 1

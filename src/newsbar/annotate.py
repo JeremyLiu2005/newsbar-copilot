@@ -78,8 +78,10 @@ document.getElementById('exp').onclick=()=>{{const who=document.getElementById('
     return out
 
 
-def gold_cells(items: list[dict], channels, start: str = "1200", n_minutes: int = 60):
-    """Annotation JSON → minute cells in the 12監看 notation (via the same mapper)."""
+def gold_cells(items: list[dict], channels, start: str = "1200", n_minutes: int = 60, labels=None):
+    """Annotation JSON → minute cells in the 12監看 notation (via the same mapper and, with `labels`,
+    the same output.minute_rule as the system — EVAL-1: otherwise a "next"-rule system is compared
+    with a "floor"-rule answer key and every ad edge looks one minute off)."""
     from .minute_mapper import map_events
     from .schemas import Event, EventType
 
@@ -88,7 +90,7 @@ def gold_cells(items: list[dict], channels, start: str = "1200", n_minutes: int 
         kind = {"news": EventType.NEWS, "ad": EventType.AD, "weather": EventType.WEATHER}[it["kind"]]
         label = (it.get("label") or f"未命名{i}") if kind is EventType.NEWS else None
         evs.append(Event(it["channel"], it["sec"], kind, label, f"g{i}"))
-    return map_events(evs, channels, start, n_minutes)
+    return map_events(evs, channels, start, n_minutes, labels) if labels is not None else map_events(evs, channels, start, n_minutes)
 
 
 def kappa(a: dict[str, set[str]], b: dict[str, set[str]], minutes: list[str]) -> float:

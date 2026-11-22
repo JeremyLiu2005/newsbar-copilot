@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from . import lexicon
-from .ad_state import AD, NEWS, OUTAGE, AdResult, carousel_seconds
+from .ad_state import AD, NEWS, OUTAGE, AdResult, carousel_seconds, same_title
 from .schemas import Confidence, EventType, SecondObs, is_ad_copy
 
 
@@ -32,10 +32,14 @@ class SegParams:
     carousel_window_sec: int = 120  # CAROUSEL: teaser loop detection
     min_story_before_ad_sec: int = 20
     recur_window_sec: int = 180
+    recur_min_terms: int = 2  # SAME-8: shared two-character terms that also count as "the title came back"
     carousel_min_titles: int = 6  # normal FTV stories rotate 2–4 titles; teaser loops show 10
     carousel_max_sec: int = 12
     asr_window_sec: int = 20  # NEW-2a
     visual_window_sec: int = 5  # NEW-2b, NEW-2c
+    speech_window_sec: int = 30  # NEW-2e: speech after a candidate checked against the titles
+    speech_min_terms: int = 2  # NEW-2e: the new title's words heard at least this many times
+    speech_tail_max_sec: int = 15  # SAME-9: a story this short, opened on speech evidence alone, is a tail
     mode: str = "rules"  # "rules" (default) | "learned": a trained probability decides story changes
     model: str | None = None  # learned: model file, or "active" (data/models/active.json)
 
@@ -50,6 +54,9 @@ class SegParams:
             asr_veto=r.get("asr_veto", cls.asr_veto),
             asr_window_sec=r.get("asr_window_sec", cls.asr_window_sec),
             visual_window_sec=r.get("visual_window_sec", cls.visual_window_sec),
+            speech_window_sec=r.get("speech_window_sec", cls.speech_window_sec),
+            speech_min_terms=r.get("speech_min_terms", cls.speech_min_terms),
+            speech_tail_max_sec=r.get("speech_tail_max_sec", cls.speech_tail_max_sec),
             mode=r.get("mode", cls.mode),
             model=r.get("model", cls.model),
         )
@@ -98,7 +105,7 @@ class Segment:
     frame: str | None = None  # main_bar crop at the start second
     end: int | None = None  # exclusive: start of the next segment (or end of the stream)
     overlay_sec: int = 0  # AD-OVL: seconds whose bar text was framed-ad copy and was ignored
-    boundary_p: float | None = None  # EVD-1: probability that a new story starts at `start`
+    boundary_p: float | None = None  # EVD-1: learned model's raw score for this boundary (None under the rules)
     boundary: dict = field(default_factory=dict)  # EVD-1: evidence behind this boundary
 
     @property
@@ -110,6 +117,14 @@ def _ratio(a: str, b: str) -> float:
     from difflib import SequenceMatcher
 
     return 1.0 if a == b else SequenceMatcher(None, a, b).ratio()
+
+
+def _terms(text: str) -> set[str]:
+    """Two-character Chinese terms of a title, generic words removed (NEW-2e, SAME-3)."""
+    out: set[str] = set()
+    for run in _CJK.findall(text or ""):
+        out.update(t for t in (run[i:i + 2] for i in range(len(run) - 1)) if t not in _STOPWORDS)
+    return out
 
 
 _CREDIT = re.compile(r"^[\u4e00-\u9fff]{2,12}$")
@@ -181,7 +196,24 @@ def segment(
             return None
         return o.bar_text
 
-    def evidence(t: int) -> list[str]:
+    def speech_follows(i: int, text: str) -> bool:
+        """NEW-2e: the speech right after the candidate repeats the new title's words, while the
+        current story's title words are no longer heard. ASR topic ids change with almost every utterance
+        (11/06 FTV: t347→t353 in 40 s), so NEW-2a rarely sees two disjoint windows; the words do."""
+        if cur is None or not cur.bar_texts:
+            return False
+        new = _terms(text) - set().union(*(_terms(b) for b in cur.bar_texts))
+        old = set().union(*(_terms(b) for b in cur.bar_texts)) - _terms(text)
+        heard = " ".join(dict.fromkeys(o.asr_text for o in obs[i : i + params.speech_window_sec] if o.asr_text))
+        if not heard or not new:
+            return False
+        n_new = sum(1 for w in new if w in heard)
+        n_old = sum(1 for w in old if w in heard)
+        # the old story's words must be (almost) gone: a reporter still saying 巴拉圭總統 while the title
+        # rotates to 存款領不回來 is the same story, however many of the new words are heard too
+        return n_new >= params.speech_min_terms and n_old <= 1
+
+    def evidence(t: int, text: str | None = None) -> list[str]:
         nonlocal last_credit
         i = idx[t]
         sigs = ["NEW-1"]
@@ -203,6 +235,9 @@ def segment(
         # 規則 NEW-2d：記者名條閃過後 25 秒內開始的標題 → 佐證
         if last_credit is not None and 0 <= t - last_credit <= params.credit_window_sec:
             sigs.append("NEW-2d")
+        # 規則 NEW-2e：候選點之後 30 秒的語音，講的是新標題的詞，而且比舊標題的詞多 → 佐證
+        if text is not None and speech_follows(i, text):
+            sigs.append("NEW-2e")
         return sigs
 
     def candidate_features(t: int, text: str) -> dict:
@@ -251,11 +286,11 @@ def segment(
         if text is None:  # FB-3: OCR missing, ASR topic drives the change
             open_seg(Segment(t, EventType.NEWS, signals=["NEW-2a"], confidence=Confidence.LOW.value, fallback="FB-3"))
             return
-        sigs = evidence(t)
+        sigs = evidence(t, text)
         # NEW-2c (speaker change) is recorded but not sufficient alone: interviews switch
         # speakers inside one story all the time (11/06 TVBS SOTs).
         # 規則 FB-1：只有「標題變了」沒有其他佐證 → 仍換題但標低信心
-        low = not any(x in sigs for x in ("NEW-2a", "NEW-2b", "NEW-2d"))
+        low = not any(x in sigs for x in ("NEW-2a", "NEW-2b", "NEW-2d", "NEW-2e"))
         # 規則 SAME-6：有語音但沒有任何佐證 → 留在同一則，不換題
         if low and has_asr and params.asr_veto and cur is not None and cur.type is EventType.NEWS:
             cur.bar_texts.append(text)  # SAME-6: speech topic unchanged, no credit, no anchor → same story
@@ -291,13 +326,13 @@ def segment(
                 brk is not None
                 and prev is not None
                 and text is not None
-                and text == brk.residual_bar
+                and same_title(text, brk.residual_bar, ad.residual_match_ratio)  # 規則 AD-8：允許 OCR 差一兩個字
                 and (o.topic == brk.residual_topic if brk.residual_topic is not None else not has_asr)
             ):
                 # 規則 AD-8：回來的還是殘留標題且語音確認同一則 → 沿用廣告前那則的標籤
                 # AD-8: same story resumes → rewrite its label at the return minute.
                 open_seg(Segment(o.sec, prev.type, bar_texts=[text], signals=["AD-7", "AD-8"], reuse_of=last_news_idx))
-            elif brk is not None and brk.timed_out and (text is None or text == brk.residual_bar):
+            elif brk is not None and brk.timed_out and (text is None or same_title(text, brk.residual_bar, ad.residual_match_ratio)):
                 # 規則 AD-9：逾時回新聞又沒有新標題 → 用語音命名，標低信心
                 # AD-9: back without fresh bar text → name it from speech (FB-3).
                 open_seg(Segment(o.sec, EventType.NEWS, signals=["AD-9"], confidence=Confidence.LOW.value, fallback="FB-3"))
@@ -392,7 +427,10 @@ def segment(
     # 規則 SAME-8：180 秒內標題又回來 → 中間的段落併成同一則
     def _sim(a: str, b: str) -> bool:
         from difflib import SequenceMatcher
-        return a == b or SequenceMatcher(None, a, b).ratio() >= 0.8
+        # the same title back (≥0.8 alike), or a title sharing two content terms with it
+        # (11/06 TVBS 旅展: 旅展促銷餐券買1送1 … 五星酒店餐券買1送1 → 餐券、券買)
+        return (a == b or SequenceMatcher(None, a, b).ratio() >= 0.8
+                or len(_terms(a) & _terms(b)) >= params.recur_min_terms)
 
     k = 0
     while k < len(segs):
@@ -402,6 +440,8 @@ def segment(
                 si = segs[i]
                 if si.type is not EventType.NEWS or sj.start - si.start > params.recur_window_sec:
                     break
+                # only across at least one segment: two neighbouring stories often share words without
+                # being one story (11/06 TVBS 台北兒虐 → 沈蔣拜票, 台股崩跌 → 美股崩跌)
                 if si.bar_texts and any(_sim(a, b) for a in si.bar_texts for b in sj.bar_texts) and i < k - 1:
                     for m in range(i + 1, k + 1):
                         si.bar_texts += [t for t in segs[m].bar_texts if t not in si.bar_texts]
@@ -411,6 +451,23 @@ def segment(
                     k = i
                     break
         k += 1
+
+    # 規則 SAME-9：只靠語音佐證（NEW-2e）開出來、又不到 15 秒就換題的「新聞」，是前一則的收尾
+    # （11/06 華視河口湖案最後一句「憂有其他受害者」），併回前一則
+    merged: list[Segment] = []
+    for k, sg in enumerate(segs):
+        nxt_start = segs[k + 1].start if k + 1 < len(segs) else None
+        prev = merged[-1] if merged else None
+        only_speech = (sg.type is EventType.NEWS and "NEW-2e" in sg.signals and sg.reuse_of is None
+                       and not ({"NEW-2a", "NEW-2b", "NEW-2d", "ML-new"} & set(sg.signals)))
+        if (only_speech and prev is not None and prev.type is EventType.NEWS and nxt_start is not None
+                and nxt_start - sg.start < params.speech_tail_max_sec):
+            prev.bar_texts += [t for t in sg.bar_texts if t not in prev.bar_texts]
+            prev.asr_texts += sg.asr_texts
+            prev.signals.append("SAME-9")
+            continue
+        merged.append(sg)
+    segs = merged
 
     # Ad copy just before a break (11/06: "watsog", "001536") opens a short pseudo-story
     # that the break then cuts off; anything under min_story_before_ad_sec merges into the ad.
@@ -459,51 +516,63 @@ def is_brief(sg: Segment) -> bool:
             and not any(is_ad_copy(t) for t in sg.bar_texts))
 
 
-# EVD-1: how much each piece of evidence adds to "a new story starts here" under the rules.
-# The rules decide with counts, not this number; it ranks boundaries for review and is replaced
-# by the learned model's probability when segmenter.mode is "learned".
-_BASE_P = 0.55  # NEW-1 alone (a stable new title): FB-1 territory
-_EVIDENCE_P = {"NEW-2a": 0.2, "NEW-2b": 0.15, "NEW-2d": 0.15}
-REVIEW_P = 0.7  # EVD-2: below this, the boundary goes to the review queue
+# EVD-1: reason codes, not a made-up probability. Under the rules a boundary is decided by which
+# evidence is present; a number such as 0.55 + 0.2 would look like a probability without being one
+# (nobody calibrated it on held-out data). `score` is filled only by the learned model, and even
+# then it is the model's raw output, labelled as such.
+REASON_CODES = {
+    "NEW-1": "HEADLINE_CHANGED", "NEW-2a": "TOPIC_SHIFT", "NEW-2b": "ANCHOR_SHOT", "NEW-2c": "SPEAKER_CHANGED",
+    "NEW-2d": "NAME_CREDIT", "NEW-2e": "SPEECH_FOLLOWS_HEADLINE", "AD-7": "BACK_FROM_BREAK",
+    "AD-8": "SAME_STORY_RESUMED", "AD-9": "BREAK_TIMEOUT", "SAME-8": "HEADLINE_RECURRED",
+    "SAME-9": "SPEECH_TAIL_MERGED", "BRIEF-1": "SHORT_BRIEF", "FB-1": "TITLE_ONLY", "FB-3": "NO_TITLE_READ",
+    "ML-new": "MODEL_NEW",
+}
 
 
 def _attach_boundary(sg: Segment, prev: Segment | None) -> None:
-    """EVD-1/EVD-2: probability, evidence and review flag for the boundary at sg.start."""
+    """EVD-1/EVD-2: reason codes, evidence and review flag for the boundary at sg.start."""
     ids = set(sg.signals)
     after_break = prev is not None and prev.type in (EventType.AD, EventType.OUTAGE)
     if sg.type is not EventType.NEWS:
-        kind, p = sg.type.value, 1.0 if sg.type is not EventType.WEATHER else 0.9
+        kind = sg.type.value
     elif "AD-8" in ids:
-        kind, p = "resume", 0.1  # same story back after the break (AD-8): no new story
+        kind = "resume"  # same story back after the break (AD-8): no new story
     elif sg.boundary_p is not None:
-        kind, p = "learned", sg.boundary_p
+        kind = "learned"
     elif sg.fallback == "FB-3" or "AD-9" in ids:
-        kind, p = "speech", 0.5  # no title read: speech alone opened or named it
+        kind = "speech"  # no title read: speech alone opened or named it
     else:
         kind = "after_break" if after_break else "title"
-        p = min(0.95, _BASE_P + sum(w for k, w in _EVIDENCE_P.items() if k in ids))
-        if after_break:
-            p = max(p, 0.8)  # a fresh title after a break is strong on its own
     sim = 0.0
     if sg.bar_texts and prev is not None and prev.bar_texts:
         sim = max(_ratio(a, b) for a in sg.bar_texts for b in prev.bar_texts)
-    sg.boundary_p = round(p, 3)
+    codes = [REASON_CODES[x] for x in dict.fromkeys(sg.signals) if x in REASON_CODES]
+    if sg.fallback and REASON_CODES.get(sg.fallback) and REASON_CODES[sg.fallback] not in codes:
+        codes.append(REASON_CODES[sg.fallback])
+    if sg.overlay_sec:
+        codes.append("AD_OVERLAY_TEXT_IGNORED")
+    corroborated = bool({"NEW-2a", "NEW-2b", "NEW-2d", "NEW-2e", "AD-7", "AD-8"} & ids) or after_break
     sg.boundary = {
         "kind": kind,
-        "boundary_probability": sg.boundary_p,
+        "score": sg.boundary_p,  # learned model's raw output; None under the rules (EVD-1)
+        "score_source": "learned_model_uncalibrated" if sg.boundary_p is not None else None,
+        "reason_codes": codes,
         "evidence": {
             "title_change": "NEW-1" in ids,
             "topic_shift": "NEW-2a" in ids,
             "anchor_shot": "NEW-2b" in ids,
             "speaker_change": "NEW-2c" in ids,
             "name_credit": "NEW-2d" in ids,
+            "speech_follows_title": "NEW-2e" in ids,
             "title_similarity_prev": round(sim, 2),
             "after_break": after_break,
             "merged_recurrence": "SAME-8" in ids,
+            "merged_speech_tail": "SAME-9" in ids,
             "brief": "BRIEF-1" in ids,
             "commercial_overlay_sec": sg.overlay_sec,
         },
-        "review_required": sg.type is EventType.NEWS and (
+        # 規則 EVD-2：低信心、備援、只有標題換了沒有佐證、短播報、出現過包框文字 → 需複查
+        "review_required": sg.type is EventType.NEWS and kind != "resume" and (
             sg.confidence == Confidence.LOW.value or sg.fallback is not None
-            or (p < REVIEW_P and kind != "resume") or "BRIEF-1" in ids or sg.overlay_sec > 0),
+            or (kind == "title" and not corroborated) or "BRIEF-1" in ids or sg.overlay_sec > 0),
     }

@@ -191,8 +191,11 @@ def attach(
     start: float = 0.0,
     duration: float | None = None,
     segments: list[AsrSegment] | None = None,
-) -> list[AsrSegment]:
-    """Fill asr_text / topic / ad_speech on obs (in place). Pass `segments` to skip ASR."""
+) -> list[AsrSegment] | None:
+    """Fill asr_text / topic / ad_speech on obs (in place). Pass `segments` to skip ASR.
+
+    Returns None when transcription failed — never [] for a failure: an empty list means "nobody
+    spoke", and the decisions treat those two cases differently (RUN-3)."""
     speakers: list[str | None] = []
     if segments is None:
         import wave
@@ -205,7 +208,7 @@ def attach(
                 audio_sec = w0.getnframes() / w0.getframerate()
             segments = transcribe_guarded(backend, wav, audio_sec)
             if segments is None:
-                return []  # NFR-12: continue without speech; OCR + picture still decide
+                return None  # NFR-12: continue without speech; the caller records the failure (RUN-3)
             with wave.open(str(wav)) as w:
                 sr = w.getframerate()
                 pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768

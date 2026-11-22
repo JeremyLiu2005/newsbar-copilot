@@ -6,18 +6,28 @@ a title look "changed". The token list is config/lexicon.yaml → overlay_tokens
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 from . import lexicon
 from .schemas import SecondObs
 
+# 規則 TXT-8：夾在兩個中文字之間的單一 I、l、|、1 幾乎都是驚嘆號被 OCR 讀錯（史詩崩跌I台股殺3737點）
+_BANG = re.compile(r"(?<=[\u4e00-\u9fff])[Il|](?=[\u4e00-\u9fff])")
+
+
+def fix_ocr_marks(text: str | None) -> str | None:
+    """A lone I / l / | between two Chinese characters is an OCR misread of ！ (11/06 TVBS)."""
+    return _BANG.sub("!", text) if text else text
+
 
 def filter_obs(obs: list[SecondObs], lex: lexicon.Lexicon | None = None) -> list[SecondObs]:
-    """Copy of obs with overlay tokens stripped from bar_text (originals untouched)."""
+    """Copy of obs with overlay tokens stripped and OCR punctuation misreads fixed in bar_text
+    (originals untouched)."""
     lex = lex or lexicon.get()
     out = []
     for o in obs:
-        cleaned = lex.strip_overlay(o.bar_text)
+        cleaned = fix_ocr_marks(lex.strip_overlay(o.bar_text))
         out.append(o if cleaned == o.bar_text else replace(o, bar_text=cleaned))
     return out
 

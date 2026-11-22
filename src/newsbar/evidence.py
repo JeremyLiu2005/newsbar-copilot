@@ -49,13 +49,14 @@ def record(cell: Cell, rules_version: str) -> dict:
     }
 
 
-def story_records(by_ch: dict[str, list]) -> list[dict]:
+def story_records(by_ch: dict[str, list], run_id: str | None = None) -> list[dict]:
     """EVD-1: one record per segment (story unit, ad, outage) with its boundary evidence."""
     out = []
     for ch, events in by_ch.items():
         for ev in events:
             b = ev.signals.get("boundary") or {}
             out.append({
+                "run_id": run_id,
                 "channel": ch,
                 "story_id": ev.story_id,
                 "type": ev.type.value,
@@ -65,8 +66,10 @@ def story_records(by_ch: dict[str, list]) -> list[dict]:
                 "bar_text": ev.source.bar_text,
                 "confidence": ev.confidence,
                 "fallback": ev.fallback,
-                "boundary_probability": b.get("boundary_probability"),
                 "boundary_kind": b.get("kind"),
+                "score": b.get("score"),
+                "score_source": b.get("score_source"),
+                "reason_codes": b.get("reason_codes", []),
                 "evidence": b.get("evidence", {}),
                 "review_required": bool(b.get("review_required")) or ev.confidence == "low" or bool(ev.fallback),
                 "signals": ev.signals.get("ids", []),
@@ -74,9 +77,9 @@ def story_records(by_ch: dict[str, list]) -> list[dict]:
     return out
 
 
-def save_stories(by_ch: dict[str, list], path: Path) -> None:
+def save_stories(by_ch: dict[str, list], path: Path, run_id: str | None = None) -> None:
     with open(path, "w", encoding="utf-8") as f:
-        for r in story_records(by_ch):
+        for r in story_records(by_ch, run_id):
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
@@ -90,8 +93,30 @@ def review_priority(rec: dict) -> int:
     return PRIORITY["other"]
 
 
-def build(cells: dict[str, dict[str, Cell]], rules_version: str) -> list[dict]:
+# 規則 QA-1：執行狀態和品質狀態分開。程式跑完（execution）不等於可以直接交付（quality）。
+AUTO_ACCEPTED = "AUTO_ACCEPTED"  # passed every automatic check, not looked at by a person
+REVIEW_REQUIRED = "REVIEW_REQUIRED"  # low confidence, fallback, or a boundary without corroboration
+HUMAN_APPROVED = "HUMAN_APPROVED"  # a reviewer confirmed or corrected it (apply-corrections)
+REJECTED = "REJECTED"  # a reviewer marked it unusable
+
+
+def quality_of(rec: dict) -> dict:
+    """QA-1: the review state of one cell as data — the yellow fill of the review copy is drawn
+    from this, never the other way round."""
+    needs = (bool(rec.get("fallback")) or rec.get("confidence") == "low"
+             or any((i.get("boundary") or {}).get("review_required") for i in rec.get("items", [])))
+    codes = []
+    for i in rec.get("items", []):
+        codes += [c for c in (i.get("boundary") or {}).get("reason_codes", []) if c not in codes]
+    return {"status": REVIEW_REQUIRED if needs else AUTO_ACCEPTED, "reason_codes": codes,
+            "reasons": list(rec.get("reasons", [])), "reviewer": None, "reviewed_at": None, "corrected_value": None}
+
+
+def build(cells: dict[str, dict[str, Cell]], rules_version: str, run_id: str | None = None) -> list[dict]:
     recs = [record(c, rules_version) for by_min in cells.values() for c in by_min.values()]
+    for r in recs:
+        r["run_id"] = run_id
+        r["quality"] = quality_of(r)
     return sorted(recs, key=lambda r: (review_priority(r), r["minute"], r["channel"]))
 
 

@@ -210,8 +210,12 @@ def cmd_run(a: argparse.Namespace) -> int:
     """Videos → obs → events → 12監看 xlsx + evidence + report + review page."""
     import time
 
-    from . import evaluate, extract, ingest, lexicon, llm, pipeline, review
+    import datetime as _dt
 
+    from . import evaluate, extract, ingest, lexicon, llm, pipeline, review, runinfo
+
+    started = _dt.datetime.now()
+    run_id = runinfo.new_run_id(started)
     cfg = _load_yaml(a.channels)["channels"]
     rules = _load_yaml(a.rules)
     lex_path = a.lexicon or rules.get("lexicon") or ("config/lexicon.yaml" if Path("config/lexicon.yaml").exists() else None)
@@ -236,7 +240,18 @@ def cmd_run(a: argparse.Namespace) -> int:
     for ch, _, _ in specs:
         if ch not in cfg:
             raise SystemExit(f"設定檔沒有台別 {ch}")
-    todo = [(ch, p, c) for ch, p, c in specs if not (a.resume and (work / ch / "obs.jsonl").exists())]
+    # 規則 RUN-1：--resume 只沿用「影片、該台擷取設定、OCR/語音後端都沒變」的擷取結果
+    metas = {ch: runinfo.extract_meta(p, cfg[ch], a.backend, a.asr, a.asr_model, a.duration) for ch, p, _ in specs}
+    reuse: dict[str, bool] = {}
+    extraction: dict[str, str] = {}
+    for ch, _, _ in specs:
+        ok, why = runinfo.resume_check(work, ch, metas[ch]) if a.resume else (False, None)
+        reuse[ch] = ok
+        extraction[ch] = "reused" if ok else "extracted"
+        if why:
+            warnings.setdefault(ch, []).append(why)
+            print(f"⚠ [{ch}] {why}")
+    todo = [(ch, p, c) for ch, p, c in specs if not reuse[ch]]
     if a.jobs > 1 and len(todo) > 1:  # four channels in parallel (NFR-05)
         import multiprocessing as mp
         from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -255,17 +270,20 @@ def cmd_run(a: argparse.Namespace) -> int:
                     clock_info[ch] = info
                 except Exception as e:  # NFR-09
                     warnings.setdefault(ch, []).append(f"處理失敗：{e}")
-                    failed[ch] = f"擷取失敗：{e}"
+                    failed[ch] = f"擷取失敗（{runinfo.classify_error(e)}）：{e}"
                     print(f"✗ [{ch}] {e}")
         timings["parallel_extract"] = round(time.time() - t0, 1)
-        a.resume = True  # everything extracted above now loads from obs.jsonl
+        for ch, _, _ in todo:
+            if ch not in failed:
+                runinfo.save_meta(work, ch, metas[ch])
+                reuse[ch] = True  # extracted above: now loads from obs.jsonl
     for ch, path, clock in specs:
         if ch in failed:  # already failed in the parallel pass; do not run the same hour again
             continue
         obs_file = work / ch / "obs.jsonl"
         t0 = time.time()
         try:
-            if a.resume and obs_file.exists():  # NFR-10
+            if reuse.get(ch) and obs_file.exists():  # NFR-10, RUN-1
                 print(f"[{ch}] 沿用 {obs_file}")
                 streams[ch] = extract.load_obs(obs_file)
                 if ch not in clock_info and (saved := _load_clock_info(work, ch)):
@@ -283,10 +301,12 @@ def cmd_run(a: argparse.Namespace) -> int:
                 obs, warns = extract.extract_channel(path, ch, cfg[ch], backend, work, _offset(info, a.sheet_start), asr,
                                                      library, duration=a.duration, asr_parallel=a.asr_parallel)
                 streams[ch] = obs
-                warnings[ch] = warns + ([f"{info['reason']}（{info['value'] or '無'}）"] if info.get("reason") else [])
+                runinfo.save_meta(work, ch, metas[ch])
+                warnings[ch] = warnings.get(ch, []) + warns + (
+                    [f"{info['reason']}（{info['value'] or '無'}）"] if info.get("reason") else [])
         except Exception as e:  # NFR-09: one channel failing must not stop the others
             warnings.setdefault(ch, []).append(f"處理失敗：{e}")
-            failed[ch] = f"擷取失敗：{e}"
+            failed[ch] = f"擷取失敗（{runinfo.classify_error(e)}）：{e}"
             print(f"✗ [{ch}] {e}")
         timings[ch] = round(time.time() - t0, 1)
     for ch in [c for c in streams if c in failed]:
@@ -295,16 +315,21 @@ def cmd_run(a: argparse.Namespace) -> int:
     if not headers:
         raise SystemExit("沒有任何一台處理成功：" + "；".join(f"{c} {m}" for c, m in failed.items()))
     gen = llm.from_rules(rules, getattr(a, "kb", None))
+    llm_model = getattr(gen, "model", None)
+    llm_state = "off" if gen is None else "on"
     if gen is not None:
         host = getattr(gen, "host", None)
-        if host and not llm.ensure_ollama(host):  # R20: no AI service is not a reason to stop
+        # R20: no AI service is not a reason to stop; R20-2: load the model before four channels ask at once
+        if host and not (llm.ensure_ollama(host) and llm.warm_up(gen)):
             gen = llm.UnavailableGenerator()
+            llm_state = "unavailable"
         else:
             gen = llm.CachedGenerator(llm.GuardedGenerator(gen), work / "label_cache.json")
     reasons = {ch: [i["reason"]] for ch, i in clock_info.items() if i.get("reason") and ch in streams}
     try:
         res = pipeline.run(streams, template, out, headers, gen, rules, a.sheet_start, a.minutes,
-                           channel_reasons=reasons, prior_failed=failed)
+                           channel_reasons=reasons, prior_failed=failed, run_id=run_id,
+                           channels=[ch for ch, _, _ in specs])
     except pipeline.PipelineError as e:
         raise SystemExit(str(e))
     failed = res["failed"]
@@ -316,6 +341,10 @@ def cmd_run(a: argparse.Namespace) -> int:
     rep["failed_channels"] = failed  # R20: visible here, in the 複查清單 and the summary — never in the workbook
     rep["clock"] = clock_info
     rep["pipeline_warnings"] = res["warnings"]
+    rep["run_id"] = run_id
+    rep["execution_status"] = {ch: ("FAILED" if ch in failed else "SUCCEEDED") for ch, _, _ in specs}
+    rep["delivery"] = res["delivery"]
+    rep["stages"] = {ch: runinfo.load_stages(work, ch) for ch, _, _ in specs}  # RUN-3
     # 三立 11/22：交付的 Excel 一律不標黃；標黃副本改為選用（--review-copy），複查請看 review.html 的標題列截圖
     if a.review_copy and not a.no_review_copy:
         review_xlsx = out.with_name(out.stem + "_複查版.xlsx")
@@ -339,7 +368,21 @@ def cmd_run(a: argparse.Namespace) -> int:
         print(f"✗ 整台失敗：{cfg[ch]['name'] if ch in cfg else ch}（{msg}）— 監看表該台欄位是空的，已列入複查清單")
     for w in res["warnings"]:
         print(f"⚠ {w}")
-    print(f"→ {out}\n→ {out.with_suffix('.review.html')}")
+    d = res["delivery"]
+    label = {"READY": "可直接交付", "READY_WITH_REVIEW": "可交付，含待複查項目", "INCOMPLETE": "不完整，不能直接交付"}
+    print(f"交付檢查：{label.get(d['status'], d['status'])}（自動通過 {d['auto_accepted']} 格、待複查 {d['review_required']} 格）")
+    for p_ in d["problems"]:
+        print(f"  ✗ {p_}")
+    # 規則 RUN-2：每次執行留一份版本紀錄，每格依據都帶 run_id
+    man = runinfo.manifest(
+        run_id, started=started.isoformat(timespec="seconds"), finished=_dt.datetime.now().isoformat(timespec="seconds"),
+        inputs={ch: metas[ch]["video"] for ch in metas}, template=template, channels_cfg=cfg, rules=rules,
+        lexicon_path=lex_path, ocr_backend=a.backend, asr=a.asr, asr_model=a.asr_model, llm_model=llm_model,
+        llm_state=llm_state, resumed={ch: {"mode": extraction[ch], "stages": runinfo.load_stages(work, ch)} for ch in extraction},
+        out_files=[str(out), str(out.with_suffix(".evidence.jsonl")), str(out.with_suffix(".stories.jsonl")),
+                   str(out.with_suffix(".report.json"))])
+    out.with_suffix(".manifest.json").write_text(json.dumps(man, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"→ {out}\n→ {out.with_suffix('.review.html')}\n→ {out.with_suffix('.manifest.json')}（{run_id}）")
     if a.upload:
         import os
 
@@ -377,11 +420,32 @@ def cmd_eval(a: argparse.Namespace) -> int:
     headers = {k: v["excel_column_header"] for k, v in cfg.items()}
     sysd = evaluate.read_sheet(Path(a.system), headers)
     gold = evaluate.read_sheet(Path(a.gold), headers)
+    # 規則 EVAL-1：只評估標準答案裡有標註的台；沒標的台不算進去（否則每一格都會變成「誤報」）
+    scope = [ch for ch, col in gold.items() if col]
+    skipped = [ch for ch in sysd if ch not in scope]
+    sysd = {ch: v for ch, v in sysd.items() if ch in scope}
+    gold = {ch: v for ch, v in gold.items() if ch in scope}
     rng = (a.test_from, a.test_to) if a.test_from else None
     rep = evaluate.evaluate(sysd, gold, a.sheet_start, a.minutes, a.tolerance, rng)
-    Path(a.out).write_text(rep.to_json(), encoding="utf-8")
+    data = json.loads(rep.to_json())
+    data["scope"] = scope
+    data["not_annotated"] = skipped
+    if a.stories and a.annotation:
+        stories = [json.loads(x) for x in Path(a.stories).read_text(encoding="utf-8").splitlines() if x.strip()]
+        gold_items = json.loads(Path(a.annotation).read_text(encoding="utf-8"))["items"]
+        data["seconds"] = evaluate.seconds_report(stories, gold_items, scope, a.minutes * 60, a.tolerance_sec)
+    Path(a.out).write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"評估範圍：{'、'.join(scope)}" + (f"（未標註、不計：{'、'.join(skipped)}）" if skipped else ""))
     print(f"換題 F1 {rep.change['f1']}（P {rep.change['precision']} R {rep.change['recall']}）"
           f"｜廣告 F1 {rep.ad['f1']}｜錯誤 {len(rep.errors)} 筆 → {a.out}")
+    for ch, d in (data.get("seconds") or {}).items():
+        b = d["boundary"]
+        print(f"  {ch} 秒級：換題 F1 {b['f1']}（±{b['tolerance_sec']:.0f} 秒，時間差中位數 {b['median_error_sec']} 秒）"
+              f"｜切太碎 {d['split']}｜併太多 {d['merge']}｜廣告誤入新聞 {d['ad_leak_sec']} 秒｜新聞誤判廣告 {d['news_lost_to_ad_sec']} 秒")
+        for tag, h in d.get("hard_cases", {}).items():
+            rec = f"換題找到 {h['boundary_found']}（recall {h['boundary_recall']}）" if h["boundary_recall"] is not None else ""
+            ad = f"廣告誤入新聞 {h['ad_leak_sec']}/{h['ad_seconds']} 秒" if h["ad_seconds"] else ""
+            print(f"    難例「{tag}」{h['items']} 項：{'；'.join(x for x in (rec, ad) if x)}")
     return 0
 
 
@@ -407,6 +471,16 @@ def cmd_apply_corrections(a: argparse.Namespace) -> int:
     as_cells = {ch: {m: Cell(ch, m, v, []) for m, v in col.items() if v} for ch, col in fixed.items()}
     excel_writer.write(Path(a.template), Path(a.out), as_cells, {k: headers[k] for k in as_cells})
     print(f"修正版 → {a.out}（原檔未改動）")
+    # 規則 QA-1：複查結果寫回每一格的品質狀態，另存一份依據檔（原依據檔不動）
+    ev_in = Path(a.evidence) if a.evidence else Path(a.sheet).with_suffix(".evidence.jsonl")
+    if ev_in.exists():
+        recs = [json.loads(x) for x in ev_in.read_text(encoding="utf-8").splitlines() if x.strip()]
+        n = review.apply_review(recs, review.load_corrections(Path(a.corrections)))
+        ev_out = Path(a.out).with_suffix(".evidence.jsonl")
+        ev_out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
+        print(f"複查結果：確認 {n['approved']}、修正 {n['corrected']}、退回 {n['rejected']}、仍待複查 {n['still_pending']} → {ev_out}")
+    else:
+        print(f"⚠ 找不到依據檔 {ev_in}，品質狀態沒有更新（可用 --evidence 指定）")
     return 0
 
 
@@ -494,13 +568,17 @@ def cmd_gold_import(a: argparse.Namespace) -> int:
     cfg = _load_yaml(a.channels)["channels"]
     headers = {k: v["excel_column_header"] for k, v in cfg.items()}
     data = annotate.load(Path(a.annotation))
-    cells = annotate.gold_cells(data["items"], headers.keys(), a.sheet_start, a.minutes)
+    labels = None
+    if a.rules:  # EVAL-1: the answer key uses the same minute rule as the system
+        from .schemas import Labels
+        labels = Labels.from_rules(_load_yaml(a.rules))
+    cells = annotate.gold_cells(data["items"], headers.keys(), a.sheet_start, a.minutes, labels)
     excel_writer.write(Path(a.template), Path(a.out), cells, headers)
     print(f"標準答案（{data['annotator']}）→ {a.out}")
     if a.other:
         from .minute_mapper import minute_labels
         other = annotate.load(Path(a.other))
-        oc = annotate.gold_cells(other["items"], headers.keys(), a.sheet_start, a.minutes)
+        oc = annotate.gold_cells(other["items"], headers.keys(), a.sheet_start, a.minutes, labels)
         starts = lambda cs: {ch: {m for m, c in v.items() if any(e.type.value == "news" for e in c.events)} for ch, v in cs.items()}
         k = annotate.kappa(starts(cells), starts(oc), minute_labels(a.sheet_start, a.minutes))
         print(f"兩位標註者換題分鐘一致性 Cohen's κ = {k:.2f}（目標 ≥0.8）")
@@ -651,6 +729,9 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--test-to", default="2359")
     ev.add_argument("--sheet-start", default="1200")
     ev.add_argument("--minutes", type=int, default=60)
+    ev.add_argument("--stories", help="系統的 .stories.jsonl：加上 --annotation 才算秒級指標")
+    ev.add_argument("--annotation", help="標註 JSON（有秒數），秒級指標用")
+    ev.add_argument("--tolerance-sec", type=float, default=30.0, help="秒級換題容許誤差")
     ev.set_defaults(func=cmd_eval)
 
     rv = sub.add_parser("review", help="依據 → 抽查頁 HTML")
@@ -665,6 +746,7 @@ def main(argv: list[str] | None = None) -> int:
     ac.add_argument("--template", required=True)
     ac.add_argument("--out", required=True)
     ac.add_argument("--channels", default="config/channels.example.yaml")
+    ac.add_argument("--evidence", help="原始依據檔；預設與 --sheet 同名的 .evidence.jsonl")
     ac.set_defaults(func=cmd_apply_corrections)
     wt = sub.add_parser("watch", help="監看側錄資料夾，每小時自動產表")
     wt.add_argument("--inbox", required=True, help="檔名格式 {channel}_{YYYYMMDD}_{HHMM}.mp4")
@@ -722,6 +804,7 @@ def main(argv: list[str] | None = None) -> int:
     gi.add_argument("--channels", default="config/channels.example.yaml")
     gi.add_argument("--sheet-start", default="1200")
     gi.add_argument("--minutes", type=int, default=60)
+    gi.add_argument("--rules", help="系統用的規則檔：標準答案改用同一種分鐘寫法（output.minute_rule）")
     gi.set_defaults(func=cmd_gold_import)
 
     up = sub.add_parser("upload", help="監看表上傳到自己的 Google 雲端（轉成試算表，之後更新同一份）")
