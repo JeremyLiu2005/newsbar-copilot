@@ -1,4 +1,4 @@
-"""Build the S36 submission deck on top of the base .pptx (keeps the cover, draws nine pages in the UNEXT proposal structure that also answer the five official questions).
+"""Build the S36 submission deck on top of the base .pptx (keeps the cover, draws nine pages: summary plus the UNEXT proposal sections, answering the five official questions).
 
     python3 tools/build_deck.py BASE.pptx OUT.pptx [ASSETS_DIR]
 
@@ -173,8 +173,8 @@ def heat_rows():
 def cover_key(s):
     """Which pages answer the five official questions (on the dark cover, right edge)."""
     text(s, 10.5, 1.55, 2.5, 0.3, "官方五問在哪一頁", 13, True, "F97316")
-    rows = [("Q1 影片如何自動變成 Excel", "第 5 頁"), ("Q2 換題、字幕與五字標對時", "第 6 頁"), ("Q3 廣告包框", "第 7 頁"),
-            ("Q4 Excel 呈現與驗證", "第 8、9 頁"), ("Q5 進度與擴大到全天", "第 9、10 頁")]
+    rows = [("Q1 影片如何自動變成 Excel", "第 6 頁"), ("Q2 換題、字幕與五字標對時", "第 7 頁"), ("Q3 廣告包框", "第 8 頁"),
+            ("Q4 Excel 呈現與驗證", "第 9 頁"), ("Q5 進度與擴大到全天", "第 10 頁")]
     y = 2.0
     for a, b in rows:
         text(s, 10.5, y, 2.7, 0.25, a, 12, True, "FFFFFF")
@@ -190,338 +190,348 @@ def qtag(s, label):
     tag(s, 0, 0.6, 0, label)
 
 
-def heat(s, gx, gy, cw2, ch, show_counts=True):
+def heat(s, gx, gy, cw2, ch):
     rows = heat_rows()
     cols = {"c": RED, "a": ORANGE, "": TRACK}
-    counts = [0] * 60
     for r, (k, name) in enumerate(CH):
         text(s, gx - 0.85, gy + r * ch, 0.8, ch, name, 9, True, INK, anchor=MSO_ANCHOR.MIDDLE)
         for m, v in enumerate(rows[k]):
             box(s, gx + m * cw2, gy + r * ch + 0.015, cw2 - 0.025, ch - 0.03, cols[v], None, 0)
-            counts[m] += v == "c"
-    yb = gy + 4 * ch + 0.03
-    if show_counts:
-        text(s, gx - 0.85, yb, 0.8, 0.2, "同時換題", 8, True, MUTE, anchor=MSO_ANCHOR.MIDDLE)
-        for m, n in enumerate(counts):
-            if n >= 2:
-                label_box(s, gx + m * cw2, yb, cw2 - 0.025, 0.2, str(n), RED if n >= 3 else SOFTRED, None, 7, True, "FFFFFF" if n >= 3 else RED, radius=0, pad=0)
-    for m in range(0, 60, 10):
-        text(s, gx + m * cw2, yb + 0.22, 0.6, 0.2, f"12:{m:02d}", 8, False, MUTE)
+    for m in range(0, 60, 15):
+        text(s, gx + m * cw2, gy + 4 * ch + 0.03, 0.6, 0.2, f"12:{m:02d}", 8, False, MUTE)
 
 
 def station(s, x, y, w, h, n, title, hot=False):
     box(s, x, y, w, h, RED if hot else CARD, None if hot else INK, 0, lw=1.0)
     label_box(s, x + 0.08, y + 0.08, 0.26, 0.26, str(n), "FFFFFF" if hot else INK, None, 10, True, RED if hot else "FFFFFF", radius=0, pad=0)
-    text(s, x + 0.12, y + 0.36, w - 0.2, h - 0.4, title, 12, True, "FFFFFF" if hot else INK, anchor=MSO_ANCHOR.MIDDLE)
+    text(s, x + 0.12, y + 0.36, w - 0.2, h - 0.4, title, 13, True, "FFFFFF" if hot else INK, anchor=MSO_ANCHOR.MIDDLE)
 
 
-def chip(s, x, y, w, t, size=9.5, fill=SOFT):
-    label_box(s, x, y, w, 0.3, t, fill, None, size, False, INK, radius=0.04, pad=0.04)
+def chip(s, x, y, w, t, fill=SOFT):
+    label_box(s, x, y, w, 0.32, t, fill, None, 10.5, False, INK, radius=0.04, pad=0.04)
 
 
-def s_p2(prs):
+def big_card(s, x, y, w, h, head, num, sub, fill=CARD):
+    box(s, x, y, w, h, fill, BORDER, 0.08)
+    text(s, x + 0.2, y + 0.12, w - 0.4, 0.3, head, 12, True, RED)
+    text(s, x + 0.2, y + 0.45, w - 0.4, 0.7, num, 28, True, INK)
+    text(s, x + 0.2, y + 1.3, w - 0.4, h - 1.4, sub, 15, False, INK, space=8)
+
+
+def s_sum(prs):
     s = blank(prs)
-    frame(s, "1.1 現況分析・1.2 真因分析", "一個人逐秒盯四台，真因是要同時比對好幾種訊號", 2, "流程整理自 11/22 說明會；熱力格為 11/06 12:00–12:59 四台系統輸出（三立側錄不納入填表）。")
-    sts = [("側錄四台", ["四台各錄一小時"]), ("逐秒看、判斷", ["一人同時盯四台", "包框留著舊標題"]), ("寫五字標", ["要讓人認得是哪則"]),
-           ("填入分鐘格", ["漏記、時間錯位"]), ("隔日灌收視率", ["錯一分鐘就算錯新聞"])]
+    frame(s, "摘要", "一鍵填好四台「12監看」，人只看標黃的格子", 2, "價值依每日監看 4–18 小時估算，待業師確認。實測：11/06 12:00–13:00 四台。")
+    cards = [("問題痛點與價值", "7–109 萬／年", ["真因：要同時比對多種訊號，一人盯四台跟不上", "結果：漏記、錯位，收視檢討算錯新聞"]),
+             ("核心解決方案", "一鍵、90 格", ["把四台側錄填回原「12監看」", "新聞部主導，創造智能協助"]),
+             ("驗證結果評估", "全部達標", [])]
+    for i, (h, n, sub) in enumerate(cards):
+        big_card(s, 0.67 + i * 4.06, 1.95, 3.86, 4.9, h, n, sub, SOFTRED if i == 2 else CARD)
+    bars = [("換題", 0.885, 0.85), ("廣告", 0.952, 0.90)]
+    for j, (n, v, t) in enumerate(bars):
+        y = 3.35 + j * 0.9
+        x0, wmax = 8.99, 3.4
+        text(s, x0, y, 1.0, 0.3, n, 11, True, INK)
+        box(s, x0, y + 0.32, wmax, 0.26, "FFFFFF", None, 0)
+        box(s, x0, y + 0.32, wmax * v, 0.26, RED, None, 0)
+        box(s, x0 + wmax * t - 0.015, y + 0.24, 0.03, 0.42, INK, None, 0)
+        text(s, x0 + 1.1, y, 2.3, 0.3, f"{v:.3f}（目標 {t:.2f}）", 10.5, False, INK)
+    text(s, 8.99, 5.25, 3.4, 0.8, ["填寫率 100%", "一台 Mac 46 分鐘"], 11.5, True, INK, space=3)
+    return s
+
+
+def s_prob(prs):
+    s = blank(prs)
+    frame(s, "1.1 現況分析・1.2 真因分析", "一人逐秒盯四台；真因是要同時比對多種訊號", 3, "熱力格：11/06 12:00–12:59 系統輸出。流程整理自 11/22 說明會。")
+    sts = [("側錄四台", "四台各一小時"), ("逐秒判斷", "一人盯四台"), ("寫五字標", "要讓人認得"), ("填分鐘格", "漏記、錯位"), ("隔日灌收視率", "錯一分鐘就錯")]
     w, g = 2.2, 0.25
-    for i, (t, probs) in enumerate(sts):
+    for i, (t, pr) in enumerate(sts):
         x = 0.67 + i * (w + g)
-        station(s, x, 1.82, w, 0.72, i + 1, t, hot=i == 1)
+        station(s, x, 1.85, w, 0.72, i + 1, t, hot=i == 1)
         if i < 4:
-            arrow(s, x + w + 0.02, 2.18, x + w + g - 0.02, 2.18, MUTE, 1.5)
-        for j, pr in enumerate(probs):
-            chip(s, x, 2.62 + j * 0.34, w, pr, fill=SOFTRED if i == 1 else SOFT)
-    text(s, 0.67, 3.38, 8, 0.25, "11/06 午間一小時，四台每分鐘的狀態（紅＝換題、橘＝廣告）", 11, True, RED)
-    heat(s, 1.5, 3.66, 0.12, 0.18)
-    for i, (a_, b_) in enumerate([("25 分鐘", "兩台以上同一分鐘換題"), ("6 分鐘", "三台以上同一分鐘換題")]):
-        y = 3.42 + i * 0.66
-        box(s, 9.05, y, 3.62, 0.58, CARD, BORDER, 0.06)
-        text(s, 9.2, y, 1.6, 0.58, a_, 18, True, RED, anchor=MSO_ANCHOR.MIDDLE)
-        text(s, 10.8, y, 1.85, 0.58, b_, 10, False, INK, anchor=MSO_ANCHOR.MIDDLE)
-    text(s, 0.67, 4.82, 6, 0.25, "真因分析（魚骨圖）", 11, True, RED)
+            arrow(s, x + w + 0.02, 2.21, x + w + g - 0.02, 2.21, MUTE, 1.5)
+        chip(s, x, 2.65, w, pr, SOFTRED if i == 1 else SOFT)
+    text(s, 0.67, 3.2, 8, 0.25, "四台每分鐘：紅＝換題、橘＝廣告", 11, True, RED)
+    heat(s, 1.5, 3.5, 0.12, 0.2)
+    box(s, 9.05, 3.25, 3.62, 1.2, SOFTRED, None, 0.08)
+    text(s, 9.2, 3.25, 3.4, 1.2, [[("25 分鐘", {"bold": True, "size": 22, "color": RED})], "兩台以上同一分鐘換題"], 11, False, INK, anchor=MSO_ANCHOR.MIDDLE)
     sy = 5.92
     box(s, 0.8, sy - 0.02, 8.9, 0.04, INK, None, 0)
-    label_box(s, 9.75, sy - 0.48, 2.92, 0.96, [[("漏記、時間錯位", {"bold": True})], [("收視檢討算錯新聞", {"size": 10})]], RED, None, 12, False, "FFFFFF", radius=0.08, pad=0.06)
-    bones = [("人", "一人盯四台；離席、疲勞就漏", 0), ("流程", "逐秒手打；隔日才發現錯", 1), ("工具", "畫面有跑馬燈、左側標、包框舊標題", 2),
-             ("資料", "畫面時鐘與檔名時間差 23–32 秒", 0), ("管理", "廣告後接回、節目預告記法沒統一", 1)]
+    label_box(s, 9.75, sy - 0.45, 2.92, 0.9, [[("漏記、時間錯位", {"bold": True})], [("收視檢討算錯新聞", {"size": 10})]], RED, None, 12, False, "FFFFFF", radius=0.08, pad=0.06)
+    bones = [("人", "一人盯四台", 0), ("流程", "逐秒手打", 1), ("工具", "跑馬燈、包框舊標題", 2), ("資料", "時鐘與檔名差 30 秒", 0), ("管理", "記法沒統一", 1)]
     for i, (c, d, k) in enumerate(bones):
         top = i < 3
-        bx = 0.95 + k * 3.0
-        by = 5.1 if top else 6.18
-        box(s, bx, by, 2.6, 0.62, CARD, INK, 0, lw=0.75)
-        text(s, bx + 0.1, by, 0.55, 0.62, c, 12, True, RED, anchor=MSO_ANCHOR.MIDDLE)
-        text(s, bx + 0.62, by, 1.93, 0.62, d, 9.5, False, INK, anchor=MSO_ANCHOR.MIDDLE)
-        ln = s.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(bx + 2.6), Inches(by + (0.62 if top else 0)), Inches(bx + 2.85), Inches(sy))
+        bx, by = 0.95 + k * 3.0, (5.0 if top else 6.2)
+        box(s, bx, by, 2.6, 0.6, CARD, INK, 0, lw=0.75)
+        text(s, bx + 0.1, by, 0.6, 0.6, c, 12, True, RED, anchor=MSO_ANCHOR.MIDDLE)
+        text(s, bx + 0.68, by, 1.9, 0.6, d, 11, False, INK, anchor=MSO_ANCHOR.MIDDLE)
+        ln = s.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(bx + 2.6), Inches(by + (0.6 if top else 0)), Inches(bx + 2.85), Inches(sy))
         ln.line.color.rgb = rgb(INK)
         ln.line.width = Pt(1.0)
     return s
 
 
-def s_p3(prs):
+def s_route(prs):
     s = blank(prs)
-    frame(s, "1.3 路由判斷・1.4 改善空間與商業價值", "先問能不能不用 AI，再算改好值多少", 3, "金額為假設，待業師確認：時薪 NT$235（2026 年基本時薪 196 元）、系統接手 85%、維運每年 22 萬；每日監看時數尚無資料，列三種情況。")
-    text(s, 0.67, 1.82, 6, 0.25, "1.3 每個真因，能不能不用 AI？", 12, True, RED)
-    rows = [("真因", "處理方式", "理由"),
-            ("多台同一分鐘換題，一人看不完", "AI", "加人只能分攤，判斷仍靠反應速度；機器四台同時看"),
-            ("包框殘字、跑馬燈、左側標干擾", "AI＋規則", "要同時比對多種畫面訊號，規則寫清楚交給機器最穩"),
-            ("五字標要好認又不能亂編", "AI＋檢查", "AI 濃縮，程式逐字檢查出處，不過就換規則摘字"),
-            ("記法沒統一（廣告後接回、節目預告）", "先管理", "不需要 AI，請業師訂一次統一記法"),
-            ("擔心 AI 出錯或取代人", "溝通", "人保留最終決定，系統只排出要看的格子")]
-    table(s, 0.67, 2.12, [3.7, 1.4, 6.9], [0.32] + [0.37] * 5, rows, size=11)
-    text(s, 0.67, 4.5, 8, 0.25, "1.4 改好了，每年值多少？（萬元）", 12, True, RED)
-    rows = [("改善項目", "現況與算法", "改善空間（全部解決）", "預期目標", "商業價值"),
-            ("監看人力・每日 4 小時", "4 小時 × 365 天 × 235 元", "34 萬", "系統接手 85%，扣維運 22 萬", "7 萬"),
-            ("監看人力・每日 8 小時", "8 小時 × 365 天 × 235 元", "69 萬", "同上", "36 萬"),
-            ("監看人力・每日 18 小時", "18 小時 × 365 天 × 235 元", "154 萬", "同上", "109 萬"),
-            ("收視檢討算錯新聞", "錯一分鐘，收視掉點算給錯的新聞", "算不成錢", "台別×分鐘自動對齊", "非量化")]
-    table(s, 0.67, 4.8, [2.4, 3.3, 2.1, 2.7, 1.5], [0.3] + [0.4] * 4, rows, size=10.5)
-    return s
-
-
-def s_p4(prs):
-    s = blank(prs)
-    frame(s, "2.1 未來場景・2.2 可能的方案・2.3 可行性分析", "七個做法，先做影響大又馬上能做的", 4, "時程與分工為提案設定，待業師確認。象限依影響度與資源準備度排列。")
-    text(s, 0.67, 1.82, 8, 0.25, "2.1 問題解決以後：每一站都有 AI 做的事，也有人做的事", 12, True, RED)
-    rows = [("", "側錄交檔", "判斷換題與廣告", "寫五字標", "填表", "隔日灌收視率"),
-            ("AI 做", "每小時自動切檔、排入處理", "四台同時判斷，留下每格依據", "濃縮 4–6 字，逐字檢查", "對分鐘寫回原表，另存複查版", "—"),
-            ("人做", "—", "看標黃的格子", "決定最後寫法", "按「對」或改寫", "照常灌入，格式沒變")]
-    table(s, 0.67, 2.12, [0.9, 2.1, 2.4, 2.1, 2.4, 2.1], [0.3, 0.38, 0.38], rows, size=10)
-    text(s, 0.67, 3.35, 6, 0.25, "2.2 每個真因的方案", 12, True, RED)
-    rows = [("真因", "方案"),
-            ("多台同時換題", "四台平行判斷：標題穩定 7 秒＋語音、主播鏡頭等佐證"),
-            ("包框與字幕干擾", "只讀標題列；10 種訊號判廣告；聲音指紋認廣告"),
-            ("五字標品質", "AI 寫標＋逐字檢查＋規則備援"),
-            ("對時錯位", "讀畫面時鐘；秒級判斷、分鐘級填表"),
-            ("沒把握的格子", "複查版 Excel 標黃附註解＋複查台"),
-            ("記法沒統一", "業師訂記法（管理制度）"),
-            ("越用越準", "RAG：修正紀錄進知識庫；ML：從答案學出各訊號權重")]
-    table(s, 0.67, 3.65, [1.75, 4.6], [0.3] + [0.41] * 7, rows, size=10.5)
-    text(s, 7.3, 3.35, 5.3, 0.25, "2.3 可行性：影響度 × 資源準備度", 12, True, RED)
-    qx, qy, qw, qh = 7.75, 3.68, 2.45, 1.6
-    quads = [("影響大・還沒準備好", ["顯示卡機四台並行", "全天自動交檔", "RAG 知識庫（程式已備）", "ML 學習判斷（程式已備）"], SOFT), ("影響大・馬上能做（已做）", ["只讀標題列", "廣告 10 種訊號", "秒級判斷分鐘填表", "AI 寫標＋逐字檢查", "複查版 Excel"], SOFTRED),
-             ("影響小・還沒準備好", ["全台廣告聲音庫"], "F6F6F6"), ("影響小・馬上能做", ["四台同一事件同名"], "F6F6F6")]
-    for i, (h, items, f) in enumerate(quads):
-        x, y = qx + (i % 2) * (qw + 0.05), qy + (i // 2) * (qh + 0.05)
-        box(s, x, y, qw, qh, f, RED if i == 1 else None, 0, lw=1.5)
-        text(s, x + 0.1, y + 0.06, qw - 0.2, 0.25, h, 9.5, True, RED)
-        text(s, x + 0.1, y + 0.35, qw - 0.2, qh - 0.4, items, 9.5, False, INK, space=1)
-    text(s, qx - 0.45, qy + 0.6, 0.4, 0.5, "影響大", 9, True, MUTE)
-    text(s, qx - 0.45, qy + qh + 0.65, 0.4, 0.5, "影響小", 9, True, MUTE)
-    return s
-
-
-def s_q2(prs):
-    s = blank(prs)
-    frame(s, "3.1 技術路線表②　換題、字幕與五字標對時", "Q2：只認主標題，四台各自對準分鐘", 6, "畫面為 TVBS-N 11/06 12:04 實際側錄；例子皆為 11/06 系統產出。表上時間依各台畫面時鐘，不依側錄檔名（兩者差 23–32 秒）。")
-    qtag(s, "Q2")
-    fx, fy, fw = 0.67, 1.85, 4.3
-    pic(s, "tvbs_1204_full.jpg", fx, fy, w=fw)
-    k = fw / 640
-    marks = [((160, 291, 476, 29), RED, "主標題 bar：唯一讀取"), ((160, 322, 480, 22), MUTE, "跑馬燈：不採用"),
-             ((160, 268, 186, 20), MUTE, "插播字幕、角標：不採用"), ((0, 0, 40, 290), MUTE, "左側標、天氣：不採用"), ((0, 322, 158, 22), ORANGE, "畫面時鐘：對時")]
-    for (bx, by, bw_, bh_), col, _ in marks:
-        box(s, fx + bx * k, fy + by * k, bw_ * k, bh_ * k, None, col, 0, lw=1.75)
-    for i, (_, col, t) in enumerate(marks):
-        y = fy + 0.05 + i * 0.47
-        box(s, fx + fw + 0.12, y + 0.05, 0.14, 0.14, col, None, 0)
-        text(s, fx + fw + 0.32, y, 1.55, 0.42, t, 9.5, False, INK)
-    text(s, 0.67, 4.42, 6.1, 0.25, "換題怎麼判斷", 12, True, RED)
-    text(s, 0.67, 4.72, 6.1, 2.2, [[("換題＝", {"bold": True}), ("標題列換新標題、穩定 7 秒，再加任一佐證：前後 20 秒語音話題不同、前後 5 秒主播鏡頭、說話的人換了、25 秒內記者名條", {})],
-                                   [("不算換題：", {"bold": True}), ("鏡位切換（主播→SOT→LIVE→假連→說新聞）、LIVE／直播字樣、只閃 5 秒以內的名條", {})],
-                                   [("併回原本那則：", {"bold": True}), ("3 分鐘內重複出現的標題；沒佐證的第二段標題", {})]], 10.5, False, INK, space=4)
-    x, w = 7.0, 5.67
-    text(s, x, 1.82, w, 0.25, "五字標怎麼寫", 12, True, RED)
-    text(s, x, 2.1, w, 1.2, ["只用這則的主標題＋語音；AI 寫 4–6 字，濃縮人、事、地，不硬切前五字", "逐字檢查：每個字出自來源；社會新聞要有地點；「疑、涉、傳」要保留",
-                             "沒過重寫一次；再沒過或 AI 沒回應，改用規則濃縮並標黃"], 10.5, False, INK, space=2)
-    rows = [("主標題", "五字標"), ("國三南下苑裡段貨車翻了！大量木材噴飛車道", "苑裡貨車翻車"), ("涉助共諜案張俊傑偷渡船長.5漁工遭押", "涉助共諜案")]
-    table(s, x, 3.35, [4.1, 1.57], [0.28, 0.32, 0.32], rows, size=10)
-    text(s, x, 4.42, w, 0.25, "秒級判斷，分鐘級填表", 12, True, RED)
-    rows = [("台・分鐘", "填入的五字標"), ("東森 12:00", "台積電拉回/德州新州長（12:00:50 換題）"), ("東森 12:01", "0050爆量股/陳奕光估反彈"),
-            ("民視 12:01–04", "留白：同一則延續")]
-    table(s, x, 4.72, [1.4, 4.27], [0.28, 0.32, 0.32, 0.32], rows, size=10)
-    text(s, x, 6.05, w, 0.9, ["從哪一秒開始就填那一分鐘；同分鐘多則依序用「/」；延續留白", "廣告起始那分鐘填「廣告」；四台各讀自己的畫面時鐘"], 10, False, INK, space=2)
-    return s
-
-
-def s_p8(prs):
-    s = blank(prs)
-    frame(s, "3.2 建置方式・3.3 試驗計劃", "誰負責每天的複查，怎樣算有效", 8, "R 負責執行、A 最後負責、C 事前要問、I 事後要知道；一件事只有一個 A。分工為提案設定，待業師確認。")
-    qtag(s, "Q4")
-    text(s, 0.67, 1.82, 8, 0.25, "3.2 管理機制：每日複查與每週規則更新（RACI）", 12, True, RED)
-    rows = [("工作項目", "監看員", "新聞部窗口", "創造智能／IT", "行政"),
-            ("每天看複查版標黃格，按對、改寫或不該填", "R", "A", "", "I"),
-            ("每天看品質日報（填寫率、標黃比例）", "I", "A", "R", ""),
-            ("每週依修正紀錄更新規則，連兩週沒進步就退回上一版", "C", "A", "R", ""),
-            ("電視台改版時，用校正頁重框標題列位置", "I", "A", "R", ""),
-            ("隔天 9 點依台別×分鐘灌收視率", "", "I", "", "R")]
-    table(s, 0.67, 2.12, [5.6, 1.5, 1.6, 1.8, 1.5], [0.32] + [0.38] * 5, rows, size=10.5)
-    text(s, 0.67, 4.55, 8, 0.25, "3.3 試驗計劃：先定怎樣算有效", 12, True, RED)
-    rows = [("方案", "看什麼指標", "做到多少算有效", "輸入資料", "測試方法"),
-            ("換題判斷", "換題準確度（起始分鐘差 1 分內算對）", "≥ 0.85", "11/06 四台一小時＋TVBS 人工答案", "前 20 分鐘調規則，之後只測"),
-            ("廣告判定", "廣告分鐘準確度", "≥ 0.90", "同上", "同上"),
-            ("一鍵填表", "自動填寫率；原表其他格不變", "100%；逐格比對全過", "空白「12監看」範本", "寫回後比對值與格式"),
-            ("處理速度", "四台一小時處理時間", "隔日 9 點前完成", "同上", "Mac 實跑計時")]
-    table(s, 0.67, 4.85, [1.3, 3.3, 1.9, 3.0, 2.5], [0.3] + [0.4] * 4, rows, size=10)
-    return s
-
-
-def s_p9(prs):
-    s = blank(prs)
-    frame(s, "4.1 初步結果・4.2 預期效益・4.3 後續優化建議", "四項目標全部達成，加上語音最關鍵", 9, "對照答案：TVBS-N 午間一小時人工標註，逐分鐘比對。Excel 為 11/06 實際產出節錄（12:05 到 12:34 之間省略）。")
-    qtag(s, "Q4・Q5")
-    text(s, 0.67, 1.82, 6, 0.25, "4.1 試驗結果總表", 12, True, RED)
-    rows = [("試驗的方案", "預期目標", "實際結果", "達成度"),
-            ("換題判斷", "準確度 0.85", "0.885（換題點找到 23／27）", "達成"),
-            ("廣告判定", "準確度 0.90", "0.952（廣告分鐘 10／10）", "達成"),
-            ("一鍵填表", "100%、原表不變", "90 格全自動，逐格比對通過", "達成"),
-            ("處理速度", "隔日 9 點前", "一台 Mac 46 分鐘", "達成")]
-    table(s, 0.67, 2.12, [1.3, 1.6, 3.0, 0.8], [0.3] + [0.36] * 4, rows, size=10.5)
+    frame(s, "1.3 路由判斷・1.4 改善空間與商業價值", "先問能不能不用 AI，再算值多少", 4, "公式：每日時數 × 365 × 85% × 時薪 235 − 維運 22 萬。假設值，待業師確認。")
+    causes = [("多台同時換題", 0), ("包框、跑馬燈干擾", 0), ("五字標要好認", 0), ("記法沒統一", 1), ("怕 AI 出錯", 2)]
+    buckets = [("AI＋規則", RED), ("管理制度", INK), ("溝通", MUTE)]
+    by = [1.95, 3.45, 4.35]
+    for j, (b, c) in enumerate(buckets):
+        label_box(s, 5.0, by[j] + (0.45 if j == 0 else 0), 2.2, 0.62, b, c, None, 13, True, "FFFFFF", radius=0.06, pad=0.04)
+    for i, (t, k) in enumerate(causes):
+        y = 1.95 + i * 0.6
+        chip(s, 0.67, y, 3.4, t, SOFT)
+        ty = by[k] + (0.45 if k == 0 else 0) + 0.31
+        arrow(s, 4.1, y + 0.16, 4.97, ty, RED if k == 0 else MUTE, 1.25)
+    text(s, 0.67, 5.15, 6.6, 1.5, [[("先問能不能不用 AI：", {"bold": True, "color": RED}), ("記法靠管理、擔心靠溝通；只有要同時比對多種訊號的事交給 AI。", {})]], 12, False, INK)
+    text(s, 7.9, 1.85, 4.7, 0.28, "一年淨效益（萬元）", 13, True, RED)
     cd = CategoryChartData()
-    cd.categories = ["只看標題文字", "加上語音"]
-    cd.add_series("換題準確度", (0.758, 0.885))
-    gf = s.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(7.75), Inches(2.1), Inches(2.4), Inches(1.95), cd)
+    cd.categories = ["每日 4 小時", "每日 8 小時", "每日 18 小時"]
+    cd.add_series("萬元", (7, 36, 109))
+    gf = s.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(7.9), Inches(2.2), Inches(4.77), Inches(2.9), cd)
     ch = gf.chart
     ch.has_title = False
     ch.has_legend = False
-    chart_text(ch, 9)
+    chart_text(ch, 11)
     pl = ch.plots[0]
-    pl.gap_width = 50
+    pl.gap_width = 60
     pl.has_data_labels = True
-    pl.data_labels.number_format = "0.000"
-    pl.data_labels.number_format_is_linked = False
-    pl.data_labels.font.size = Pt(10)
+    pl.data_labels.font.size = Pt(12)
     pl.data_labels.font.bold = True
-    ser = pl.series[0]
-    ser.format.fill.solid()
-    ser.format.fill.fore_color.rgb = rgb(RED)
-    pt = ser.points[0]
-    pt.format.fill.solid()
-    pt.format.fill.fore_color.rgb = rgb("D4D4D4")
+    pl.series[0].format.fill.solid()
+    pl.series[0].format.fill.fore_color.rgb = rgb(RED)
     va = ch.value_axis
-    va.minimum_scale, va.maximum_scale = 0.6, 1.0
     va.visible = False
     va.has_major_gridlines = False
-    ch.category_axis.tick_labels.font.size = Pt(9)
-    text(s, 10.3, 2.15, 2.37, 1.9, [[("關鍵發現", {"bold": True, "color": RED})], "語音是換題判斷最關鍵的一環：只看標題文字 0.758，加上語音 0.885。", [("ML 學習版", {"bold": True, "color": RED})], "測試段換題 0.867 → 0.929，誤判 2 → 0；四台答案到齊再預設開啟。"], 9.5, False, INK, space=2)
-    text(s, 0.67, 4.15, 6.8, 0.25, "Excel 呈現：只填四台五字標，收視率欄原封不動", 12, True, RED)
-    pic(s, "excel_annot.png", 0.67, 4.45, w=4.4)
-    text(s, 5.2, 4.45, 2.3, 2.45, ["只開「12監看」分頁，只寫值", "A30、M30、A4+ 不碰", "寫完逐格比對值與格式", "另附複查版：標黃＋註解寫影片時間、標題原文、語音、原因"], 9.5, False, INK, space=3)
-    x, w = 7.75, 4.92
-    text(s, x, 4.15, w, 0.25, "4.2 預期效益", 12, True, RED)
-    rows = [("效益來源", "效益", "推估算法"),
-            ("監看人力", "每年 7–109 萬", "每日 4–18 小時 × 85%（見第 3 頁）"),
-            ("收視檢討", "不再算錯新聞", "台別×分鐘自動對齊（非量化）")]
-    table(s, x, 4.45, [1.1, 1.45, 2.37], [0.28, 0.36, 0.36], rows, size=9.5)
-    text(s, x, 5.52, w, 0.25, "4.3 要走到商用，接下來", 12, True, RED)
-    text(s, x, 5.8, w, 1.2, [[("真實資料：", {"bold": True}), ("三立提供四台各一小時、兩位監看員的答案", {})],
-                             [("RAG：", {"bold": True}), ("知識庫已建 22 筆，監看員每次修正自動加入，照三立寫法", {})],
-                             [("ML：", {"bold": True}), ("答案到齊後重訓換題與廣告權重，變差就退回上一版", {})],
-                             [("並行與加快：", {"bold": True}), ("午間與人工並行兩週；顯示卡機目標 15 分鐘", {})]], 9.5, False, INK, space=1)
+    va.minimum_scale, va.maximum_scale = 0, 125
+    box(s, 7.9, 5.3, 4.77, 1.1, SOFT, None, 0.08)
+    text(s, 8.1, 5.35, 4.4, 1.0, [[("維持現狀的風險", {"bold": True, "color": RED})], "收視掉點算給錯新聞", "台數、時段變多，人力跟著變多"], 11.5, False, INK, space=2)
     return s
 
 
-def s_p10(prs):
+def s_tobe(prs):
     s = blank(prs)
-    frame(s, "5.1 前 90 天・5.2 潛在問題分析與預防・5.3 人與關係", "90 天三波，達標才擴大", 10, "時程與門檻為提案設定，待業師確認。處理速度換算：一台 Mac 每處理一小時四台影片 46 分鐘，全天 24 小時四台約 18.4 小時。")
-    qtag(s, "Q5")
-    lanes = [("前 30 天", "先把答案與記法定下來", ["四台各一小時、兩位監看員標註", "業師訂廣告後接回、節目預告記法", "側錄每小時自動交檔"], "兩位標註者一致性 ≥ 0.8"),
-             ("到 60 天", "午間和人工並行", ["每天午間系統與人工各做一份", "顯示卡機實測四台同時處理"], "準確度 ≥ 0.80，四台一小時 ≤ 15 分鐘"),
-             ("到 90 天", "擴到晚間與全天", ["午間＋晚間正式交付", "一台 Mac 每天約 18.4 小時跑完全天四台；全部本機、不用 API"], "準確度 ≥ 0.85，人工 ≤ 3 小時／日")]
-    lw = 3.92
-    for i, (h, sub, items, done) in enumerate(lanes):
-        x = 0.67 + i * (lw + 0.12)
-        box(s, x, 1.82, lw, 0.42, RED if i == 2 else INK, None, 0)
-        text(s, x + 0.12, 1.82, lw - 0.2, 0.42, [[(h + "　", {"bold": True, "size": 13}), (sub, {"size": 10.5})]], 11, False, "FFFFFF", anchor=MSO_ANCHOR.MIDDLE)
-        box(s, x, 2.24, lw, 1.18, CARD, INK, 0, lw=0.75)
-        text(s, x + 0.12, 2.3, lw - 0.24, 1.1, items, 10, False, INK, space=2)
-        label_box(s, x, 3.42, lw, 0.34, "怎樣算完成：" + done, SOFTRED, None, 9.5, True, RED, radius=0, pad=0.06, align=PP_ALIGN.LEFT)
-    text(s, 0.67, 3.86, 12, 0.25, "Go／No-go：每一波達標才進下一波；準確度低於 0.70 就停止擴大、回頭調規則。", 10, True, MUTE)
-    text(s, 0.67, 4.2, 6, 0.25, "5.2 做了以後會出什麼事，怎麼預防", 12, True, RED)
-    rows = [("潛在問題", "預防措施"),
-            ("電視台改版，標題列位置變了", "品質日報讀取率突降就告警；校正頁重框一次"),
-            ("監看員只按「對」，沒細看", "每週抽 10 格和人工答案比對"),
-            ("AI 服務中斷", "自動改用規則寫標並標黃，流程不停"),
-            ("記法爭議（廣告後接回同一則）", "請業師訂一次，寫進規則")]
-    table(s, 0.67, 4.5, [2.9, 3.4], [0.3] + [0.4] * 4, rows, size=10)
-    text(s, 7.2, 4.2, 5.4, 0.25, "5.3 誰擔心什麼？怎麼跟他說", 12, True, RED)
-    rows = [("關鍵人物", "他的顧慮", "溝通方式（一句話）"),
-            ("監看員", "被取代、多一份工", "「機器填，你決定；標黃的才需要你看。」"),
-            ("新聞部主管", "AI 出錯誰負責", "「每格有依據，改過留紀錄，原表不動。」"),
-            ("行政", "表格變了", "「格式一格都沒動，照常灌收視率。」"),
-            ("創造智能", "維運負擔", "「只接檔案，不改側錄系統；規則可退版。」")]
-    table(s, 7.2, 4.5, [1.15, 1.5, 2.82], [0.3] + [0.4] * 4, rows, size=9.5)
+    frame(s, "2.1 未來的工作方式・2.2 評估指標・2.3 驗證方式", "AI 先填，人只複查；四項指標驗收", 5, "負責人與週期為提案設定，待業師確認。")
+    lanes = [("AI", ["讀標題", "判廣告", "判換題", "寫五字標", "對分鐘"], RED), ("人", ["", "", "看標黃格", "決定寫法", "每週更新規則"], INK)]
+    for r, (who, items, c) in enumerate(lanes):
+        y = 1.9 + r * 0.78
+        label_box(s, 0.67, y, 0.7, 0.62, who, c, None, 13, True, "FFFFFF", radius=0.04, pad=0.02)
+        for i, t in enumerate(items):
+            if t:
+                label_box(s, 1.47 + i * 1.08, y, 1.0, 0.62, t, SOFTRED if r == 0 else SOFT, None, 10.5, True, INK, radius=0.04, pad=0.03)
+    text(s, 0.67, 3.5, 6.2, 0.3, "管理：新聞部窗口看日報；連兩週變差就退版", 11, True, MUTE)
+    text(s, 7.2, 1.85, 5.4, 0.28, "2.2 評估指標（權重 100%）", 13, True, RED)
+    cd = CategoryChartData()
+    cd.categories = ["換題準確度 ≥0.85", "廣告準確度 ≥0.90", "自動填寫率 100%", "處理時間 隔日 9 點前"]
+    cd.add_series("權重", (30, 25, 20, 25))
+    gf = s.shapes.add_chart(XL_CHART_TYPE.DOUGHNUT, Inches(7.2), Inches(2.15), Inches(5.47), Inches(2.3), cd)
+    ch = gf.chart
+    ch.has_title = False
+    chart_text(ch, 10)
+    ch.has_legend = True
+    ch.legend.position = XL_LEGEND_POSITION.RIGHT
+    ch.legend.include_in_layout = False
+    ch.legend.font.size = Pt(10)
+    pl = ch.plots[0]
+    pl.has_data_labels = True
+    pl.data_labels.show_value = True
+    pl.data_labels.number_format = '0"%"'
+    pl.data_labels.number_format_is_linked = False
+    pl.data_labels.font.size = Pt(11)
+    pl.data_labels.font.bold = True
+    pl.data_labels.font.color.rgb = rgb("FFFFFF")
+    for i, c in enumerate([RED, ORANGE, "F59E0B", MUTE]):
+        pt = pl.series[0].points[i]
+        pt.format.fill.solid()
+        pt.format.fill.fore_color.rgb = rgb(c)
+    text(s, 0.67, 4.35, 6, 0.28, "2.3 驗證方式", 13, True, RED)
+    steps = [("資料", "11/06 四台一小時"), ("步驟", "12:20 前調、之後只測"), ("對照組", "不用語音的版本"), ("假設", "加上語音會更準")]
+    for i, (a, b) in enumerate(steps):
+        x = 0.67 + i * 3.03
+        station(s, x, 4.7, 2.88, 0.75, i + 1, a)
+        chip(s, x, 5.55, 2.88, b)
+        if i < 3:
+            arrow(s, x + 2.9, 5.07, x + 3.01, 5.07, MUTE, 1.5)
     return s
 
 
 AITYPE = ["VISION", "FLOW", "VISION・SPEECH", "規則＋ML", "規則＋ML", "LLM＋RAG", "FLOW"]
 
 
-def s_q1(prs):
+def s_sol(prs):
     s = blank(prs)
-    frame(s, "3.1 技術路線表①　影片如何從頭到尾變成 Excel", "Q1：一個指令，四台影片進、填好的「12監看」出", 5, "全程在本機執行，影片不離開三立。分 Mac 版與 NVIDIA 顯示卡版，GitHub 兩種版本皆可下載。")
+    frame(s, "3.1 解決方案・3.2 解法思路・3.3 採用工具・3.4 施作方式", "Q1：一個指令，四台進、「12監看」出", 6, "全程本機執行。指令：newsbar run --input-dir 資料夾。")
     qtag(s, "Q1")
-    box(s, 0.67, 1.85, 12.0, 0.78, CARD, BORDER, 0.08)
-    text(s, 0.87, 1.85, 11.6, 0.78, [[("一鍵啟動　", {"bold": True, "color": RED}), ("指令 ", {}), ("newsbar run --input-dir 資料夾", {"bold": True}), ("，自動認出四台影片與範本；或在網頁按「開始分析」", {})],
-                                     [("輸出　", {"bold": True, "color": RED}), ("交付版「12監看」（原格式）＋複查版（標黃附註解）＋每格判斷依據；AI 服務沒開會自動啟動，啟動不了改用規則寫標，照樣產出", {})]], 12, False, INK, anchor=MSO_ANCHOR.MIDDLE, space=3)
-    arch = [("1 讀影片", "讀畫面角落的電視台時鐘對時；四台各自一路"), ("2 抽畫面與聲音", "每秒 1 張，只裁標題列、時鐘、台徽等固定區域"),
-            ("3 辨識", "標題列文字每 5 秒多數決；語音轉文字；聲音指紋"), ("4 先判廣告", "10 種訊號任兩種成立"), ("5 再判換題", "標題換了＋1 項佐證"),
-            ("6 寫五字標", "AI 寫，逐字檢查"), ("7 對分鐘寫回", "起始秒所在分鐘；只寫四台五字標欄")]
+    box(s, 0.67, 1.85, 12.0, 0.75, CARD, BORDER, 0.08)
+    text(s, 0.87, 1.85, 11.6, 0.75, [[("輸入　", {"bold": True, "color": RED}), ("四台側錄＋空白範本　　", {}), ("輸出　", {"bold": True, "color": RED}), ("原格式「12監看」＋複查版", {})],
+                                     [("不做　", {"bold": True, "color": RED}), ("收視率欄、新欄位、真偽判斷、取代側錄系統", {})]], 12, False, INK, anchor=MSO_ANCHOR.MIDDLE, space=2)
+    arch = ["讀影片", "抽畫面", "辨識", "判廣告", "判換題", "寫五字標", "寫回 Excel"]
     w, g = 1.6, 0.13
-    for i, (t, d) in enumerate(arch):
+    for i, t in enumerate(arch):
         x = 0.67 + i * (w + g)
-        last = i == len(arch) - 1
-        box(s, x, 2.82, w, 1.3, RED if last else CARD, None if last else BORDER, 0.08)
-        text(s, x + 0.08, 2.86, w - 0.16, 1.22, [[(t, {"bold": True, "size": 12})], d], 10, False, "FFFFFF" if last else INK, PP_ALIGN.CENTER, MSO_ANCHOR.MIDDLE, space=3)
-        if not last:
-            arrow(s, x + w + 0.005, 3.47, x + w + g - 0.005, 3.47, RED, 1.25)
-        label_box(s, x, 4.17, w, 0.24, AITYPE[i], SOFTRED, None, 8.5, True, RED, radius=0.04, pad=0.02)
-    text(s, 0.67, 4.5, 12, 0.28, "每個工具怎麼做決定　｜　拿掉標題列讀取，廣告、換題、五字標全部跟著垮", 13, True, RED)
-    rows = [("工具", "負責", "怎麼做決定"),
-            ("Apple Vision／PaddleOCR", "讀標題列、時鐘", "只讀各台設定好的標題列位置；同一標題 5 秒內取出現最多次的讀法，單張讀錯不影響"),
-            ("faster-whisper", "語音轉文字", "比對換題點前後 20 秒的話題；話題沒變就不算新的一則"),
-            ("自建聲音指紋", "認出已知廣告", "確認過的廣告聲音自動入庫；同一支廣告在別台、別天出現直接命中"),
-            ("qwen2.5:7b（本機）", "寫五字標", "溫度 0＋結果快取，同一支影片每次結果相同；寫出的字逐一回查標題原文"),
-            ("openpyxl", "寫回 Excel", "依表頭文字找到時間列與四台五字標欄，只寫值，其他格子不碰")]
-    table(s, 0.67, 4.8, [2.3, 1.7, 8.0], [0.3] + [0.35] * 5, rows, size=10.5)
+        station(s, x, 2.8, w, 0.8, i + 1, t, hot=i == 6)
+        if i < 6:
+            arrow(s, x + w + 0.005, 3.2, x + w + g - 0.005, 3.2, RED, 1.25)
+        label_box(s, x, 3.66, w, 0.26, AITYPE[i], SOFTRED, None, 9, True, RED, radius=0.04, pad=0.02)
+    tools = [("看", "Apple Vision／PaddleOCR", "只讀標題列；5 秒取最多次的讀法"), ("聽", "faster-whisper", "前後 20 秒話題變了才算新的一則"),
+             ("認", "聲音指紋", "認過的廣告，下次直接認出"), ("寫", "qwen2.5:7b（本機）", "寫 4–6 字，每個字查出處")]
+    for i, (ic, n, d) in enumerate(tools):
+        x = 0.67 + i * 3.03
+        box(s, x, 4.2, 2.88, 2.2, CARD, BORDER, 0.08)
+        label_box(s, x + 0.2, 4.4, 0.75, 0.75, ic, RED, None, 22, True, "FFFFFF", radius=0.37, pad=0)
+        text(s, x + 1.1, 4.4, 1.7, 0.75, n, 11, True, INK, anchor=MSO_ANCHOR.MIDDLE)
+        text(s, x + 0.2, 5.35, 2.5, 1.0, d, 13, False, INK)
+    return s
+
+
+def s_q2(prs):
+    s = blank(prs)
+    frame(s, "3.2 解法思路・3.4 施作方式", "Q2：只認主標題，四台各自對準分鐘", 7, "畫面：TVBS-N 11/06 12:04。例子皆為 11/06 系統產出。")
+    qtag(s, "Q2")
+    fx, fy, fw = 0.67, 1.85, 5.0
+    pic(s, "tvbs_1204_full.jpg", fx, fy, w=fw)
+    k = fw / 640
+    marks = [((160, 291, 476, 29), RED, "標題列：只讀這裡"), ((160, 322, 480, 22), MUTE, "跑馬燈：不讀"), ((0, 0, 40, 290), MUTE, "左側標：不讀"), ((0, 322, 158, 22), ORANGE, "時鐘：對時")]
+    for (bx, by, bw_, bh_), col, _ in marks:
+        box(s, fx + bx * k, fy + by * k, bw_ * k, bh_ * k, None, col, 0, lw=2.0)
+    for i, (_, col, t) in enumerate(marks):
+        xx, yy = fx + (i % 2) * 2.5, 4.75 + (i // 2) * 0.36
+        box(s, xx, yy + 0.07, 0.15, 0.15, col, None, 0)
+        text(s, xx + 0.22, yy, 2.2, 0.3, t, 11, False, INK)
+    text(s, fx, 5.6, fw, 1.3, [[("換題＝", {"bold": True, "color": RED}), ("新標題穩定 7 秒＋語音或主播佐證", {})], [("不算：", {"bold": True, "color": RED}), ("鏡位切換、LIVE 字樣", {})]], 12, False, INK, space=4)
+    x, w = 6.2, 6.47
+    text(s, x, 1.85, w, 0.28, "五字標", 13, True, RED)
+    text(s, x, 2.15, w, 0.6, "AI 寫 4–6 字；每個字出自標題，社會新聞要有地點", 12, False, INK)
+    rows = [("主標題", "五字標"), ("國三南下苑裡段貨車翻了！", "苑裡貨車翻車")]
+    table(s, x, 2.75, [4.4, 2.07], [0.32, 0.4], rows, size=11)
+    text(s, x, 3.7, w, 0.28, "秒級判斷，分鐘級填表（東森）", 13, True, RED)
+    tx, ty, tw = x + 0.05, 4.35, w - 0.1
+    per = tw / 180
+    segs = [(0, 50, "台積電拉回"), (50, 94, "德州新州長"), (94, 107, ""), (107, 159, "陳奕光估反彈"), (159, 180, "台股急跌")]
+    for j, (a_, b_, t) in enumerate(segs):
+        box(s, tx + a_ * per, ty, (b_ - a_) * per, 0.45, SOFTRED if j % 2 == 0 else "FCA5A5", None, 0)
+        if t:
+            text(s, tx + a_ * per + 0.03, ty, (b_ - a_) * per, 0.45, t, 9, True, INK, anchor=MSO_ANCHOR.MIDDLE)
+    cells = ["台積電拉回/德州新州長", "0050爆量股/陳奕光估反彈", "台股急跌點"]
+    for m in range(3):
+        box(s, tx + m * 60 * per, ty - 0.1, 0.02, 0.65, INK, None, 0)
+        text(s, tx + m * 60 * per, ty - 0.35, 1.0, 0.25, f"12:0{m}", 10, True, INK)
+        arrow(s, tx + (m * 60 + 30) * per, ty + 0.5, tx + (m * 60 + 30) * per, ty + 0.85, RED, 1.25)
+        label_box(s, tx + m * 60 * per + 0.03, ty + 0.88, 60 * per - 0.06, 0.62, cells[m], CARD, INK, 9.5, True, INK, radius=0, pad=0.03)
+    text(s, x, 6.0, w, 0.9, ["從哪一秒開始就填那一分鐘", "同分鐘多則用「/」，延續留白"], 11.5, False, INK, space=2)
     return s
 
 
 def s_q3(prs):
     s = blank(prs)
-    frame(s, "3.1 技術路線表③　廣告包框如何辨認、記錄與恢復新聞", "Q3：廣告看 10 種訊號，包框裡的舊標題一律不採用", 7, "參數為 11/06 實跑設定。照片：東森 12:34:46–12:38:44 同一段廣告破口，平均截 4 張。")
+    frame(s, "3.2 解法思路・3.4 施作方式", "Q3：10 種訊號認廣告，包框舊標題不採用", 8, "照片：東森 12:34–12:38 同一段廣告。")
     qtag(s, "Q3")
-    x, w = 0.67, 4.6
-    text(s, x, 1.85, w, 0.28, "10 種訊號（任兩種同時成立）", 13, True, RED)
-    groups = [("畫面", ["主畫面版面改變（縮成包框）", "台徽消失", "黑畫面切換", "畫面時鐘消失"]), ("標題列", ["底色改變", "出現廣告文案", "輪播今日新聞預告", "跑馬燈消失"]),
-              ("聲音", ["廣告用語、沒有主播或記者", "聲音指紋命中已知廣告"])]
-    y = 2.2
-    for g, items in groups:
-        label_box(s, x, y, 0.8, 0.3 * len(items), g, SOFTRED, None, 11, True, RED, radius=0.06, pad=0.02)
-        text(s, x + 0.95, y, w - 0.95, 0.3 * len(items), items, 11, False, INK, anchor=MSO_ANCHOR.MIDDLE)
-        y += 0.3 * len(items) + 0.12
-    text(s, x, 5.55, w, 1.35, ["跑馬燈仍在的台，要多一種訊號才算（新聞圖卡也會擋住台徽）", "確認過的廣告聲音自動入庫，下次同一支廣告在任何一台都直接認出"], 10.5, False, MUTE, space=3)
-    x, w = 5.55, 7.12
-    text(s, x, 1.85, w, 0.28, "進廣告、記錄、回新聞", 13, True, RED)
-    st = [("新聞", ""), ("疑似廣告", "兩種訊號出現"), ("廣告", "持續 10 秒"), ("疑似回新聞", "版面恢復"), ("新聞", "")]
-    bw = 1.22
-    for i, (n, c) in enumerate(st):
-        xx = x + i * (bw + 0.255)
-        label_box(s, xx, 2.2, bw, 0.46, n, SOFT if n == "廣告" else CARD, RED if n == "廣告" else BORDER, 12, True, INK, pad=0.02)
+    groups = [("畫面", "版面縮框、台徽消失、黑畫面、時鐘消失"), ("標題列", "底色變、廣告文案、新聞預告、跑馬燈消失"), ("聲音", "廣告用語、聲音指紋")]
+    for i, (g, d) in enumerate(groups):
+        y = 1.9 + i * 0.62
+        label_box(s, 0.67, y, 1.0, 0.5, g, SOFTRED, None, 12, True, RED, radius=0.06, pad=0.02)
+        text(s, 1.8, y, 4.5, 0.5, d, 11.5, False, INK, anchor=MSO_ANCHOR.MIDDLE)
+    st = ["新聞", "疑似廣告", "廣告", "疑似回新聞", "新聞"]
+    bw = 1.1
+    for i, n in enumerate(st):
+        xx = 6.6 + i * (bw + 0.12)
+        label_box(s, xx, 1.95, bw, 0.5, n, SOFT if n == "廣告" else CARD, RED if n == "廣告" else BORDER, 11, True, INK, pad=0.02)
         if i < 4:
-            arrow(s, xx + bw + 0.01, 2.43, xx + bw + 0.245, 2.43, RED, 1.25)
-        if c:
-            text(s, xx - 0.25, 2.7, bw, 0.25, c, 9, False, MUTE, PP_ALIGN.CENTER)
-    rows = [("階段", "怎麼判斷", "表上怎麼記"),
-            ("進廣告", "任兩種訊號同時成立、持續 10 秒；起點是第一個訊號出現的那一秒", "起點那分鐘填「廣告」"),
-            ("廣告中", "標題列文字凍結：包框旁的新聞推播、殘留的舊標題都不當換題", "延續留白，不沿用舊標題"),
-            ("回新聞", "版面、標題列底色恢復，且出現主播、語音或新標題，維持 5 秒", "回來那分鐘重新填標"),
-            ("過濾", "不到 25 秒的不算破口（節目片頭）；8 秒內的空隙併成同一段", "不會多記一格廣告")]
-    table(s, x, 3.05, [1.0, 4.27, 1.85], [0.32, 0.5, 0.5, 0.5, 0.5], rows, size=10.5)
-    for i, (f, t) in enumerate(zip(["ettv_1234_0_ad05.jpg", "ettv_1234_0_ad35.jpg", "ettv_1234_0_ad65.jpg", "ettv_1234_0_ad95.jpg"], ["12:34:57", "12:36:09", "12:37:20", "12:38:32"])):
-        pic(s, f, x + i * 1.8, 5.55, w=1.7)
-        text(s, x + i * 1.8, 6.52, 1.7, 0.22, t, 9, True, INK)
-    text(s, x, 6.72, w, 0.25, "實測：TVBS-N 一小時 10 個廣告分鐘全部抓到。", 10, True, RED)
+            arrow(s, xx + bw + 0.005, 2.2, xx + bw + 0.115, 2.2, RED, 1.25)
+    for i, (h, d, r) in enumerate([("進", "任兩種訊號，持續 10 秒", "填「廣告」"), ("中", "包框裡舊標題不採用", "留白"), ("回", "版面恢復＋主播或新標題", "重新填標")]):
+        x = 6.6 + i * 2.05
+        box(s, x, 2.75, 1.95, 1.6, CARD, BORDER, 0.08)
+        label_box(s, x + 0.12, 2.87, 0.5, 0.5, h, RED, None, 14, True, "FFFFFF", radius=0.25, pad=0)
+        text(s, x + 0.12, 3.45, 1.75, 0.55, d, 10.5, False, INK)
+        text(s, x + 0.12, 3.98, 1.75, 0.3, r, 11, True, RED)
+    for i, (f, t) in enumerate(zip(["ettv_1234_0_ad05.jpg", "ettv_1234_0_ad35.jpg", "ettv_1234_0_ad65.jpg", "ettv_1234_0_ad95.jpg"], ["12:34", "12:36", "12:37", "12:38"])):
+        pic(s, f, 0.67 + i * 3.03, 4.6, w=2.88)
+        text(s, 0.67 + i * 3.03, 6.25, 2.88, 0.25, t, 10, True, INK)
+    text(s, 0.67, 6.55, 12, 0.3, "實測：廣告分鐘 10／10 全部抓到", 12, True, RED)
+    return s
+
+
+def s_res(prs):
+    s = blank(prs)
+    frame(s, "4.1 評估結果・4.2 結論與選擇", "Q4：四項指標全達標，加權 100 分", 9, "對照答案：TVBS-N 人工標註，逐分鐘比對。Excel 為實際產出節錄。")
+    qtag(s, "Q4")
+    text(s, 0.67, 1.85, 5, 0.28, "實測對目標", 13, True, RED)
+    cd = CategoryChartData()
+    cd.categories = ["換題準確度", "廣告準確度"]
+    cd.add_series("實測", (0.885, 0.952))
+    cd.add_series("目標", (0.85, 0.90))
+    gf = s.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.67), Inches(2.15), Inches(4.4), Inches(1.95), cd)
+    ch = gf.chart
+    ch.has_title = False
+    chart_text(ch, 10)
+    ch.has_legend = True
+    ch.legend.position = XL_LEGEND_POSITION.BOTTOM
+    ch.legend.include_in_layout = False
+    ch.legend.font.size = Pt(10)
+    for ser, c in zip(ch.plots[0].series, (RED, "D4D4D4")):
+        ser.format.fill.solid()
+        ser.format.fill.fore_color.rgb = rgb(c)
+    pl = ch.plots[0]
+    pl.gap_width = 60
+    pl.has_data_labels = True
+    pl.data_labels.number_format = "0.000"
+    pl.data_labels.number_format_is_linked = False
+    pl.data_labels.font.size = Pt(10)
+    va = ch.value_axis
+    va.minimum_scale, va.maximum_scale = 0.7, 1.0
+    va.visible = False
+    va.has_major_gridlines = False
+    ch.category_axis.reverse_order = True
+    label_box(s, 0.67, 4.2, 2.1, 0.5, "填寫率 100%", SOFT, None, 12, True, INK, radius=0.06)
+    label_box(s, 2.97, 4.2, 2.1, 0.5, "46 分鐘完成", SOFT, None, 12, True, INK, radius=0.06)
+    label_box(s, 0.67, 4.85, 4.4, 0.85, [[("加權總分　", {"size": 13}), ("100", {"size": 28, "bold": True})]], RED, None, 12, False, "FFFFFF", radius=0.08)
+    text(s, 0.67, 5.85, 4.4, 1.0, ["取捨：多跑語音換準確度", "下一步：開啟 RAG 與 ML"], 11.5, True, INK, space=3)
+    pic(s, "excel_annot.png", 5.35, 1.9, w=3.6)
+    text(s, 5.35, 3.72, 3.6, 0.5, "只寫四台五字標，收視率欄不動", 11, True, INK)
+    pic(s, "rv_card.png", 5.35, 4.3, h=2.55)
+    text(s, 7.5, 4.35, 1.6, 1.2, "複查版：標黃＋註解", 11, True, INK)
+    s.shapes.add_picture(str(A / "qr_proto.png"), Inches(9.35), Inches(1.9), width=Inches(1.5))
+    text(s, 11.0, 1.95, 1.7, 1.4, ["操作原型", "點一格，看那一秒"], 11, False, INK, space=2)
+    pic(s, "result.png", 9.35, 3.6, w=3.3)
+    return s
+
+
+def s_plan(prs):
+    s = blank(prs)
+    frame(s, "5.1 前 90 天・5.2 潛在問題分析與預防・5.3 人與關係", "Q5：一台 Mac 跟得上全天；90 天達標才擴大", 10, "一台 Mac 處理一小時四台 46 分鐘，全天約 18.4 小時。時程為提案設定。")
+    qtag(s, "Q5")
+    lanes = [("前 30 天", "四台答案、統一記法", "一致性 ≥ 0.8"), ("到 60 天", "午間與人工並行", "準確度 ≥ 0.80"), ("到 90 天", "擴到晚間與全天", "準確度 ≥ 0.85")]
+    lw = 3.92
+    for i, (h, d, done) in enumerate(lanes):
+        x = 0.67 + i * (lw + 0.12)
+        box(s, x, 1.85, lw, 0.42, RED if i == 2 else INK, None, 0)
+        text(s, x + 0.15, 1.85, lw - 0.3, 0.42, h, 13, True, "FFFFFF", anchor=MSO_ANCHOR.MIDDLE)
+        box(s, x, 2.27, lw, 0.6, CARD, INK, 0, lw=0.75)
+        text(s, x + 0.15, 2.27, lw - 0.3, 0.6, d, 12, False, INK, anchor=MSO_ANCHOR.MIDDLE)
+        label_box(s, x, 2.87, lw, 0.36, "完成：" + done, SOFTRED, None, 11, True, RED, radius=0, pad=0.08, align=PP_ALIGN.LEFT)
+    text(s, 0.67, 3.35, 12, 0.3, "Go／No-go：準確度低於 0.70 就停止擴大", 11, True, MUTE)
+    text(s, 0.67, 3.85, 6, 0.28, "5.2 潛在問題（機率 × 衝擊）", 13, True, RED)
+    gx, gy, cell = 1.5, 4.2, 0.85
+    for r in range(3):
+        for c in range(3):
+            score = (2 - r) + c
+            box(s, gx + c * cell * 1.6, gy + r * cell, cell * 1.6 - 0.04, cell - 0.04, SOFTRED if score >= 3 else (SOFT if score == 2 else "F6F6F6"), None, 0)
+    for i, t in enumerate(["衝擊高", "中", "低"]):
+        text(s, gx - 0.8, gy + i * cell + 0.28, 0.75, 0.3, t, 10, True, MUTE, PP_ALIGN.RIGHT)
+    for i, t in enumerate(["機率低", "中", "高"]):
+        text(s, gx + i * cell * 1.6, gy + 3 * cell, cell * 1.6, 0.25, t, 10, True, MUTE, PP_ALIGN.CENTER)
+    pts = [("改版→重新校正", 1, 0), ("AI 中斷→規則寫標", 0, 1), ("只按「對」→每週抽查", 1, 1)]
+    for t, c, r in pts:
+        label_box(s, gx + c * cell * 1.6 + 0.06, gy + r * cell + 0.2, cell * 1.6 - 0.16, 0.42, t, RED, None, 9, True, "FFFFFF", radius=0.06, pad=0.02)
+    text(s, 7.0, 3.85, 5.6, 0.28, "5.3 人與關係", 13, True, RED)
+    ppl = [("監看員", "怕被取代", "機器填，你決定"), ("新聞部主管", "出錯誰負責", "每格有依據"), ("行政", "表格變了", "格式一格沒動")]
+    for i, (who, worry, say) in enumerate(ppl):
+        x = 7.0 + i * 1.92
+        box(s, x, 4.2, 1.8, 2.6, CARD, BORDER, 0.08)
+        label_box(s, x + 0.55, 4.35, 0.7, 0.7, who[0], INK, None, 18, True, "FFFFFF", radius=0.35, pad=0)
+        text(s, x + 0.1, 5.1, 1.6, 0.3, who, 11, True, INK, PP_ALIGN.CENTER)
+        text(s, x + 0.1, 5.42, 1.6, 0.3, worry, 10, False, MUTE, PP_ALIGN.CENTER)
+        text(s, x + 0.1, 5.85, 1.6, 0.8, "「" + say + "」", 11, True, RED, PP_ALIGN.CENTER)
     return s
 
 
@@ -541,7 +551,7 @@ def main(base, out, assets=None):
     for i in range(len(prs.slides) - 1, 0, -1):  # keep only the base cover
         drop_slide(prs, i)
     cover_key(prs.slides[0])
-    for fn in (s_p2, s_p3, s_p4, s_q1, s_q2, s_q3, s_p8, s_p9, s_p10):
+    for fn in (s_sum, s_prob, s_route, s_tobe, s_sol, s_q2, s_q3, s_res, s_plan):
         fn(prs)
     prs.save(out)
     print("slides:", len(prs.slides))
