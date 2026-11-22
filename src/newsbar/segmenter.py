@@ -34,6 +34,8 @@ class SegParams:
     carousel_max_sec: int = 12
     asr_window_sec: int = 20  # NEW-2a
     visual_window_sec: int = 5  # NEW-2b, NEW-2c
+    mode: str = "rules"  # "rules" (default) | "learned": a trained probability decides story changes
+    model: str | None = None  # learned: model file, or "active" (data/models/active.json)
 
     @classmethod
     def from_rules(cls, rules: dict | None) -> "SegParams":
@@ -46,6 +48,8 @@ class SegParams:
             asr_veto=r.get("asr_veto", cls.asr_veto),
             asr_window_sec=r.get("asr_window_sec", cls.asr_window_sec),
             visual_window_sec=r.get("visual_window_sec", cls.visual_window_sec),
+            mode=r.get("mode", cls.mode),
+            model=r.get("model", cls.model),
         )
 
 
@@ -96,6 +100,12 @@ class Segment:
         return " ".join(t for t in self.asr_texts if t)
 
 
+def _ratio(a: str, b: str) -> float:
+    from difflib import SequenceMatcher
+
+    return 1.0 if a == b else SequenceMatcher(None, a, b).ratio()
+
+
 _CREDIT = re.compile(r"^[\u4e00-\u9fff]{2,12}$")
 # Function characters that occur in speech subtitles but practically never in personal names.
 _NOT_IN_NAMES = set("的了是我你他她們說這那會有在就也都要還不沒很個嗎呢吧啊喔啦因為所以如果但")
@@ -111,13 +121,29 @@ def is_weather(text: str) -> bool:
     return any(k in text for k in lexicon.get().weather_words)  # config/lexicon.yaml: weather_words
 
 
+CHANGE_FEATURES = ["run_len", "new2a", "new2b", "new2c", "new2d", "sim", "lex_same", "seen180",
+                   "asr_present", "credit_flash", "since_last"]
+
+
 def segment(
     obs: list[SecondObs],
     ad: AdResult,
     params: SegParams = SegParams(),
     judge: SameStoryJudge | None = None,
+    recorder: list | None = None,
 ) -> list[Segment]:
+    """`recorder` (ML dataset building): every change candidate — a stable title that is not already
+    in the current story — appends {"sec", "features", "rules_new"}; it never alters the result."""
     judge = judge or LexicalJudge()
+    learned = None
+    if params.mode == "learned":
+        from .mlmodel import load_model
+
+        if not params.model:
+            raise ValueError("segmenter.mode: learned 需要 segmenter.model（模型檔路徑或 active）")
+        learned = load_model(params.model, "change")
+    elif params.mode != "rules":
+        raise ValueError(f"unknown segmenter.mode {params.mode!r}")
     obs = sorted(obs, key=lambda o: o.sec)
     idx = {o.sec: i for i, o in enumerate(obs)}
     segs: list[Segment] = []
@@ -164,6 +190,29 @@ def segment(
         if last_credit is not None and 0 <= t - last_credit <= params.credit_window_sec:
             sigs.append("NEW-2d")
         return sigs
+
+    def candidate_features(t: int, text: str) -> dict:
+        """Features of "does the title that starts at t open a new story?" (change candidates only)."""
+        i = idx[t]
+        j = i
+        while j < len(obs) and text_of(obs[j]) == text and ad.states.get(obs[j].sec, NEWS) == NEWS and j - i < 120:
+            j += 1
+        sigs = evidence(t)
+        v = params.visual_window_sec
+        win = obs[max(0, i - v) : i + v + 1]
+        assert cur is not None
+        recent = [b for sg in segs if t - sg.start <= params.recur_window_sec for b in sg.bar_texts]
+        return {
+            "run_len": float(j - i),
+            "new2a": float("NEW-2a" in sigs), "new2b": float("NEW-2b" in sigs),
+            "new2c": float("NEW-2c" in sigs), "new2d": float("NEW-2d" in sigs),
+            "sim": max((_ratio(text, b) for b in cur.bar_texts), default=0.0),
+            "lex_same": float(judge.same(text, cur.bar_texts)),
+            "seen180": float(any(_ratio(text, b) >= 0.8 for b in recent)),
+            "asr_present": float(any(o.asr_text for o in win)),
+            "credit_flash": float(last_credit is not None and 0 <= t - last_credit <= 3),
+            "since_last": float(min(t - cur.start, 300)),
+        }
 
     def open_seg(seg: Segment) -> Segment:
         nonlocal cur, last_news_idx
@@ -267,13 +316,37 @@ def segment(
             if cur.type is EventType.WEATHER and is_weather(run_text):
                 cur.bar_texts.append(run_text)
                 continue
+            # A change candidate: a stable title inside a running news story, not weather, not a name card.
+            cand = (cur.type is EventType.NEWS and bool(cur.bar_texts) and not is_weather(run_text)
+                    and not (is_credit(run_text) or run_text.startswith(("主播", "記者"))))
+            feats = candidate_features(run_start, run_text) if cand and (learned or recorder is not None) else None
+            if learned and feats is not None:
+                p = learned.predict(feats)
+                if recorder is not None:
+                    recorder.append({"sec": run_start, "features": feats, "p": round(p, 4)})
+                if p < learned.threshold:
+                    cur.bar_texts.append(run_text)
+                    cur.signals.append("ML-same")
+                    continue
+                sigs = [k for k, f in (("NEW-1", True), ("NEW-2a", feats["new2a"]), ("NEW-2b", feats["new2b"]),
+                                       ("NEW-2c", feats["new2c"]), ("NEW-2d", feats["new2d"])) if f]
+                open_seg(Segment(run_start, EventType.NEWS, bar_texts=[run_text], signals=sigs + ["ML-new"],
+                                 confidence=Confidence.HIGH.value))
+                if o.asr_text:
+                    cur.asr_texts.append(o.asr_text)  # type: ignore[union-attr]
+                continue
+            n_before = len(segs)
             if cur.type is EventType.NEWS and cur.bar_texts and judge.same(run_text, cur.bar_texts):
                 cur.bar_texts.append(run_text)  # SAME-3 / SAME-4
+                if feats is not None and recorder is not None:
+                    recorder.append({"sec": run_start, "features": feats, "rules_new": False})
                 continue
             if cur.type is EventType.NEWS and not cur.bar_texts:
                 cur.bar_texts.append(run_text)  # first bar reading of an ASR-opened story
                 continue
             open_story(run_start, run_text)
+            if feats is not None and recorder is not None:
+                recorder.append({"sec": run_start, "features": feats, "rules_new": len(segs) > n_before})
             if o.asr_text:
                 cur.asr_texts.append(o.asr_text)  # type: ignore[union-attr]
         elif (

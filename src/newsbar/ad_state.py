@@ -23,6 +23,8 @@ class AdParams:
     outage_black_sec: int = 30  # FB-6
     merge_gap_sec: int = 8
     min_break_sec: int = 25  # real breaks run ≥30 s; the 13 s programme intro at 12:00 is not one
+    mode: str = "rules"  # "rules" (default) | "learned": a trained per-second probability replaces the signal count
+    model: str | None = None  # learned: model file, or "active" (data/models/active.json)
 
     @classmethod
     def from_rules(cls, rules: dict | None) -> "AdParams":
@@ -33,6 +35,8 @@ class AdParams:
             return_confirm_sec=r.get("return_confirm_sec", cls.return_confirm_sec),
             return_timeout_sec=r.get("return_timeout_sec", cls.return_timeout_sec),
             outage_black_sec=r.get("outage_black_sec", cls.outage_black_sec),
+            mode=r.get("mode", cls.mode),
+            model=r.get("model", cls.model),
         )
 
 
@@ -112,13 +116,16 @@ class _CarouselParams:
     carousel_min_titles = 6
 
 
-def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
-    obs = sorted(obs, key=lambda o: o.sec)
+AD_SIGNALS = [f"AD-{c}" for c in "abcdefghij"]
+AD_FEATURES = AD_SIGNALS + ["ticker", "run_len"]
+
+
+def signal_fn(obs: list[SecondObs]):
+    """Per-second ad signals exactly as the rules read them (AD-g only on channels that normally
+    show a ticker; AD-i = headline carousel). Shared by the rules and the learned mode."""
     n = len(obs)
-    has_asr = any(o.asr_text for o in obs)
     # AD-g only means something on channels that normally show a ticker.
     has_ticker = sum(1 for o in obs if o.ticker_text) >= 0.5 * max(1, n)
-
     # AD-i: a headline-teaser carousel in the bar = framed ad (11/06 FTV ×3)
     carousel = carousel_seconds(obs, _CarouselParams())
 
@@ -129,6 +136,43 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
         if o.sec in carousel:
             sg = sg + ["AD-i"]
         return sg
+
+    return sigs_of
+
+
+def ad_feature_rows(obs: list[SecondObs]) -> list[tuple[int, dict]]:
+    """(sec, features) for every second: the 10 signals, ticker on screen, and how many seconds in a
+    row (up to now) any signal has been present."""
+    obs = sorted(obs, key=lambda o: o.sec)
+    sigs_of = signal_fn(obs)
+    rows, run = [], 0
+    for o in obs:
+        sg = sigs_of(o)
+        run = run + 1 if sg else 0
+        f = {name: float(name in sg) for name in AD_SIGNALS}
+        f["ticker"] = float(o.ticker_text is not None)
+        f["run_len"] = float(min(run, 120))
+        rows.append((o.sec, f))
+    return rows
+
+
+def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
+    obs = sorted(obs, key=lambda o: o.sec)
+    n = len(obs)
+    has_asr = any(o.asr_text for o in obs)
+    sigs_of = signal_fn(obs)
+
+    learned: list[bool] | None = None  # per second: the model says "ad"
+    if params.mode == "learned":
+        from .mlmodel import load_model
+
+        if not params.model:
+            raise ValueError("ad_state.mode: learned 需要 ad_state.model（模型檔路徑或 active）")
+        mdl = load_model(params.model, "ad")
+        rows = ad_feature_rows(obs)
+        learned = [mdl.predict(f) >= mdl.threshold for _, f in rows]
+    elif params.mode != "rules":
+        raise ValueError(f"unknown ad_state.mode {params.mode!r}")
 
     states: dict[int, str] = {o.sec: NEWS for o in obs}
     breaks: list[AdBreak] = []
@@ -166,7 +210,8 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                 need = params.min_signals + (1 if obs[j].ticker_text else 0)
                 sg = sigs_of(obs[j])
                 score = len(sg) + (1 if "AD-i" in sg else 0)  # a teaser loop already sums 2 min of evidence
-                strong = strong + 1 if score >= need else 0
+                hit = learned[j] if learned is not None else score >= need  # learned: p ≥ threshold replaces the count
+                strong = strong + 1 if hit else 0
                 if strong >= params.min_duration_sec:
                     entered_at = j
                     break
@@ -195,7 +240,8 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                     layout_back_since = k if layout_back_since is None else layout_back_since
                 else:
                     layout_back_since = None
-                if _return_ok(ok, residual_bar, residual_topic, has_asr) and len(sigs_of(ok)) + ("AD-i" in sigs_of(ok)) < params.min_signals:
+                still_ad = learned[k] if learned is not None else len(sigs_of(ok)) + ("AD-i" in sigs_of(ok)) >= params.min_signals
+                if _return_ok(ok, residual_bar, residual_topic, has_asr) and not still_ad:
                     ok_run += 1
                     if ok_run >= params.return_confirm_sec:
                         end = k - params.return_confirm_sec + 1

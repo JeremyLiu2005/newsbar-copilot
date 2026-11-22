@@ -177,6 +177,41 @@ uv run newsbar run --input-dir data/raw --sheet-start 1800 --minutes 60 \
 
 **沒有 Ollama 或模型當掉時**，`run` 會先檢查服務、必要時啟動 `ollama serve`；仍連不上就整批改用規則擷取五字標並標為低信心，不會停。單一台處理失敗時，其他台照常出表，失敗的台列在複查清單（`.report.csv` 第一列、`.review.html` 上方、`.report.json` 的 `failed_channels`），Excel 裡不會有任何標記。`run` 另存一份 `*_複查版.xlsx`：異常格標黃並附註解（影片時間、OCR、語音、原因），交件用沒有標記的那份；不要複查版加 `--no-review-copy`。
 
+## RAG 與 ML（預設關閉）
+
+兩項功能都預設關閉，不開時輸出與提示詞和原本逐位元相同（`labeler.rag.enabled: false`、`segmenter.mode: rules`、`ad_state.mode: rules`）。設計成回饋迴圈：三立每多給一批標好的資料，重建 KB、重訓模型，再用同一個留出窗比較。
+
+**RAG：五字標檢索**（`src/newsbar/kb.py`）
+
+```bash
+newsbar kb build --workdir data/work_full --out-root out/web   # gold + 抽查修正 + FEW_SHOT 種子 → data/kb/labels.jsonl
+newsbar kb add-sheet --sheet 舊表.xlsx --titles 標題.csv --date 2026-10-26   # 歷史監看表
+newsbar kb eval --rules config/rules.1106.yaml --workdir data/work_full      # 逐題排除自己，RAG 關/開對照
+newsbar run ... --kb data/kb/labels.jsonl                       # 給了 --kb 就啟用；或在 rules 設 labeler.rag.enabled: true
+```
+
+- 一筆 = `{id, title, label, channel, date, source: gold|correction|history|seed}`。只收「五字標通過 `labeler.validate`（對它自己的標題）」的配對，所以範例不會教模型違反規則。
+- **只有五字標的舊監看表配不成對**：表上沒有標題，必須另附標題檔（csv/json/jsonl：`channel,minute,title`，或 `newsbar run` 產生的 `*.evidence.jsonl`）。
+- 檢索用字元二連詞 TF-IDF 餘弦（numpy，不需額外套件、不需嵌入模型），取前 `k` 筆（預設 3），插在 FEW_SHOT 後面當額外對話輪。啟用時 `PROMPT_VERSION` 為 `v4-rag`，快取鍵含取回的 id 與五字標；關閉時仍是 `v3-hedge`，舊快取照用。
+- 回饋：監看員在網頁存抽查修正時，會同步新增或更新該格的 KB 紀錄（寫入失敗不影響存檔）。
+- `kb eval` 需要 Ollama 與 `qwen2.5:7b-instruct`；連不上或沒有模型時只印檢索診斷並說明原因。
+
+**ML：換題與廣告判斷**（`src/newsbar/ml.py`、`mlmodel.py`）
+
+```bash
+newsbar ml dataset --rules config/rules.1106.yaml --workdir data/work_full      # → data/ml/{change,ad}.jsonl
+newsbar ml train   --rules config/rules.1106.yaml --workdir data/work_full --train-until 1220   # → data/models/{change,ad}_vN.json
+newsbar ml eval    --rules config/rules.1106.yaml --workdir data/work_full       # 12:20–12:59，規則 vs 學習式，印各訊號權重
+newsbar ml cv      --rules config/rules.1106.yaml --workdir data/work_full       # 以廣告區塊分段交叉驗證
+newsbar ml rollback --kind change
+```
+
+- 換題：沿用 segmenter 的判斷點（標題穩定 7 秒、不在目前這則裡），特徵 = 穩定秒數、NEW-2a/2b/2c/2d、與目前這則的標題相似度（difflib）、詞彙共同詞（SAME-3/4）、180 秒內出現過、有無語音、名條閃現、距上次換題秒數。標籤 = 該點是否為最近的 gold 換題起點（±60 秒、一對一）。
+- 廣告：每秒一列，特徵 = AD-a…AD-j 十個訊號、跑馬燈是否在、訊號已連續幾秒。標籤來自 gold 廣告區間（廣告起點到下一則新聞起點）。
+- 模型 = numpy 邏輯迴歸（L2、標準化、類別加權），存成 JSON（特徵名、權重、門檻、訓練窗、指標、時間）。`ml train` 若留出 F1 低於現行 active 就拒絕取代（`--force` 例外）；`ml rollback` 退回上一版。
+- 啟用：在 rules 設 `segmenter.mode: learned` + `segmenter.model: active`（或模型檔路徑），`ad_state.mode` 同理。學習式換題：機率 ≥ 門檻才開新的一則，SAME-8 與廣告前併回維持不變；學習式廣告：逐秒機率 ≥ 門檻取代「訊號數 ≥ 2」，10 秒／25 秒／8 秒與回歸判斷維持不變。
+- **資料量很小，數字請保守解讀**：gold 只有 TVBS 一台 30 筆（研究者初標，非獨立標註），訓練窗 12:00–12:20 只有 12 個換題正例，且完全沒有廣告，所以廣告模型在這個切法下訓練不出來；`ml cv` 是唯一的樣本外廣告證據。三立提供更多標好的資料後再跑一次即可。
+
 ## 文件
 
 - [docs/requirements.md](docs/requirements.md)：需求分析與逐條狀態

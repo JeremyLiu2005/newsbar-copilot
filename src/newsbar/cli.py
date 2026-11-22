@@ -294,7 +294,7 @@ def cmd_run(a: argparse.Namespace) -> int:
     headers = {k: v["excel_column_header"] for k, v in cfg.items() if k in streams}
     if not headers:
         raise SystemExit("沒有任何一台處理成功：" + "；".join(f"{c} {m}" for c, m in failed.items()))
-    gen = llm.from_rules(rules)
+    gen = llm.from_rules(rules, getattr(a, "kb", None))
     if gen is not None:
         host = getattr(gen, "host", None)
         if host and not llm.ensure_ollama(host):  # R20: no AI service is not a reason to stop
@@ -591,6 +591,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--asr-model", help="例：small（Mac）、large-v3-turbo（GPU）")
     r.add_argument("--asr-parallel", type=int, default=None,
                    help="同時轉錄幾台；預設 Mac 1、其他 2（8 GB 顯示卡），16 GB 以上可設 4")
+    r.add_argument("--kb", help="五字標知識庫（RAG）；給了就啟用檢索，否則看 rules 的 labeler.rag.enabled（預設關閉）")
     r.add_argument("--resume", action="store_true", help="已有 obs.jsonl 的台別直接沿用")
     r.add_argument("--jobs", type=int, default=1, help="平行處理台數（建議 4）")
     r.add_argument("--upload", action="store_true", help="完成後上傳到自己的 Google 雲端（試算表）")
@@ -708,6 +709,63 @@ def main(argv: list[str] | None = None) -> int:
     cl.add_argument("--workdir", default="data/work")
     cl.add_argument("--older-than-days", type=float, default=7)
     cl.set_defaults(func=cmd_cleanup)
+
+    from . import kb as kbm
+    from . import ml as mlm
+
+    def common(sp, *names):
+        d = {"rules": ("--rules", "config/rules.example.yaml"), "gold": ("--gold", "eval/gold/tvbs_researcher_provisional.json"),
+             "workdir": ("--workdir", "data/work"), "kb": ("--kb", "data/kb/labels.jsonl"),
+             "ml_dir": ("--ml-dir", "data/ml"), "models_dir": ("--models-dir", "data/models")}
+        for n in names:
+            sp.add_argument(d[n][0], default=d[n][1])
+
+    kbp = sub.add_parser("kb", help="五字標知識庫（RAG，預設關閉）")
+    ksub = kbp.add_subparsers(dest="kbcmd", required=True)
+    kbb = ksub.add_parser("build", help="由抽查修正與 gold 重建 KB")
+    common(kbb, "gold", "workdir", "kb")
+    kbb.add_argument("--out-root", default="out/web", help="各 job 資料夾（內含 corrections.json 與 *.evidence.jsonl）")
+    kbb.add_argument("--date", default="2026-11-06")
+    kbb.add_argument("--no-seed", action="store_true")
+    kbb.set_defaults(func=kbm.cmd_build)
+    kba = ksub.add_parser("add-sheet", help="匯入歷史監看表（要另附標題檔，只有五字標配不成對）")
+    common(kba, "kb")
+    kba.add_argument("--sheet", required=True)
+    kba.add_argument("--titles", help="標題檔：csv/json/jsonl 欄位 channel,minute,title；或 *.evidence.jsonl")
+    kba.add_argument("--channels", default="config/channels.example.yaml")
+    kba.add_argument("--date", required=True)
+    kba.set_defaults(func=kbm.cmd_add_sheet)
+    kbe = ksub.add_parser("eval", help="TVBS gold 逐題排除自己，RAG 關/開對照（需要 Ollama）")
+    common(kbe, "rules", "gold", "workdir", "kb")
+    kbe.add_argument("-k", type=int, default=3)
+    kbe.add_argument("--detail", action="store_true")
+    kbe.set_defaults(func=kbm.cmd_eval)
+
+    mlp = sub.add_parser("ml", help="換題與廣告的學習式判斷（預設關閉）")
+    msub = mlp.add_subparsers(dest="mlcmd", required=True)
+    for name, fn, h in (("dataset", mlm.cmd_dataset, "重建訓練資料 data/ml/*.jsonl"),
+                        ("train", mlm.cmd_train, "訓練並存成 data/models/*_vN.json"),
+                        ("eval", mlm.cmd_eval, "規則 vs 學習式，並列印各訊號權重"),
+                        ("cv", mlm.cmd_cv, "分段交叉驗證（留出一個廣告區塊）"),
+                        ("rollback", mlm.cmd_rollback, "退回上一版模型")):
+        sp = msub.add_parser(name, help=h)
+        common(sp, "rules", "gold", "workdir", "ml_dir", "models_dir")
+        sp.set_defaults(func=fn)
+        if name in ("train", "eval", "cv"):
+            sp.add_argument("--eval-from", default="1220")
+            sp.add_argument("--eval-to", default="1259")
+        if name in ("train", "cv", "rollback"):
+            sp.add_argument("--kind", default="both", choices=["both", "change", "ad"])
+        if name in ("train", "cv"):
+            sp.add_argument("--l2", type=float, default=1.0)
+        if name == "train":
+            sp.add_argument("--train-until", default="1220", help="HHMM；只用此時刻之前的資料訓練")
+            sp.add_argument("--force", action="store_true", help="留出 F1 下降也取代 active")
+            sp.add_argument("--rebuild", action="store_true", help="先重建 data/ml")
+        if name == "eval":
+            sp.add_argument("--change-model", help="預設用 active")
+            sp.add_argument("--ad-model", help="預設用 active")
+            sp.add_argument("--tolerance", type=int, default=1)
     a = p.parse_args(argv)
     return a.func(a)
 

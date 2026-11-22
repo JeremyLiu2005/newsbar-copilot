@@ -270,7 +270,30 @@ def load_corrections(job: Job) -> list[dict]:
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
 
 
-def save_correction(job: Job, req: dict) -> list[dict]:
+def _feed_kb(job: Job, row: dict, kb_path: Path | None) -> None:
+    """Feedback loop: a saved review also teaches the label KB. Never allowed to break saving."""
+    if kb_path is None:
+        return
+    try:
+        from . import kb
+
+        kb.feed_correction(kb_path, row, job.out.parent, job.id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def kb_path_for(s: "Settings") -> Path:
+    import yaml
+
+    rag = {}
+    try:
+        rag = ((yaml.safe_load(s.rules.read_text(encoding="utf-8")) or {}).get("labeler") or {}).get("rag") or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        pass
+    return Path(rag.get("kb") or "data/kb/labels.jsonl")
+
+
+def save_correction(job: Job, req: dict, kb_path: Path | None = None) -> list[dict]:
     """One record per (channel, minute); the newest review of a cell replaces the older one.
     Same fields as the review page's export, so `newsbar apply-corrections` reads it too."""
     ch, minute = str(req.get("channel", "")), str(req.get("minute", ""))
@@ -293,6 +316,8 @@ def save_correction(job: Job, req: dict) -> list[dict]:
         raise ValueError("verdict 只能是 ok、fix 或 remove")
     rows.sort(key=lambda c: (c["minute"], c["channel"]))
     corrections_path(job).write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+    _feed_kb(job, next((c for c in rows if (c["channel"], c["minute"]) == (ch, minute)),
+                       {"channel": ch, "minute": minute, "verdict": "remove"}), kb_path)
     return rows
 
 
@@ -419,7 +444,7 @@ def make_handler(s: Settings, jobs: Jobs):
                 try:
                     if m[2] == "corrections":
                         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
-                        return self.json({"items": save_correction(job, req)})
+                        return self.json({"items": save_correction(job, req, kb_path_for(s))})
                     out = write_corrected(job, s)
                     return self.json({"file": out.name, "count": len(load_corrections(job))})
                 except (ValueError, json.JSONDecodeError) as e:
