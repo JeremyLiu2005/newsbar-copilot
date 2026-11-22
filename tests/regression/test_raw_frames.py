@@ -26,11 +26,12 @@ def test_promo_frame_reread_recorded():
 @pytest.mark.xfail(strict=True, reason="TVBS 12:16 火燒車：OCR 有讀到（924–1005 秒），被換題「同則」判斷併入前一則紙廠火災；"
                                          "規格禁止改換題核心門檻，故標為已知失敗（tools/diagnose_candidates.py：924 秒 SAME-3 共用「火燒」）")
 def test_tvbs_fire_car_reaches_sheet():
-    from openpyxl import load_workbook
-    out = sorted((Path("/Users/rei/newsbar-copilot/out")).glob("stageA_new*/12監看_20261106.xlsx"))
-    assert out, "run tools/replay_stage_a.py first"
-    ws = load_workbook(out[-1]).active
-    assert any("火燒車" in str(c.value or "") for row in ws.iter_rows() for c in row)
+    from newsbar.evaluate import read_sheet
+    out = Path("/Users/rei/newsbar-copilot/out/stageA_new/12監看_20261106.xlsx")
+    assert out.exists(), "run tools/replay_stage_a.py first"
+    tv = read_sheet(out, {"tvbs": "TVBS-N"})["tvbs"]
+    # TVBS only, 12:15–12:18 (the story starts at 924 s ≈ 12:15:24)
+    assert any("火燒" in (tv.get(m) or "") or "燒車" in (tv.get(m) or "") for m in ("1215", "1216", "1217", "1218"))
 
 
 def test_fire_car_text_presence_in_obs():

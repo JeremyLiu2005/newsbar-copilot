@@ -1,0 +1,13 @@
+{
+ "cells": 98,
+ "ad_cells": 13,
+ "old_warned": 60,
+ "new_warned": 25,
+ "old_problems": 35,
+ "new_problems": 27,
+ "fixed": 25,
+ "let_through": 12,
+ "unnecessary_old_warnings_removed": 32,
+ "old_problems_without_warning": 10,
+ "undetermined": 0
+}

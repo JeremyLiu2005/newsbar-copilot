@@ -160,7 +160,9 @@ def feedback_for(cand: str, source: "LabelSource", errs: list[str], rules: "Labe
     if "SEM-NUM" in errs:
         parts.append("數字被截斷：" + "、".join(f"「{w}」" for w in number_fragments(cand, source)) + " 要連單位一起用或都不用")
     if "SEM-OPEN" in errs:
-        parts.append(f"句子沒說完（原文是「{open_ending(cand, source)}…」），要寫出完整的事件")
+        oe = open_ending(cand, source)
+        parts.append(f"句子沒說完（原文是「{oe}…」），要寫出完整的事件" if oe else
+                     f"結尾的「{cand[-1]}」在標題裡是詞的一半或後面還有內容，要寫出完整的事件")
     if "LBL-5" in errs:
         parts.append(f"「{cand}」是 {label_length(cand)} 個字，要 {rules.min_len}–{rules.max_len} 個字（約 {rules.target_len} 字）")
     if "OUT-grammar" in errs:
@@ -367,6 +369,31 @@ def open_ending(label: str, source: "LabelSource") -> str | None:
     return None
 
 
+def dangling_end(label: str, source: "LabelSource") -> str | None:
+    """SEM-2 for labels assembled from pieces: the last character is, wherever the titles have it, a
+    one-character word whose clause goes on (大廳變｜穿堂, 並肩聊｜市政, 後遭｜彈劾). Result characters
+    (撞, 亡 …) may end a label; a word's tail (道歉 → 歉) is an abbreviation and is allowed."""
+    c = label[-1]
+    if not _CJK.match(c) or c in RESULT_CHARS or c in "亡" or len(label) < 2:
+        return None
+    seen = False
+    for t in source.bar_texts:
+        for clause in _CLAUSE.split(t):
+            v = _visible(clause)
+            if label in v or label[-2:] in v:  # the label's own last two characters occur together: judged elsewhere
+                return None
+            spans = _token_spans(v)
+            for i, ch in enumerate(v):
+                if ch != c:
+                    continue
+                seen = True
+                tok = next(((a, b) for a, b in spans if a <= i < b), (i, i + 1))
+                open_word = tok[1] - tok[0] == 1 and i + 1 < len(v) and _CJK.match(v[i + 1])
+                if not open_word:  # a word's tail (道歉 → 歉) is a normal headline abbreviation: not checked
+                    return None
+    return c if seen else None
+
+
 def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) -> list[str]:
     """Return the violated rule ids; empty list = accepted.
 
@@ -403,7 +430,7 @@ def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) 
         errors.append("LBL-9")
     if number_fragments(label, source):
         errors.append("SEM-NUM")
-    if open_ending(label, source):
+    if open_ending(label, source) or (source.bar_texts and dangling_end(label, source)):
         errors.append("SEM-OPEN")
     # d. 規則 LBL-5 / OUT-grammar：字數範圍（labeler.min_len / max_len）、不可含斜線或狀態字
     if rules.sep in label or label in rules.status_words:
