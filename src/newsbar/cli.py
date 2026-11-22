@@ -542,6 +542,23 @@ def cmd_serve(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rules(a: argparse.Namespace) -> int:
+    """印出判斷規則總表（src/newsbar/rulebook.py），可另存 Markdown 或 JSON。"""
+    from . import rulebook
+
+    if a.markdown:
+        Path(a.markdown).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.markdown).write_text(rulebook.render_markdown(), encoding="utf-8")
+        print(f"→ {a.markdown}")
+    if a.json:
+        Path(a.json).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.json).write_text(rulebook.to_json(), encoding="utf-8")
+        print(f"→ {a.json}")
+    if not (a.markdown or a.json) or a.print:
+        print(rulebook.render_text(), end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="newsbar")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -554,6 +571,12 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--start", default="1200")
     w.add_argument("--minutes", type=int, default=60)
     w.set_defaults(func=cmd_write_sheet)
+
+    ru = sub.add_parser("rules", help="印出判斷規則總表（中文），可另存 Markdown 或 JSON")
+    ru.add_argument("--markdown", metavar="檔案", help="寫成 Markdown（例：docs/rules.md）")
+    ru.add_argument("--json", metavar="檔案", help="寫成 JSON")
+    ru.add_argument("--print", action="store_true", help="同時印在終端機（有給檔案時預設不印）")
+    ru.set_defaults(func=cmd_rules)
 
     for name, func, help_ in (("ocr", cmd_ocr, "影片 → 主 bar 文字流"), ("calibrate", cmd_calibrate, "檢查 ROI 框得對不對")):
         s = sub.add_parser(name, help=help_)

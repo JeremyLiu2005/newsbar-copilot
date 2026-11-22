@@ -14,6 +14,9 @@ from .minute_mapper import map_events
 from .schemas import Event, EventType, Labels, SecondObs, Source
 
 
+DEFAULT_PARALLEL = 4  # 同時送出的 AI 請求數
+
+
 class PipelineError(RuntimeError):
     pass
 
@@ -28,17 +31,21 @@ def run_channel(
     """channel_reasons: review reasons that apply to every cell of this channel (e.g. clock
     not read) — they make each event low confidence and show up in the review queue."""
     if textfilter.enabled(rules):
+        # 規則 TXT-6：先刪掉 LIVE、直播、角落溫度等疊字，再讀標題
         obs = textfilter.filter_obs(obs)  # R7: strip LIVE/直播/溫度 … before anything reads the title
+    # 規則 AD-1、AD-11、FB-6：先判斷廣告與訊號中斷（廣告期間的文字不採用：AD-5）
     ad = ad_state.detect(obs, ad_state.AdParams.from_rules(rules))
+    # 規則 NEW-1、NEW-2a、SAME-3、TIME-1：再依主標題與佐證切出每一則新聞
     segs = segmenter.segment(obs, ad, segmenter.SegParams.from_rules(rules))
     events: list[Event] = []
     seg_event: dict[int, Event] = {}
     lab = (rules or {}).get("labeler") or {}
-    retries = lab.get("retries", 1)
+    # 規則 §6.3：AI 標籤被退件後的重試次數（預設 1 次）
+    retries = lab.get("retries", labeler.DEFAULT_RETRIES)
     # Label all new stories up front, several LLM calls at a time (Ollama serves them in parallel).
     todo = {i: labeler.LabelSource(s.bar_texts, s.asr_text) for i, s in enumerate(segs)
             if s.type is EventType.NEWS and s.reuse_of is None}
-    workers = max(1, int(lab.get("parallel", 4))) if generator is not None else 1
+    workers = max(1, int(lab.get("parallel", DEFAULT_PARALLEL))) if generator is not None else 1
     if workers > 1 and len(todo) > 1:
         from concurrent.futures import ThreadPoolExecutor
 
@@ -95,6 +102,7 @@ def run(
     by_ch: dict[str, list[Event]] = {}
     for ch, obs in streams.items():
         try:
+            # 規則 MAP-1：四台各自獨立判斷；規則 R20-1：一台出錯只記錄，不影響其他台
             by_ch[ch] = run_channel(ch, obs, generator, rules, (channel_reasons or {}).get(ch))
         except Exception as e:  # noqa: BLE001
             failed[ch] = f"{type(e).__name__}: {e}"
@@ -105,18 +113,21 @@ def run(
     warnings: list[str] = []
     if ((rules or {}).get("cross_channel") or {}).get("enabled", True):
         try:
-            cross_channel.unify(events, ((rules or {}).get("cross_channel") or {}).get("window_sec", 900))
+            # 規則 X-1：他台 15 分鐘內已替同一事件命名 → 沿用（仍須通過本台來源檢查 X-2）
+            cross_channel.unify(events, ((rules or {}).get("cross_channel") or {}).get("window_sec", cross_channel.DEFAULT_WINDOW_SEC))
         except Exception as e:  # noqa: BLE001 - a cosmetic cross-check must not cost the sheet
             warnings.append(f"跨台比對略過：{e}")
     labels = Labels.from_rules(rules)
     cells: dict[str, dict] = {}
     for ch in list(by_ch):
         try:
+            # 規則 MAP-3、MAP-7、OUT-2：把秒級事件對準到分鐘格
             cells[ch] = map_events(by_ch[ch], [ch], start, n_minutes, labels)[ch]
         except Exception as e:  # noqa: BLE001
             failed[ch] = f"{type(e).__name__}: {e}"
     if not cells:
         raise PipelineError("沒有任何一台產出分鐘格：" + "；".join(f"{c} {m}" for c, m in failed.items()))
+    # 規則 R20-3：每一格的依據先存檔，Excel 寫失敗也留得下複查資料
     recs = evidence.build(cells, str((rules or {}).get("version", "0")))
     # Evidence first: if the workbook cannot be written the reviewer still gets the per-minute record.
     evidence.save(recs, out.with_suffix(".evidence.jsonl"), out.with_suffix(".report.csv"), failed)

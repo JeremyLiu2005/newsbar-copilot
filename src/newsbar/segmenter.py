@@ -16,6 +16,8 @@ from .ad_state import AD, NEWS, OUTAGE, AdResult, carousel_seconds
 from .schemas import Confidence, EventType, SecondObs
 
 
+MIN_CJK_CHARS = 2  # 規則 TXT-7：主標題讀數至少要有 2 個中文字，否則當雜訊
+
 # Generic words that must not count as "same entity" on their own.
 _STOPWORDS = {"新北", "台北", "台灣", "全台", "民眾", "今天", "記者", "現場", "最新", "快訊", "獨家"}
 
@@ -162,12 +164,13 @@ def segment(
     run_topic_len = 0
     last_credit: int | None = None
 
+    # 規則 TXT-1、TXT-7：只讀主標題條；中文字少於 2 個的讀數視為 OCR 雜訊
     def text_of(o: SecondObs) -> str | None:
         if o.bar_text is None or o.bar_conf < params.min_conf:
             return None
         # A Taiwanese news title always has Chinese; a read with fewer than two CJK
         # characters is OCR noise (11/06 ETTV: "(0UU6" before an ad became a story).
-        if sum(len(r) for r in _CJK.findall(o.bar_text)) < 2:
+        if sum(len(r) for r in _CJK.findall(o.bar_text)) < MIN_CJK_CHARS:
             return None
         return o.bar_text
 
@@ -178,15 +181,19 @@ def segment(
         w = params.asr_window_sec
         before = {o.topic for o in obs[max(0, i - w) : i] if o.topic}
         after = {o.topic for o in obs[i : i + w] if o.topic}
+        # 規則 NEW-2a：前後 20 秒語音主題明顯不同 → 佐證
         if before and after and not (before & after):
             sigs.append("NEW-2a")
         v = params.visual_window_sec
         win = obs[max(0, i - v) : i + v + 1]
+        # 規則 NEW-2b：前後 5 秒畫面切回主播台 → 佐證
         if any(o.anchor_shot for o in win):
             sigs.append("NEW-2b")
         speakers = [o.speaker for o in win if o.speaker]
+        # 規則 NEW-2c：講話的人換了（只記錄，不能單獨算數）
         if len(set(speakers)) > 1:
             sigs.append("NEW-2c")
+        # 規則 NEW-2d：記者名條閃過後 25 秒內開始的標題 → 佐證
         if last_credit is not None and 0 <= t - last_credit <= params.credit_window_sec:
             sigs.append("NEW-2d")
         return sigs
@@ -225,19 +232,24 @@ def segment(
         return seg
 
     def open_story(t: int, text: str | None) -> None:
+        # 規則 TXT-5：標題是天氣 → 這一格寫「氣象」
         if text is not None and is_weather(text):
             if cur is None or cur.type is not EventType.WEATHER:
                 open_seg(Segment(t, EventType.WEATHER, bar_texts=[text], signals=["TXT-5"]))
             return
+        # 規則 SAME-7：名條、「主播／記者」開頭的字樣不是新的一則，只當換題線索
         if text is not None and (is_credit(text) or text.startswith(("主播", "記者"))) and cur is not None:
             return  # SAME-7: a name card is a boundary hint (NEW-2d), never a story of its own
+        # 規則 FB-3：讀不到標題 → 用語音主題換題並命名，標低信心
         if text is None:  # FB-3: OCR missing, ASR topic drives the change
             open_seg(Segment(t, EventType.NEWS, signals=["NEW-2a"], confidence=Confidence.LOW.value, fallback="FB-3"))
             return
         sigs = evidence(t)
         # NEW-2c (speaker change) is recorded but not sufficient alone: interviews switch
         # speakers inside one story all the time (11/06 TVBS SOTs).
+        # 規則 FB-1：只有「標題變了」沒有其他佐證 → 仍換題但標低信心
         low = not any(x in sigs for x in ("NEW-2a", "NEW-2b", "NEW-2d"))
+        # 規則 SAME-6：有語音但沒有任何佐證 → 留在同一則，不換題
         if low and has_asr and params.asr_veto and cur is not None and cur.type is EventType.NEWS:
             cur.bar_texts.append(text)  # SAME-6: speech topic unchanged, no credit, no anchor → same story
             cur.signals.append("SAME-6")
@@ -275,9 +287,11 @@ def segment(
                 and text == brk.residual_bar
                 and (o.topic == brk.residual_topic if brk.residual_topic is not None else not has_asr)
             ):
+                # 規則 AD-8：回來的還是殘留標題且語音確認同一則 → 沿用廣告前那則的標籤
                 # AD-8: same story resumes → rewrite its label at the return minute.
                 open_seg(Segment(o.sec, prev.type, bar_texts=[text], signals=["AD-7", "AD-8"], reuse_of=last_news_idx))
             elif brk is not None and brk.timed_out and (text is None or text == brk.residual_bar):
+                # 規則 AD-9：逾時回新聞又沒有新標題 → 用語音命名，標低信心
                 # AD-9: back without fresh bar text → name it from speech (FB-3).
                 open_seg(Segment(o.sec, EventType.NEWS, signals=["AD-9"], confidence=Confidence.LOW.value, fallback="FB-3"))
             elif cur is None and text is None:
@@ -307,9 +321,11 @@ def segment(
         else:
             run_topic, run_topic_start, run_topic_len = o.topic, o.sec, 1
 
+        # 規則 CAROUSEL：標題輪播期間不換題
         if run_text is not None and run_len == params.stable_sec and run_start in carousel:
             cur.signals.append("CAROUSEL")  # headline teaser loop before a break: no new stories
             continue
+        # 規則 TIME-1：連續 7 秒讀到同一標題才算「穩定出現」，換題時間取第一秒
         if run_text is not None and run_len == params.stable_sec:
             if run_text in cur.bar_texts:
                 continue
@@ -317,6 +333,7 @@ def segment(
                 cur.bar_texts.append(run_text)
                 continue
             # A change candidate: a stable title inside a running news story, not weather, not a name card.
+            # 規則 NEW-1：穩定的新標題、不是天氣也不是名條 → 換題候選
             cand = (cur.type is EventType.NEWS and bool(cur.bar_texts) and not is_weather(run_text)
                     and not (is_credit(run_text) or run_text.startswith(("主播", "記者"))))
             feats = candidate_features(run_start, run_text) if cand and (learned or recorder is not None) else None
@@ -336,6 +353,7 @@ def segment(
                     cur.asr_texts.append(o.asr_text)  # type: ignore[union-attr]
                 continue
             n_before = len(segs)
+            # 規則 SAME-3：新舊標題共有連續兩個中文字 → 同一則的主副標輪播，不換題
             if cur.type is EventType.NEWS and cur.bar_texts and judge.same(run_text, cur.bar_texts):
                 cur.bar_texts.append(run_text)  # SAME-3 / SAME-4
                 if feats is not None and recorder is not None:
@@ -362,6 +380,7 @@ def segment(
                 cur.asr_texts.append(o.asr_text)  # type: ignore[union-attr]
     # SAME-8: a title that comes back proves the segments in between were one story
     # (11/06 TVBS 法國罷工: 巴黎鐵塔關 → 封路生封校 → 百姓入不敷出 → 巴黎鐵塔關).
+    # 規則 SAME-8：180 秒內標題又回來 → 中間的段落併成同一則
     def _sim(a: str, b: str) -> bool:
         from difflib import SequenceMatcher
         return a == b or SequenceMatcher(None, a, b).ratio() >= 0.8
@@ -386,6 +405,7 @@ def segment(
 
     # Ad copy just before a break (11/06: "watsog", "001536") opens a short pseudo-story
     # that the break then cuts off; anything under min_story_before_ad_sec merges into the ad.
+    # 規則 NEW-3：廣告前不到 20 秒、或從沒讀到標題的「新聞」其實是廣告文案 → 併入廣告
     out: list[Segment] = []
     for k, sg in enumerate(segs):
         nxt = segs[k + 1] if k + 1 < len(segs) else None

@@ -36,7 +36,10 @@ def same_event(a: Event, b: Event, min_shared: int = 3, min_ratio: float = 0.35)
     return len(shared) >= min_shared or (len(shared) >= 2 and ratio >= min_ratio)
 
 
-def unify(events: list[Event], window_sec: int = 15 * 60) -> list[Event]:
+DEFAULT_WINDOW_SEC = 15 * 60  # 規則 X-1：他台 ±15 分鐘內同一事件才沿用標籤
+
+
+def unify(events: list[Event], window_sec: int = DEFAULT_WINDOW_SEC) -> list[Event]:
     """Mutates labels in place; returns the events that were renamed."""
     news = sorted((e for e in events if e.type is EventType.NEWS), key=lambda e: e.start_sec)
     renamed = []

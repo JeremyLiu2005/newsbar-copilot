@@ -47,6 +47,7 @@ def _text(ev: Event, labels: Labels) -> str:
 
 def validate_label(label: str, labels: Labels) -> None:
     if not label or not label.strip():
+        # 規則 OUT-grammar：標籤不可空白、不可含分隔斜線、不可等於狀態字
         raise ContractError("empty label")
     if labels.multi_sep in label:
         raise ContractError(f"label {label!r} contains the separator {labels.multi_sep!r}")
@@ -86,25 +87,31 @@ def map_events(
         state: tuple[EventType, str | None] | None = None
         pending: dict[int, list[Event]] = defaultdict(list)
         for ev in evs:
+            # 規則 MAP-7：表格結束（13:00:00）之後的改變不寫入
             if ev.start_sec >= end_sec:
                 break
             key = _state_key(ev)
+            # 規則 MAP-5：連續相同狀態（同一則、或都是廣告）視為延續 → 留白（規則 OUT-1）
             if key == state:
                 continue  # continuation → blank
             state = key
+            # 規則 MAP-6：表格開始前就在進行的狀態，寫在第一格
             if ev.start_sec < 0:
                 if not carry_in:
                     continue
                 idx = 0
             else:
+                # 規則 MAP-3：秒數捨去到所在的那一分鐘
                 idx = int(ev.start_sec // 60)
             pending[idx].append(ev)
 
         for idx, cell_events in pending.items():
             # Entries carried in from before the sheet collapse to the latest one.
             pre = [e for e in cell_events if e.start_sec < 0]
+            # 規則 MAP-6：開頭前的好幾個狀態只留最後一個
             if len(pre) > 1:
                 cell_events = [pre[-1]] + [e for e in cell_events if e.start_sec >= 0]
+            # 規則 OUT-2：同一分鐘有好幾次改變 → 依先後用「/」連起來；廣告寫「廣告」（OUT-4）、天氣寫「氣象」
             value = labels.multi_sep.join(_text(e, labels) for e in cell_events)
             result[ch][minutes[idx]] = Cell(ch, minutes[idx], value, cell_events)
     return result

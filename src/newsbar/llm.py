@@ -41,6 +41,7 @@ FEW_SHOT = [
 PROMPT_VERSION = "v3-hedge"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
 PROMPT_VERSION_RAG = "v4-rag"  # used only while retrieval is on; with it off the v3 prompt and cache keys are unchanged
 
+# 規則 NFR-14：外部 AI 最多只送 200 字語音節錄
 MAX_ASR_CHARS = 200  # NFR-14: never send more speech than needed
 
 
@@ -48,6 +49,7 @@ def build_user_prompt(source: LabelSource, attempt: int) -> str:
     # The label must be built from the on-screen title; speech is offered only when no
     # title was read (FB-3). With speech in the prompt the model borrowed places and
     # verbs that are not in the title and failed validation (11/06 run: 49/91 cells).
+    # 規則 SRC-2：標籤從主標題來；只有讀不到標題時才把語音給 AI（規則 FB-3）
     bar = " / ".join(source.bar_texts[:2]) or "（主標題讀不到）"
     asr = "" if source.bar_texts else (source.asr_text or "")[:MAX_ASR_CHARS]
     retry = "\n上一次的答案沒有通過檢查（可能用了來源沒有的字、缺地點，或把「疑似／傳出／恐／涉嫌」這類未確認的說法拿掉了），請只用來源裡的字重寫。" if attempt else ""
@@ -62,6 +64,7 @@ def _turn(q: str, a: str) -> list[dict]:
 def retrieved_pairs(rag, source: LabelSource, exclude_ids=(), exclude_labels=()) -> list:
     """KB records most similar to the title on screen (none when RAG is off or no title was read).
     Pairs the prompt already carries as FEW_SHOT are not repeated."""
+    # 規則 RAG-1：預設關閉（rag 為空）；打開時才檢索相似的人工確認標籤當範例
     if rag is None or not source.bar_texts:
         return []
     return rag.retrieve(" / ".join(source.bar_texts[:2]), exclude_ids, exclude_labels, set(FEW_SHOT))
@@ -129,6 +132,7 @@ class ClaudeGenerator:
     """Anthropic Messages API through the official `anthropic` SDK (`uv add anthropic`)."""
 
     def __init__(self, model: str = "claude-opus-5-5", allow_external: bool = False, client=None, rag=None):
+        # 規則 NFR-14：外部 AI 預設不准用，要在規則檔明確打開
         if not allow_external:
             raise ExternalCallNotAllowed(
                 "外部 LLM 預設關閉（NFR-14）。要使用請在 rules.yaml 設 labeler.allow_external: true")
@@ -183,6 +187,7 @@ class GuardedGenerator:
         return self._fails >= self.max_failures
 
     def generate(self, source: LabelSource, attempt: int) -> str:
+        # 規則 R20-2：連續失敗 3 次後，不再等待逾時，直接丟錯讓標籤改用規則備援
         if self.tripped:
             raise LLMError("AI 服務連續無回應，本次不再重試")
         try:

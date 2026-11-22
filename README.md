@@ -97,6 +97,16 @@ uv run newsbar run --backend paddle --asr faster-whisper --rules config/rules.gp
 - 強制指定裝置：`NEWSBAR_ASR_DEVICE`（auto、cuda、mps、cpu）、`NEWSBAR_ASR_COMPUTE`（float16、int8 等）、`NEWSBAR_OCR_GPU`（1 或 0）。
 - GPU 版還沒在 NVIDIA 機器上跑過。四台一小時能否壓到 15 分鐘，要實測後才知道。
 
+## 判斷規則
+
+每一條判斷規則（讀哪裡的字、怎麼認廣告、怎麼換題、秒怎麼對到分鐘、五字標的檢查、不確定時怎麼辦）都用白話中文列在 [docs/rules.md](docs/rules.md)，依三立的痛點分成七組，每條附程式位置和目前的數字。規則的唯一來源是 `src/newsbar/rulebook.py`，測試會核對文件上的數字等於程式實際用的預設值；程式裡每個判斷處也有「# 規則 編號」註解可以搜尋。
+
+```bash
+uv run newsbar rules                          # 在終端機印出全部規則
+uv run newsbar rules --markdown docs/rules.md # 重新產生文件
+uv run newsbar rules --json rules.json        # 給其他工具讀
+```
+
 ## 判斷怎麼做
 
 ```mermaid
@@ -216,6 +226,7 @@ newsbar ml rollback --kind change
 
 - [docs/requirements.md](docs/requirements.md)：需求分析與逐條狀態
 - [docs/spec.md](docs/spec.md)：痛點、規則、測試案例
+- [docs/rules.md](docs/rules.md)：判斷規則總表（白話中文，附程式位置與數字）
 - [docs/architecture.md](docs/architecture.md)：系統架構與實作狀態
 
 ## 線上展示

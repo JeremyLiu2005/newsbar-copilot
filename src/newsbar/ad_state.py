@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from .schemas import SecondObs
 
 NEWS, AD, OUTAGE = "news", "ad", "outage"
+TICKER_EXTRA_SIGNALS = 1  # 跑馬燈還在畫面上時，進廣告要多一種訊號（規則 AD-1）
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class AdResult:
     breaks: list[AdBreak]
 
 
+# 規則 AD-7（條件 1、2）：主畫面版面與標題條底色都恢復，這一秒才算「像新聞」
 def _layout_back(o: SecondObs) -> bool:
     return not o.layout_changed and not o.bar_color_changed
 
@@ -70,9 +72,11 @@ def _return_ok(o: SecondObs, residual_bar: str | None, residual_topic: str | Non
         return False
     if not has_asr:
         return o.bar_text is not None
+    # 規則 AD-7（條件 3）：要有主播或記者的講話，不是廣告詞
     speech = bool(o.asr_text) and not o.ad_speech  # (3) anchor/reporter speech
     if not speech:
         return False
+    # 規則 AD-7（條件 4）：標題條出現與殘留標題不同的新標題，或同一則被語音確認
     new_text = o.bar_text is not None and o.bar_text != residual_bar
     same_story_confirmed = (
         o.bar_text is not None
@@ -97,6 +101,7 @@ def carousel_seconds(obs: list[SecondObs], params) -> set[int]:
             prev, start = t, o.sec
     if prev is not None:
         runs.append((start, obs[-1].sec - start + 1, prev))  # type: ignore[arg-type]
+    # 規則 AD-i：120 秒內至少 6 個不同標題各停 7–12 秒且有重複 → 標題輪播（包框廣告的新聞預告）
     titled = [r for r in runs if r[2] and params.stable_sec <= r[1] <= params.carousel_max_sec]
     out: set[int] = set()
     for i, (s0, _, _) in enumerate(titled):
@@ -125,8 +130,10 @@ def signal_fn(obs: list[SecondObs]):
     show a ticker; AD-i = headline carousel). Shared by the rules and the learned mode."""
     n = len(obs)
     # AD-g only means something on channels that normally show a ticker.
+    # 規則 AD-g：只有平常超過一半時間都有跑馬燈的頻道，「跑馬燈不見」才算廣告訊號
     has_ticker = sum(1 for o in obs if o.ticker_text) >= 0.5 * max(1, n)
     # AD-i: a headline-teaser carousel in the bar = framed ad (11/06 FTV ×3)
+    # 規則 AD-i：輪播期間的每一秒多算一個廣告訊號
     carousel = carousel_seconds(obs, _CarouselParams())
 
     def sigs_of(o: SecondObs) -> list[str]:
@@ -180,6 +187,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
     # FB-6: long black → outage (takes precedence over ad).
     i = 0
     while i < n:
+        # 規則 FB-6：黑畫面超過 30 秒 → 訊號中斷，優先於廣告判斷
         if obs[i].black:
             j = i
             while j < n and obs[j].black:
@@ -198,6 +206,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
         if states[o.sec] == OUTAGE:
             i += 1
             continue
+        # 規則 AD-1：任兩種訊號持續 10 秒 → 進廣告（只看主畫面訊號，角落小廣告不算：規則 AD-2）
         # Look for a run where ≥min_signals hold for ≥min_duration (AD-1).
         if len(sigs_of(o)) >= 1:
             run_start = i  # first second any signal appears
@@ -207,7 +216,8 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
             while j < n and sigs_of(obs[j]) and states[obs[j].sec] != OUTAGE:
                 # The news ticker still on screen means the channel's overlay is live: a news
                 # graphic can hide the logo and draw a frame edge (11/06 TVBS), so ask for one more.
-                need = params.min_signals + (1 if obs[j].ticker_text else 0)
+                # 規則 AD-1：跑馬燈還在畫面上時，要多一種訊號才算
+                need = params.min_signals + (TICKER_EXTRA_SIGNALS if obs[j].ticker_text else 0)
                 sg = sigs_of(obs[j])
                 score = len(sg) + (1 if "AD-i" in sg else 0)  # a teaser loop already sums 2 min of evidence
                 hit = learned[j] if learned is not None else score >= need  # learned: p ≥ threshold replaces the count
@@ -224,6 +234,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
 
             strong_start = entered_at - params.min_duration_sec + 1
             run_start = max(run_start, strong_start - params.min_duration_sec)
+            # 規則 AD-6：記下進廣告前最後一個標題，當作「殘留標題」
             residual_bar = last_news.bar_text if last_news else None
             residual_topic = last_news.topic if last_news else None
             sigs: set[str] = set()
@@ -241,6 +252,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                 else:
                     layout_back_since = None
                 still_ad = learned[k] if learned is not None else len(sigs_of(ok)) + ("AD-i" in sigs_of(ok)) >= params.min_signals
+                # 規則 AD-7：回新聞條件連續成立 5 秒 → 廣告結束
                 if _return_ok(ok, residual_bar, residual_topic, has_asr) and not still_ad:
                     ok_run += 1
                     if ok_run >= params.return_confirm_sec:
@@ -249,6 +261,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
                 else:
                     ok_run = 0
                 if (
+                    # 規則 AD-9：主畫面恢復後超過 60 秒仍判不出回新聞 → 強制結束廣告
                     layout_back_since is not None
                     and k - layout_back_since + 1 > params.return_timeout_sec
                 ):
@@ -276,6 +289,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
             last_news = o
         i += 1
     merged: list[AdBreak] = []
+    # 規則 AD-10：兩段廣告相隔 8 秒以內 → 併成一段
     for b in breaks:  # one break chopped by short gaps (11/06 CTS 12:47–12:48 came out in 6 pieces)
         if merged and b.start - merged[-1].end <= params.merge_gap_sec:
             for s in range(merged[-1].end, b.start):
@@ -287,6 +301,7 @@ def detect(obs: list[SecondObs], params: AdParams = AdParams()) -> AdResult:
             merged.append(b)
     kept = []
     for b in merged:
+        # 規則 AD-11：整段不到 25 秒 → 不算廣告
         if b.end - b.start < params.min_break_sec:
             for s in range(b.start, b.end):
                 if states.get(s) == AD:
