@@ -32,7 +32,8 @@ def _img(path: str | None, inline: bool) -> str:
 
 
 def render(evidence: list[dict], channel_names: dict[str, str], out: Path,
-           start: str = "1200", n_minutes: int = 60, inline_images: bool = True, top: int = 40) -> Path:
+           start: str = "1200", n_minutes: int = 60, inline_images: bool = True, top: int = 40,
+           failed: dict[str, str] | None = None) -> Path:
     minutes = minute_labels(start, n_minutes)
     grid = {(r["channel"], r["minute"]): r for r in evidence}
     queue = sorted(evidence, key=lambda r: (review_priority(r), r["minute"]))[:top]
@@ -62,7 +63,7 @@ def render(evidence: list[dict], channel_names: dict[str, str], out: Path,
     <span class="val">{e(r['value'])}</span></header>
   {_img(it.get('frame'), inline_images)}
   <p class="src">bar：{e(it.get('bar_text') or '—')}<br>語音：{e((it.get('asr_text') or '—')[:120])}</p>
-  <p class="sig">依據：{e(' '.join(r['signals']) or '—')}｜信心：{e(r['confidence'])}｜fallback：{e(r['fallback'] or '—')}</p>
+  <p class="sig">依據：{e(' '.join(r['signals']) or '—')}｜信心：{e(r['confidence'])}｜fallback：{e(r['fallback'] or '—')}{('｜原因：' + e('；'.join(r['reasons']))) if r.get('reasons') else ''}</p>
   <div class="act">
     <label><input type="radio" name="v{i}" value="ok"> 對</label>
     <label><input type="radio" name="v{i}" value="fix"> 錯，改成 <input class="fix" placeholder="正確寫法"></label>
@@ -71,6 +72,9 @@ def render(evidence: list[dict], channel_names: dict[str, str], out: Path,
 </article>""")
 
     head = "".join(f"<th>{e(n)}</th>" for n in channel_names.values())
+    failed_html = "".join(
+        f'<p class="failed"><b>整台失敗：{e(channel_names.get(c, c))}</b>　{e(m)}　（監看表該台欄位是空的，需人工補）</p>'
+        for c, m in (failed or {}).items())
     page = f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>監看表抽查</title>
 <style>
@@ -86,9 +90,10 @@ td.c{{font-weight:600}} .p0{{background:var(--p0)}} .p1{{background:var(--p1)}} 
 .tag{{font-size:12px;color:var(--mute);margin-left:8px}} .val{{float:right;font-size:16px;font-weight:700}}
 .src,.sig{{margin:4px 0;color:var(--mute)}} .act{{display:flex;flex-wrap:wrap;gap:12px;align-items:center}}
 button{{padding:6px 14px;font-size:14px}}
+.failed{{background:var(--p0);border:1px solid var(--line);border-radius:6px;padding:8px 12px}}
 </style></head><body>
 <h1>監看表抽查</h1>
-<p>右側依優先序列出最值得檢查的 {len(queue)} 格（紅：fallback、黃：低信心、藍：廣告邊界）。修正只寫進修正紀錄，不改動已交付的監看表。</p>
+{failed_html}<p>右側依優先序列出最值得檢查的 {len(queue)} 格（紅：fallback、黃：低信心、藍：廣告邊界）。修正只寫進修正紀錄，不改動已交付的監看表。</p>
 <label>審核者 <input id="reviewer" placeholder="姓名或代號" required></label>
 <button id="export">匯出修正紀錄 JSON</button>
 <main><section><table><tr><th>時間</th>{head}</tr>{''.join(rows)}</table></section>

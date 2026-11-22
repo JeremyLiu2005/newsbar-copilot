@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from . import evidence, excel_writer
+from . import evidence, excel_writer, ingest
 from .minute_mapper import map_events
 from .schemas import Event, Labels
 
@@ -101,15 +101,53 @@ def _parse_video(spec: str, default_clock: str | None) -> tuple[str, Path, str |
     return ch, Path(path), clock or default_clock
 
 
-def _resolve_clock(path: Path, cfg: dict, clock: str | None, backend) -> str | None:
-    """--clock wins; otherwise read the on-screen clock (FR-24)."""
-    if clock or not cfg.get("clock"):
-        return clock
-    from .clock import start_clock
+CLOCK_FROM_FILENAME = "時鐘未讀到，改用檔名時間"
+CLOCK_UNCALIBRATED = "時間未校正"
 
-    found = start_clock(path, cfg["clock"], backend)
-    print(f"[{path.name}] 畫面時鐘校時 → 第 0 秒 = {found or '讀不到，視為 sheet 起點'}")
-    return found
+
+def resolve_clock_info(path: Path, cfg: dict, clock: str | None, backend, log=print) -> dict:
+    """Where video second 0 sits on the wall clock, and how we know (R11/R19).
+
+    --clock wins; otherwise the on-screen clock (FR-24); if that cannot be read, the time in the
+    recording's file name; if even that is missing the sheet start is assumed — and never silently:
+    the result carries a `reason` that flags every cell of the channel for review."""
+    if clock:
+        return {"source": "cli", "value": clock, "reason": None}
+    found = None
+    if cfg.get("clock"):
+        from .clock import start_clock
+
+        try:
+            found = start_clock(path, cfg["clock"], backend)
+        except Exception as e:  # noqa: BLE001 - an unreadable clock must not stop the channel
+            log(f"[{path.name}] 讀畫面時鐘時出錯：{e}")
+    if found:
+        log(f"[{path.name}] 畫面時鐘校時 → 第 0 秒 = {found}")
+        return {"source": "screen", "value": found, "reason": None}
+    named = ingest.clock_from_filename(path)
+    if named:
+        log(f"⚠ [{path.name}] 畫面時鐘讀不到，改用檔名時間 {named} 當第 0 秒；該台每格標為待複查")
+        return {"source": "filename", "value": named, "reason": CLOCK_FROM_FILENAME}
+    log(f"⚠ [{path.name}] 畫面時鐘讀不到，檔名也沒有時間；假設第 0 秒 = 時段起點，該台每格標為待複查")
+    return {"source": "none", "value": None, "reason": CLOCK_UNCALIBRATED}
+
+
+def _offset(info: dict, sheet_start: str) -> int:
+    return ingest.sheet_offset(info["value"], sheet_start) if info.get("value") else 0
+
+
+def _clock_file(work: Path, ch: str) -> Path:
+    return work / ch / "clock.json"
+
+
+def _save_clock_info(work: Path, ch: str, info: dict) -> None:
+    _clock_file(work, ch).parent.mkdir(parents=True, exist_ok=True)
+    _clock_file(work, ch).write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
+
+
+def _load_clock_info(work: Path, ch: str) -> dict | None:
+    f = _clock_file(work, ch)
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
 
 
 def _extract_job(args: tuple) -> tuple:
@@ -123,22 +161,61 @@ def _extract_job(args: tuple) -> tuple:
         from .asr import get_backend as get_asr
         asr = get_asr(asr_name, asr_model)
     backend = get_backend(backend_name)
-    clock = _resolve_clock(Path(path), cfg, clock, backend)
-    offset = ingest.sheet_offset(clock, sheet_start) if clock else 0
+    info = resolve_clock_info(Path(path), cfg, clock, backend)
+    _save_clock_info(Path(work), ch, info)
+    offset = _offset(info, sheet_start)
     obs, warns = extract.extract_channel(Path(path), ch, cfg, backend, Path(work), offset, asr,
                                          fingerprint.AdLibrary.load(Path(lib_path)), duration=duration,
                                          asr_parallel=asr_parallel)
-    return ch, len(obs), warns
+    return ch, len(obs), warns + ([f"{info['reason']}（{info['value'] or '無'}）"] if info.get("reason") else []), info
+
+
+def _resolve_inputs(a: argparse.Namespace, cfg: dict) -> tuple[list[tuple[str, Path, str | None]], Path, Path, dict[str, str]]:
+    """--video specs (explicit wins) plus, with --input-dir, the videos and template found in that
+    folder. Returns (specs, template, out, channels with no input)."""
+    from . import discover
+
+    specs = [_parse_video(spec, a.clock) for spec in (a.video or [])]
+    missing: dict[str, str] = {}
+    template = Path(a.template) if a.template else None
+    if a.input_dir:
+        folder = Path(a.input_dir)
+        if not folder.is_dir():
+            raise SystemExit(f"--input-dir 不是資料夾：{folder}")
+        found, warns = discover.find_videos(folder, cfg)
+        have = {c for c, _, _ in specs}
+        specs += [(ch, p, a.clock) for ch, p in found.items() if ch not in have]
+        for w in warns:
+            print(f"⚠ {w}")
+        for ch in cfg:
+            if ch not in {c for c, _, _ in specs}:
+                missing[ch] = f"{folder} 裡找不到 {cfg[ch].get('name', ch)} 的影片"
+                print(f"⚠ {missing[ch]}；這一台會是空的，列入複查")
+        if template is None:
+            template, twarns = discover.find_template(folder)
+            for w in twarns:
+                print(f"⚠ {w}")
+            if template is None:
+                raise SystemExit(f"{folder} 裡沒有 .xlsx 範本，請用 --template 指定")
+            print(f"範本：{template}")
+    if template is None:
+        raise SystemExit("請用 --template 指定範本，或用 --input-dir 讓程式在資料夾裡找")
+    if not specs:
+        raise SystemExit("沒有影片：請用 --video 或 --input-dir")
+    out = Path(a.out) if a.out else Path("out") / "12監看.xlsx"
+    return specs, template, out, missing
 
 
 def cmd_run(a: argparse.Namespace) -> int:
     """Videos → obs → events → 12監看 xlsx + evidence + report + review page."""
     import time
 
-    from . import evaluate, extract, ingest, llm, pipeline, review
+    from . import evaluate, extract, ingest, lexicon, llm, pipeline, review
 
     cfg = _load_yaml(a.channels)["channels"]
     rules = _load_yaml(a.rules)
+    lex_path = a.lexicon or rules.get("lexicon") or ("config/lexicon.yaml" if Path("config/lexicon.yaml").exists() else None)
+    lexicon.use(lex_path)  # place names, hedge markers, overlay tokens (config/lexicon.yaml)
     asr_cfg = rules.get("asr") or {}
     a.asr_model = a.asr_model or asr_cfg.get("model")
     # Mac: one transcription at a time; NVIDIA GPU: several (asr.parallel / --asr-parallel)
@@ -150,11 +227,12 @@ def cmd_run(a: argparse.Namespace) -> int:
             os.environ[env] = str(asr_cfg[key])
     work = Path(a.workdir)
     streams, warnings, timings = {}, {}, {}
+    clock_info: dict[str, dict] = {}
     backend = asr = None
     from . import fingerprint
     lib_path = Path(((rules.get("fingerprint") or {}).get("library")) or work / "ad_library.npz")
     library = fingerprint.AdLibrary.load(lib_path)
-    specs = [_parse_video(spec, a.clock) for spec in a.video]
+    specs, template, out, failed = _resolve_inputs(a, cfg)
     for ch, _, _ in specs:
         if ch not in cfg:
             raise SystemExit(f"設定檔沒有台別 {ch}")
@@ -172,20 +250,26 @@ def cmd_run(a: argparse.Namespace) -> int:
             for f in as_completed(futs):
                 ch = futs[f]
                 try:
-                    _, n, warns = f.result()
+                    _, n, warns, info = f.result()
                     warnings[ch] = warns
+                    clock_info[ch] = info
                 except Exception as e:  # NFR-09
                     warnings.setdefault(ch, []).append(f"處理失敗：{e}")
+                    failed[ch] = f"擷取失敗：{e}"
                     print(f"✗ [{ch}] {e}")
         timings["parallel_extract"] = round(time.time() - t0, 1)
         a.resume = True  # everything extracted above now loads from obs.jsonl
     for ch, path, clock in specs:
+        if ch in failed:  # already failed in the parallel pass; do not run the same hour again
+            continue
         obs_file = work / ch / "obs.jsonl"
         t0 = time.time()
         try:
             if a.resume and obs_file.exists():  # NFR-10
                 print(f"[{ch}] 沿用 {obs_file}")
                 streams[ch] = extract.load_obs(obs_file)
+                if ch not in clock_info and (saved := _load_clock_info(work, ch)):
+                    clock_info[ch] = saved
             else:
                 if backend is None:
                     from .ocr import get_backend
@@ -193,38 +277,67 @@ def cmd_run(a: argparse.Namespace) -> int:
                 if a.asr != "none" and asr is None:
                     from .asr import get_backend as get_asr
                     asr = get_asr(a.asr, a.asr_model)
-                clock = _resolve_clock(path, cfg[ch], clock, backend)
-                offset = ingest.sheet_offset(clock, a.sheet_start) if clock else 0
-                obs, warns = extract.extract_channel(path, ch, cfg[ch], backend, work, offset, asr,
+                info = resolve_clock_info(path, cfg[ch], clock, backend)
+                _save_clock_info(work, ch, info)
+                clock_info[ch] = info
+                obs, warns = extract.extract_channel(path, ch, cfg[ch], backend, work, _offset(info, a.sheet_start), asr,
                                                      library, duration=a.duration, asr_parallel=a.asr_parallel)
                 streams[ch] = obs
-                warnings[ch] = warns
+                warnings[ch] = warns + ([f"{info['reason']}（{info['value'] or '無'}）"] if info.get("reason") else [])
         except Exception as e:  # NFR-09: one channel failing must not stop the others
             warnings.setdefault(ch, []).append(f"處理失敗：{e}")
+            failed[ch] = f"擷取失敗：{e}"
             print(f"✗ [{ch}] {e}")
         timings[ch] = round(time.time() - t0, 1)
+    for ch in [c for c in streams if c in failed]:
+        streams.pop(ch)
     headers = {k: v["excel_column_header"] for k, v in cfg.items() if k in streams}
     if not headers:
-        raise SystemExit("沒有任何一台處理成功")
-    out = Path(a.out)
+        raise SystemExit("沒有任何一台處理成功：" + "；".join(f"{c} {m}" for c, m in failed.items()))
     gen = llm.from_rules(rules)
     if gen is not None:
-        gen = llm.CachedGenerator(gen, work / "label_cache.json")
-    res = pipeline.run(streams, Path(a.template), out, headers, gen, rules, a.sheet_start, a.minutes)
+        host = getattr(gen, "host", None)
+        if host and not llm.ensure_ollama(host):  # R20: no AI service is not a reason to stop
+            gen = llm.UnavailableGenerator()
+        else:
+            gen = llm.CachedGenerator(llm.GuardedGenerator(gen), work / "label_cache.json")
+    reasons = {ch: [i["reason"]] for ch, i in clock_info.items() if i.get("reason") and ch in streams}
+    try:
+        res = pipeline.run(streams, template, out, headers, gen, rules, a.sheet_start, a.minutes,
+                           channel_reasons=reasons, prior_failed=failed)
+    except pipeline.PipelineError as e:
+        raise SystemExit(str(e))
+    failed = res["failed"]
     learned = _learn_ads(streams, work, library)
     if learned:
         library.save(lib_path)
     rep = evaluate.processing_report(res["evidence"], warnings, timings)
     rep["ad_library"] = {"path": str(lib_path), "seconds": int(len(library.blocks)), "learned": learned}
+    rep["failed_channels"] = failed  # R20: visible here, in the 複查清單 and the summary — never in the workbook
+    rep["clock"] = clock_info
+    rep["pipeline_warnings"] = res["warnings"]
+    if not a.no_review_copy:
+        review_xlsx = out.with_name(out.stem + "_複查版.xlsx")
+        try:
+            n = excel_writer.write_review_copy(
+                out, review_xlsx, res["evidence"], {k: v["excel_column_header"] for k, v in cfg.items()}, failed,
+                {ch: _offset(i, a.sheet_start) for ch, i in clock_info.items()})
+            print(f"→ {review_xlsx}（{n} 格標黃並附註解；交件請用上面那份乾淨的）")
+        except Exception as e:  # noqa: BLE001 - the review copy is a convenience
+            print(f"⚠ 複查版 Excel 沒做成：{e}")
     out.with_suffix(".report.json").write_text(json.dumps(rep, ensure_ascii=False, indent=2), encoding="utf-8")
-    review.render(res["evidence"], {k: cfg[k]["name"] for k in headers}, out.with_suffix(".review.html"),
-                  a.sheet_start, a.minutes)
+    review.render(res["evidence"], {k: cfg[k]["name"] for k in headers if k in res["cells"]}, out.with_suffix(".review.html"),
+                  a.sheet_start, a.minutes, failed={cfg[c]["name"] if c in cfg else c: m for c, m in failed.items()})
     for ch, d in rep["channels"].items():
         flag = "⚠ fallback 過高" if d["alert"] else ""
         print(f"{ch}: {d['cells']} 格，換題 {d['changes']}，廣告 {d['ads']}，低信心 {d['low_conf']} {flag}")
     for ch, ws in warnings.items():
         for w in ws:
             print(f"⚠ [{ch}] {w}")
+    for ch, msg in failed.items():
+        print(f"✗ 整台失敗：{cfg[ch]['name'] if ch in cfg else ch}（{msg}）— 監看表該台欄位是空的，已列入複查清單")
+    for w in res["warnings"]:
+        print(f"⚠ {w}")
     print(f"→ {out}\n→ {out.with_suffix('.review.html')}")
     if a.upload:
         import os
@@ -462,10 +575,13 @@ def main(argv: list[str] | None = None) -> int:
         s.set_defaults(func=func)
 
     r = sub.add_parser("run", help="四台影片 → 監看表、依據、報告、抽查頁")
-    r.add_argument("--video", action="append", required=True, help="tvbs=data/tvbs.mp4[@11:59:50]，可重複")
+    r.add_argument("--video", action="append", help="tvbs=data/tvbs.mp4[@11:59:50]，可重複；有 --input-dir 時可省略")
+    r.add_argument("--input-dir", help="一鍵模式：資料夾裡依檔名（台別代號或名稱）找四台影片，沒給 --template 時也在這裡找 .xlsx 範本")
     r.add_argument("--clock", help="所有影片第 0 秒的實際時刻（個別指定用 @）")
-    r.add_argument("--template", required=True)
-    r.add_argument("--out", required=True)
+    r.add_argument("--template", help="12監看範本 .xlsx；有 --input-dir 時可省略")
+    r.add_argument("--out", help="輸出 .xlsx；預設 out/12監看.xlsx")
+    r.add_argument("--no-review-copy", action="store_true", help="不另存「_複查版.xlsx」（異常格標黃並附註解的副本）")
+    r.add_argument("--lexicon", help="詞庫 yaml（地名、未確認語氣詞、畫面疊字）；預設 config/lexicon.yaml，沒有就用內建")
     r.add_argument("--channels", default="config/channels.example.yaml")
     r.add_argument("--rules", default="config/rules.example.yaml")
     r.add_argument("--workdir", default="data/work")

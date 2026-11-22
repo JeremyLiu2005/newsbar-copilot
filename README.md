@@ -147,6 +147,36 @@ flowchart TD
 - FB-4 的五字標：用同一個本機模型當裁判，它幾乎每個標籤都說要修，還放過截斷的「高雄老店歇」，目前不可靠，所以後台只接了 FB-1 的初判。想省這部分的人工，需要更強的模型（要送標題到外部 API，要先決定能不能送）。
 - 「廣告結束後接回同一則新聞，要留白還是重記標」要請業師確認。要問業師的完整清單在 [docs/mentor-questions.md](docs/mentor-questions.md)。
 
+## 擴充到其他時段與頻道
+
+**換時段（例如晚上 6 點、下午 4 點）。** 不用改程式：
+
+```bash
+uv run newsbar run --input-dir data/raw --sheet-start 1800 --minutes 60 \
+  --channels config/channels.1106.yaml --rules config/rules.1106.yaml --jobs 4
+```
+
+- `--sheet-start HHMM` 是表格第一列的分鐘，`--minutes` 是要填幾列（預設 60）。每台影片第 0 秒對到哪一分鐘，由畫面時鐘決定；讀不到就改用檔名裡的時間（例：`tvbs_20261106_1800.ts`），再不行才假設等於 `--sheet-start`，這幾種情況該台每格都會標「待複查」。
+- 範本的時間列和台別表頭由程式用「時間」「五字標」字樣定位，所以晚間版面只要同樣有這兩個表頭就能用。
+- 每小時一組的自動處理用 `newsbar watch`。
+
+**加一個頻道。**
+
+1. 在 `config/channels.*.yaml` 的 `channels:` 下新增一段（參考 `channels.example.yaml`）：`name`、`excel_column_header`（要和 Excel 台別表頭一字不差）、`main_bar`、`ticker`、`clock`、`logo`、`main_video` 等 ROI（0–1 的比例，x,y,w,h）。
+2. 座標要看畫面校正：`newsbar calibrate --video 影片 --channel 新台別 --channels 設定檔 --at 30` 會輸出整張畫面和校正頁（`src/newsbar/calibrate_ui.py` 產生的 `roi.html`）。在頁面上拖出各區域，複製產生的 yaml 貼回設定檔，再跑一次確認每個區域 OCR 讀到的字對不對。
+3. 檔名要含台別代號或名稱，`--input-dir` 才找得到影片。
+4. 各台版面不同，ROI 一定要逐台、逐版面人工看過；換版面要重校。`rules.1106.yaml` 的門檻是用 11/06 午間調的，換時段先用少量標準答案重新評估。
+
+**改地名、關鍵字、畫面疊字。** 全部在 `config/lexicon.yaml`，改完下次 run 就生效（`--lexicon` 可指定別份）：
+
+- `districts`、`counties`、`landmarks`、`place_stopwords`：地名（22 縣市與全部鄉鎮市區）。社會新聞的五字標一定要帶來源裡的地點；來源沒有地點的格子標「社會新聞無地點」。
+- `social_keywords`、`weather_words`：判斷社會新聞、氣象的字。
+- `hedge_markers`、`hedge_exclusions`：疑似、傳出、恐、涉嫌這類未確認語氣。來源有而五字標拿掉，就不收；備援標籤也拿不回來時標「未確認語氣」。
+- `overlay_tokens`、`overlay_patterns`：主標題條裡單獨出現的 LIVE、直播、獨家、最新、角落溫度，換題判斷前先刪掉。
+- 檔案裡只要列了某個鍵，就整組取代內建預設；沒列的鍵用內建值（`src/newsbar/lexicon_default.yaml`）。
+
+**沒有 Ollama 或模型當掉時**，`run` 會先檢查服務、必要時啟動 `ollama serve`；仍連不上就整批改用規則擷取五字標並標為低信心，不會停。單一台處理失敗時，其他台照常出表，失敗的台列在複查清單（`.report.csv` 第一列、`.review.html` 上方、`.report.json` 的 `failed_channels`），Excel 裡不會有任何標記。`run` 另存一份 `*_複查版.xlsx`：異常格標黃並附註解（影片時間、OCR、語音、原因），交件用沒有標記的那份；不要複查版加 `--no-review-copy`。
+
 ## 文件
 
 - [docs/requirements.md](docs/requirements.md)：需求分析與逐條狀態

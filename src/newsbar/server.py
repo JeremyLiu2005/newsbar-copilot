@@ -209,7 +209,8 @@ def read_result(out: Path, workdir: Path | None = None) -> dict:
                                   "judge": ({"verdict": j["verdict"], "reason": j["reason"], "prev": j.get("prev")}
                                             if (j := judged.get((c["channel"], i.get("start_sec")))) else None)}
                                  for i in c.get("items", [])]} for c in cells],
-            "report": report.get("channels", {}), "timings": report.get("timings_sec", {})}
+            "report": report.get("channels", {}), "timings": report.get("timings_sec", {}),
+            "failed": report.get("failed_channels", {}), "clock": report.get("clock", {})}
 
 
 def judge_path(out: Path) -> Path:

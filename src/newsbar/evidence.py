@@ -15,6 +15,7 @@ def record(cell: Cell, rules_version: str) -> dict:
     items = []
     signals: list[str] = []
     fallbacks = []
+    reasons: list[str] = []
     conf = "high"
     order = {"high": 0, "medium": 1, "low": 2}
     for ev in cell.events:
@@ -31,6 +32,7 @@ def record(cell: Cell, rules_version: str) -> dict:
         signals.extend(ev.signals.get("ids", []))
         if ev.fallback:
             fallbacks.append(ev.fallback)
+        reasons.extend(r for r in ev.reasons if r not in reasons)
         if order.get(ev.confidence, 0) > order[conf]:
             conf = ev.confidence
     return {
@@ -41,6 +43,7 @@ def record(cell: Cell, rules_version: str) -> dict:
         "signals": sorted(set(signals)),
         "confidence": conf,
         "fallback": ",".join(fallbacks) or None,
+        "reasons": reasons,
         "rules_version": rules_version,
     }
 
@@ -60,14 +63,22 @@ def build(cells: dict[str, dict[str, Cell]], rules_version: str) -> list[dict]:
     return sorted(recs, key=lambda r: (review_priority(r), r["minute"], r["channel"]))
 
 
-def save(records: list[dict], jsonl: Path, csv_path: Path) -> None:
+FAILED_PRIORITY = -1  # a channel with no output at all sorts above every cell
+
+
+def save(records: list[dict], jsonl: Path, csv_path: Path, failed: dict[str, str] | None = None) -> None:
+    """jsonl = per-cell evidence; csv = the review list (複查清單). A channel that failed has no
+    cells to list, so it gets its own first row there — never a mark inside the workbook."""
     jsonl.parent.mkdir(parents=True, exist_ok=True)
     with jsonl.open("w", encoding="utf-8") as f:
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["priority", "channel", "minute", "value", "confidence", "fallback", "signals", "bar_text", "start_sec"])
+        w.writerow(["priority", "channel", "minute", "value", "confidence", "fallback", "signals", "bar_text", "start_sec",
+                    "reasons"])
+        for ch, msg in (failed or {}).items():
+            w.writerow([FAILED_PRIORITY, ch, "", "", "failed", "CHANNEL-FAILED", "", "", "", f"整台失敗：{msg}"])
         for r in records:
             first = r["items"][0] if r["items"] else {}
             w.writerow(
@@ -81,5 +92,6 @@ def save(records: list[dict], jsonl: Path, csv_path: Path) -> None:
                     " ".join(r["signals"]),
                     first.get("bar_text") or "",
                     first.get("start_sec", ""),
+                    "；".join(r.get("reasons", [])),
                 ]
             )

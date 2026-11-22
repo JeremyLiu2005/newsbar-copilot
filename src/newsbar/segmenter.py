@@ -11,10 +11,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from . import lexicon
 from .ad_state import AD, NEWS, OUTAGE, AdResult, carousel_seconds
 from .schemas import Confidence, EventType, SecondObs
 
-WEATHER_KEYWORDS = ("天氣", "氣象", "颱風動態", "降雨", "氣溫", "寒流", "鋒面")
 
 # Generic words that must not count as "same entity" on their own.
 _STOPWORDS = {"新北", "台北", "台灣", "全台", "民眾", "今天", "記者", "現場", "最新", "快訊", "獨家"}
@@ -108,7 +108,7 @@ def is_credit(text: str | None) -> bool:
 
 
 def is_weather(text: str) -> bool:
-    return any(k in text for k in WEATHER_KEYWORDS)
+    return any(k in text for k in lexicon.get().weather_words)  # config/lexicon.yaml: weather_words
 
 
 def segment(

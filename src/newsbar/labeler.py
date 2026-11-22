@@ -2,7 +2,9 @@
 
 A Generator proposes a label (an LLM in production); the validator decides.
 Nothing reaches the sheet unless it passes validation or comes from the rule
-fallback, which only copies characters from the source.
+fallback, which only copies characters from the source. A failing LLM never stops the
+run: the call is caught and the rule label is used and flagged.
+Place names, social-news keywords and hedge markers live in lexicon.py / config/lexicon.yaml.
 """
 
 from __future__ import annotations
@@ -11,24 +13,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from . import lexicon
+
 # Characters a label may add that are not content (aspect/voice particles).
 FUNCTION_CHARS = set("中了再又仍已遭被將要的與和")
-
-SOCIAL_KEYWORDS = (
-    "輾", "撞", "死", "亡", "傷", "砍殺", "殺人", "刺殺", "殺害", "毆", "火警", "火災", "墜", "溺",
-    "竊", "偷", "搶", "詐", "毒駕", "酒駕", "車禍", "槍", "命案", "失蹤",
-)
-
-# Minimal place gazetteer; extend from a full Taiwan district list in production.
-PLACES = (
-    "台北", "新北", "桃園", "台中", "台南", "高雄", "基隆", "新竹", "苗栗", "彰化",
-    "南投", "雲林", "嘉義", "屏東", "宜蘭", "花蓮", "台東", "澎湖", "金門", "馬祖",
-    "土城", "板橋", "三重", "中和", "永和", "新莊", "新店", "樹林", "蘆洲", "汐止",
-    "淡水", "信義", "大安", "中山", "萬華", "士林", "北投", "內湖", "南港", "文山",
-    "中壢", "平鎮", "八德", "龜山", "竹北", "頭份", "豐原", "大里", "太平", "沙鹿",
-    "鳳山", "左營", "三民", "苓雅", "前鎮", "楠梓", "岡山", "永康", "安平", "新營",
-    "寧夏", "西門町",
-)
 
 _PUNCT = re.compile(r"[\s「」『』（）()《》〈〉【】、，。！？：；…\"'·．.!?,:;]+")
 _ASCII_WORD = re.compile(r"[A-Za-z0-9]+")
@@ -55,12 +43,21 @@ def label_length(label: str) -> int:
 
 
 def is_social(text: str) -> bool:
-    return any(k in text for k in SOCIAL_KEYWORDS)
+    return any(k in text for k in lexicon.get().social_keywords)
 
 
 def places_in(text: str) -> list[str]:
-    found = [(text.find(p), p) for p in PLACES if p in text]
-    return [p for _, p in sorted(found)]
+    """Canonical place names in text order (土城區 and 土城 both give 土城)."""
+    return lexicon.get().places_in(text)
+
+
+def label_has_place(canon: str, label: str) -> bool:
+    return lexicon.get().place_in_label(canon, label)
+
+
+def hedge_basis(source: "LabelSource") -> str:
+    """Text whose hedge words the label must keep: the on-screen title when one was read."""
+    return " ".join(source.bar_texts) if source.bar_texts else source.text
 
 
 @dataclass(frozen=True)
@@ -99,46 +96,102 @@ def validate(label: str, source: LabelSource, rules: LabelRules = LabelRules()) 
     basis = " ".join(source.bar_texts) if source.bar_texts else src
     if is_social(basis):
         src_places = places_in(basis)
-        if src_places and not any(p in label for p in src_places):
+        if src_places and not any(label_has_place(p, label) for p in src_places):
             errors.append("LBL-4")
+    # TONE-1 (R10): a hedged claim (疑似, 傳出, 恐, 涉嫌 …) must stay hedged in the label.
+    lex = lexicon.get()
+    if lex.has_hedge(hedge_basis(source)) and not lex.has_hedge(label):
+        errors.append("TONE-1")
     return sorted(set(errors))
 
 
 _CLAUSE = re.compile(r"[!?！？,，。:：;；、\s「」『』\"'()（）\[\]【】…]+")
+_TOK = re.compile(r"[A-Za-z0-9]+|[一-鿿]")
+# A short shout before ！ or ：  (大膽!…  驚傳:…) says nothing about the story.
+_LEAD = re.compile(r"^\s*([^!！:：\s]{1,6})\s*[!！:：]+\s*(\S.*)$", re.S)
+_TARGET = 5  # 五字標
+
+
+def strip_lead_fragment(text: str, rules: "LabelRules | None" = None) -> str:
+    """Drop a leading exclamation/colon fragment when what follows can carry a label alone."""
+    rules = rules or LabelRules()
+    m = _LEAD.match(text)
+    if m and label_length(m.group(2)) >= rules.max_len:
+        return m.group(2)
+    return text
+
+
+def _grow(prefix: str, tail: str, target: int, hard_max: int) -> str:
+    """Append source tokens from `tail` until the label has `target` units (never above hard_max)."""
+    out = prefix
+    for tok in _TOK.findall(tail):
+        if label_length(out) >= target or label_length(out + tok) > hard_max:
+            break
+        out += tok
+    return out
+
+
+def _cut(clause: str, n: int) -> str:
+    out, units = "", 0
+    for tok in _TOK.findall(clause):
+        if units == n:
+            break
+        out += tok
+        units += 1
+    return out
+
+
+def _tone_fit(cand: str, clean: str, place: str | None, rules: "LabelRules") -> str:
+    """The source hedges (疑似, 傳出, 恐 …) but the candidate dropped it: rebuild around the marker."""
+    lex = lexicon.get()
+    hits = lex.hedge_hits(clean)
+    if not hits or lex.has_hedge(cand):
+        return cand
+    pos, marker = hits[0]
+    if place:
+        # place + marker + whatever follows it in the source
+        rebuilt = _grow(place + marker, clean[pos + len(marker):], rules.max_len, rules.max_len)
+    else:
+        start = max(0, pos - 2)  # two characters of subject before the marker
+        rebuilt = _grow("", clean[start:], _TARGET, rules.max_len)
+    return rebuilt if lex.has_hedge(rebuilt) and label_length(rebuilt) >= rules.min_len else cand
 
 
 def rule_label(source: LabelSource, rules: LabelRules = LabelRules()) -> str:
-    """FB-4: copy-only label = place + core verb for social news, otherwise the first
-    clause of the title that is long enough (digits kept: 月薪5萬, 僅1師帶隊)."""
-    text = source.bar_texts[0] if source.bar_texts else source.asr_text
+    """FB-4: copy-only condensation. Social news → place + core event words; otherwise the
+    first clause long enough. A leading exclamation fragment is dropped, a hedge marker in the
+    source is kept, every character comes from the source, length 4–6 (digits kept: 月薪5萬)."""
+    lex = lexicon.get()
+    text = strip_lead_fragment(source.bar_texts[0] if source.bar_texts else source.asr_text, rules)
     clean = _PUNCT.sub("", text)
-    places = places_in(clean)
-    if is_social(clean) and places:
-        place = places[-1]  # the most specific place, e.g. 土城 after 新北
-        for kw in SOCIAL_KEYWORDS:
-            pos = clean.find(kw)
-            if pos >= 0:
-                core = clean[pos : pos + 2]
-                cand = (place + core)[: rules.max_len]
-                if label_length(cand) >= rules.min_len:
-                    return cand
+    cand: str | None = None
+    place: str | None = None
+    if is_social(clean):
+        found = lex.find_places(clean)
+        if found:
+            _, surface, canon = found[-1]  # the most specific place, e.g. 土城 after 新北
+            place = surface[:-1] if surface[-1] in "區鄉鎮市" and len(surface) > 2 else surface
+            if not lex.place_in_label(canon, place):
+                place = surface
+        kws = [(clean.find(k), k) for k in lex.social_keywords if k in clean]
+        if kws:
+            pos, kw = min(kws, key=lambda t: (t[0], -len(t[1])))
+            tail = clean[pos + len(kw):]
+            core = kw if len(kw) > 1 else kw + (_TOK.findall(tail) or [""])[0]
+            tail = tail[len(core) - len(kw):]
+            built = _grow((place or "") + core, tail, _TARGET, rules.max_len)
+            if label_length(built) >= rules.min_len:
+                cand = built
+    if cand is None:
+        for clause in _CLAUSE.split(text):
+            c = _cut(clause, _TARGET)
+            if label_length(c) >= rules.min_len:
+                cand = c
                 break
-
-    def cut(clause: str, n: int) -> str:
-        out, units = "", 0
-        for tok in re.findall(r"[A-Za-z0-9]+|[\u4e00-\u9fff]", clause):
-            if units == n:
-                break
-            out += tok
-            units += 1
-        return out
-
-    for clause in _CLAUSE.split(text):
-        cand = cut(clause, 5)
-        if label_length(cand) >= rules.min_len:
-            return cand
-    cjk = "".join(_CJK.findall(clean))
-    return (cjk or clean)[: rules.max_len] or "新聞"
+    if cand is None:
+        cjk = "".join(_CJK.findall(clean))
+        cand = (cjk or clean)[: rules.max_len] or "新聞"
+    return _tone_fit(cand, clean, place, rules)
 
 
 @dataclass
@@ -147,6 +200,23 @@ class LabelResult:
     attempts: int
     fallback: str | None
     errors: list[list[str]]
+    reasons: list[str] = field(default_factory=list)  # why a human should look (shown in the review queue)
+
+
+REASON_LLM_DOWN = "AI 服務無回應"
+REASON_TONE = "未確認語氣"
+REASON_NO_PLACE = "社會新聞無地點"
+
+
+def review_reasons(label: str, source: LabelSource) -> list[str]:
+    lex = lexicon.get()
+    out = []
+    basis = " ".join(source.bar_texts) if source.bar_texts else source.text
+    if is_social(basis) and not any(lex.place_in_label(c, label) for c in lex.places_in(label)):
+        out.append(REASON_NO_PLACE)
+    if lex.has_hedge(hedge_basis(source)) and not lex.has_hedge(label):
+        out.append(REASON_TONE)
+    return out
 
 
 def make_label(
@@ -155,13 +225,24 @@ def make_label(
     retries: int = 1,
     rules: LabelRules = LabelRules(),
 ) -> LabelResult:
-    """§6.3: generate → validate → retry once → rule fallback."""
+    """§6.3: generate → validate → retry once → rule fallback.
+
+    An exception from the generator (Ollama down, timeout, bad JSON …) ends the attempts at once —
+    retrying a dead service only waits for the next timeout — and the rule label is used with the
+    reason 「AI 服務無回應」."""
     history: list[list[str]] = []
+    reasons: list[str] = []
     if generator is not None:
         for attempt in range(retries + 1):
-            cand = generator.generate(source, attempt)
+            try:
+                cand = generator.generate(source, attempt)
+            except Exception:  # noqa: BLE001 - uncertain cases must never stall the run
+                reasons.append(REASON_LLM_DOWN)
+                break
             errs = validate(cand, source, rules)
             history.append(errs)
             if not errs:
-                return LabelResult(cand, attempt + 1, None, history)
-    return LabelResult(rule_label(source, rules), len(history), "FB-4", history)
+                return LabelResult(cand, attempt + 1, None, history, review_reasons(cand, source))
+    label = rule_label(source, rules)
+    reasons += [r for r in review_reasons(label, source) if r not in reasons]
+    return LabelResult(label, len(history), "FB-4", history, reasons)

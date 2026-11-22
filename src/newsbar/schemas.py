@@ -88,6 +88,7 @@ class Event:
     source: Source = field(default_factory=Source)
     signals: dict[str, Any] = field(default_factory=dict)
     fallback: str | None = None
+    reasons: list[str] = field(default_factory=list)  # why a human should look at this cell (review queue only)
 
     def __post_init__(self) -> None:
         self.type = EventType(self.type)

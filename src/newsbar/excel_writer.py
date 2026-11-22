@@ -115,6 +115,30 @@ def _fingerprint(ws: Worksheet, skip: set[tuple[int, int]]) -> str:
     return h.hexdigest()
 
 
+RATING_HEADERS = ("A30", "M30", "A4+")  # 收視率欄，隔天由行政灌入；位置與格式不能動
+
+
+def _features(ws: Worksheet) -> dict:
+    """Sheet-level things the cell fingerprint cannot see: conditional formatting, data validation,
+    freeze panes. Compared in a form that survives an openpyxl save/load round trip."""
+    cf = sorted(
+        (str(g.sqref), r.type, r.operator, tuple(r.formula or ()), r.priority, r.text)
+        for g in ws.conditional_formatting for r in g.rules)
+    dv = sorted(
+        (str(v.sqref), v.type, v.operator, v.formula1, v.formula2, bool(v.allow_blank))
+        for v in ws.data_validations.dataValidation)
+    return {"conditional_formatting": cf, "data_validation": dv, "freeze_panes": ws.freeze_panes}
+
+
+def _rating_headers(ws: Worksheet, header_row: int) -> dict[str, str]:
+    return {c.coordinate: c.value for c in ws[header_row] if isinstance(c.value, str) and c.value.strip() in RATING_HEADERS}
+
+
+def _check_same(label: str, before, after) -> None:
+    if before != after:
+        raise WriterError(f"{label}與範本不一致（寫入前後有變）")
+
+
 def write(
     template: Path,
     out: Path,
@@ -130,6 +154,8 @@ def write(
 
     targets = {(r, c) for r in layout.minute_rows.values() for c in layout.channel_cols.values()}
     before = _fingerprint(ws, targets)
+    feats = _features(ws)
+    ratings = _rating_headers(ws, layout.time_header_row)
 
     for ch, by_minute in cells.items():
         if ch not in layout.channel_cols:
@@ -145,6 +171,7 @@ def write(
 
     if _fingerprint(ws, targets) != before:
         raise WriterError("非目標儲存格被改動")
+    _check_same("條件式格式／資料驗證／凍結窗格", feats, _features(ws))
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
 
@@ -152,4 +179,84 @@ def write(
     ws2 = load_workbook(out)[sheet]
     if _fingerprint(ws2, targets) != _fingerprint(load_workbook(template)[sheet], targets):
         raise WriterError("存檔後非目標儲存格與範本不一致")
+    _check_same("存檔後條件式格式／資料驗證／凍結窗格", feats, _features(ws2))
+    if _rating_headers(ws2, layout.time_header_row) != ratings:  # A30/M30/A4+ headers must survive
+        raise WriterError("存檔後收視率欄表頭（A30/M30/A4+）與範本不一致")
     return layout
+
+
+# ---- review copy (fix 9) ---------------------------------------------------------------------
+FB_TEXT = {"FB-1": "換題訊號偏弱", "FB-3": "標題讀不到，靠語音定名", "FB-4": "AI 五字標未通過校驗，改用規則擷取"}
+REVIEW_FILL = "FFFF00"
+
+
+def _hms(sec: float) -> str:
+    sec = max(0, int(sec))
+    return f"{sec // 3600:02d}:{sec % 3600 // 60:02d}:{sec % 60:02d}"
+
+
+def flag_reasons(rec: dict) -> list[str]:
+    """Chinese reasons a cell needs a human: explicit reasons, fallback codes, plain low confidence."""
+    out = list(rec.get("reasons") or [])
+    for code in filter(None, (rec.get("fallback") or "").split(",")):
+        out.append(FB_TEXT.get(code, f"備援 {code}"))
+    if not out and rec.get("confidence") == "low":
+        out.append("信心偏低")
+    return list(dict.fromkeys(out))
+
+
+def write_review_copy(
+    clean_xlsx: Path,
+    out: Path,
+    records: list[dict],
+    channel_headers: dict[str, str],
+    failed: dict[str, str] | None = None,
+    video_offsets: dict[str, int] | None = None,
+    sheet: str = SHEET,
+) -> int:
+    """Copy of the delivered workbook where each flagged 五字標 cell is yellow and carries a comment
+    (video time, main-bar OCR, speech excerpt, reason). A failed channel gets one comment on its first
+    minute cell. The delivered workbook itself is never touched. Returns the number of marked cells."""
+    from openpyxl.comments import Comment
+    from openpyxl.styles import PatternFill
+
+    wb = load_workbook(clean_xlsx)
+    ws = wb[sheet]
+    marked = 0
+    fill = PatternFill("solid", fgColor=REVIEW_FILL)
+    offsets = video_offsets or {}
+
+    def put(cell, text: str) -> None:
+        nonlocal marked
+        cell.fill = fill
+        c = Comment(text, "NewsBar")
+        c.width, c.height = 320, 160
+        cell.comment = c
+        marked += 1
+
+    for ch, header in channel_headers.items():
+        try:
+            lay = locate(ws, {ch: header})
+        except WriterError:
+            continue
+        col = lay.channel_cols[ch]
+        if ch in (failed or {}):
+            first = min(lay.minute_rows, key=lambda m: lay.minute_rows[m])
+            put(ws.cell(lay.minute_rows[first], col),
+                f"整台失敗：{failed[ch]}\n這一台的欄位是空的，需人工補。")
+            continue
+        for rec in records:
+            if rec["channel"] != ch or rec["minute"] not in lay.minute_rows:
+                continue
+            reasons = flag_reasons(rec)
+            if not reasons:
+                continue
+            it = rec["items"][0] if rec["items"] else {}
+            vsec = (it.get("start_sec") or 0) - offsets.get(ch, 0)
+            asr = (it.get("asr_text") or "")[:60]
+            put(ws.cell(lay.minute_rows[rec["minute"]], col),
+                f"影片時間：{_hms(vsec)}\n標題 OCR：{it.get('bar_text') or '（讀不到）'}\n"
+                f"語音：{asr or '（無）'}\n原因：{'；'.join(reasons)}")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(out)
+    return marked

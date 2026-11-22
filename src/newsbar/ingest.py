@@ -7,6 +7,7 @@ so a 1-hour channel costs ~100 MB instead of full frames (NFR-08).
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -57,6 +58,21 @@ def parse_clock(clock: str) -> int:
         parts.append(0)
     h, m, s = parts
     return h * 3600 + m * 60 + s
+
+
+_NAME_DATETIME = re.compile(r"(?<!\d)(?:19|20)\d{6}[_\-T ]?([01]\d|2[0-3])([0-5]\d)([0-5]\d)?(?!\d)")
+_NAME_HH_MM = re.compile(r"(?<!\d)([01]\d|2[0-3])[.\-:]([0-5]\d)(?!\d)")
+
+
+def clock_from_filename(video: Path | str) -> str | None:
+    """Recording start time written in the file name: tvbs_20261106_1200.ts, 東森_20261106-120000.mp4,
+    ftv 12-00.ts → 'HH:MM:SS'. None when the name carries no time."""
+    stem = Path(video).stem
+    m = _NAME_DATETIME.search(stem)
+    if m:
+        return f"{m[1]}:{m[2]}:{m[3] or '00'}"
+    m = _NAME_HH_MM.search(stem)
+    return f"{m[1]}:{m[2]}:00" if m else None
 
 
 def sheet_offset(video_clock_start: str, sheet_start: str = "1200") -> int:

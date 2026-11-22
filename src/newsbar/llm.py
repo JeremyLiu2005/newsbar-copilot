@@ -9,8 +9,14 @@ Every generator only proposes; labeler.validate() decides. Two backends:
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
+import shutil
+import subprocess
+import threading
+import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
@@ -21,7 +27,7 @@ SYSTEM = """你是台灣電視新聞監看員，要替一則新聞寫「五字�
 1. 4–6 個字（英文專有名詞算一個字），只輸出五字標本身，不要解釋、不要標點、不要引號。
 2. 只能用主標題裡出現過的字（人名、地名、事物、動作、數字）；不得補造，也不要用標題以外的地名。
 3. 社會事件（車禍、命案、竊盜、火警等）一定要含地點，地點必須出現在來源中，優先用較小的地名（例：新北土城→土城）。
-4. 來源只說「起訴」「求刑」「疑似」時，不得寫成「判刑」「確定」等定論。
+4. 來源只說「起訴」「求刑」「疑似」時，不得寫成「判刑」「確定」等定論；來源有「疑」「疑似」「傳出」「恐」「涉嫌」「涉」「據傳」「爆料」這類未確認的說法，五字標要保留其中一個字（例：疑縱火、傳出離婚），不能寫成肯定句。
 5. 人名可以只取名字（張俊傑→俊傑），機構可用常見簡稱。
 6. 先數字數：超過 6 個字就刪修飾語（時間、程度、「不慎」「怒批」等），只留「地點＋核心動作＋結果」；少於 4 個字就補上地點或結果。"""
 
@@ -32,7 +38,7 @@ FEW_SHOT = [
     ("萬聖節派對後垃圾亂丟 民眾怒批", "萬聖節亂丟"),
     ("台中潭子男子酒駕撞護欄 闖紅燈遭攔查", "潭子酒駕撞"),
 ]
-PROMPT_VERSION = "v2-len6"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
+PROMPT_VERSION = "v3-hedge"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
 
 MAX_ASR_CHARS = 200  # NFR-14: never send more speech than needed
 
@@ -43,7 +49,7 @@ def build_user_prompt(source: LabelSource, attempt: int) -> str:
     # verbs that are not in the title and failed validation (11/06 run: 49/91 cells).
     bar = " / ".join(source.bar_texts[:2]) or "（主標題讀不到）"
     asr = "" if source.bar_texts else (source.asr_text or "")[:MAX_ASR_CHARS]
-    retry = "\n上一次的答案沒有通過檢查（可能用了來源沒有的字，或缺地點），請只用來源裡的字重寫。" if attempt else ""
+    retry = "\n上一次的答案沒有通過檢查（可能用了來源沒有的字、缺地點，或把「疑似／傳出／恐／涉嫌」這類未確認的說法拿掉了），請只用來源裡的字重寫。" if attempt else ""
     return f"主標題：{bar}\n主播與記者語音節錄：{asr or '（無）'}{retry}\n五字標："
 
 
@@ -51,6 +57,10 @@ def clean_output(text: str) -> str:
     line = text.strip().splitlines()[0] if text.strip() else ""
     line = re.sub(r"^(五字標|答案)[:：]\s*", "", line)
     return line.strip(" 「」『』\"'。．.")
+
+
+class LLMError(RuntimeError):
+    """The model service did not answer usefully (down, timed out, HTTP error, malformed reply)."""
 
 
 @dataclass
@@ -70,9 +80,13 @@ class OllamaGenerator:
                            "options": {"temperature": 0, "seed": 42}}).encode()  # same video, same sheet
         req = urllib.request.Request(f"{self.host}/api/chat", data=body,
                                      headers={"Content-Type": "application/json"})
-        with self.opener(req, timeout=self.timeout) as r:
-            data = json.loads(r.read().decode())
-        return clean_output(data["message"]["content"])
+        try:
+            with self.opener(req, timeout=self.timeout) as r:
+                data = json.loads(r.read().decode())
+            return clean_output(data["message"]["content"])
+        except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError, AttributeError) as e:
+            # URLError/timeout/ConnectionError are OSError; JSONDecodeError is ValueError
+            raise LLMError(f"{type(e).__name__}: {e}") from e
 
 
 class ExternalCallNotAllowed(RuntimeError):
@@ -112,6 +126,79 @@ class ClaudeGenerator:
             return ""  # validator rejects → retry → rule fallback (FB-4)
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         return clean_output(text)
+
+
+class GuardedGenerator:
+    """Stops asking a dead service. After `max_failures` consecutive errors every further call
+    raises at once instead of waiting for its own timeout, so ~100 cells do not cost ~100 minutes
+    of 60 s timeouts. One success resets the count. The labeler catches the error per cell."""
+
+    def __init__(self, inner, max_failures: int = 3):
+        self.inner, self.max_failures = inner, max_failures
+        self.model = getattr(inner, "model", "")
+        self._fails = 0
+        self._lock = threading.Lock()
+
+    @property
+    def tripped(self) -> bool:
+        return self._fails >= self.max_failures
+
+    def generate(self, source: LabelSource, attempt: int) -> str:
+        if self.tripped:
+            raise LLMError("AI 服務連續無回應，本次不再重試")
+        try:
+            out = self.inner.generate(source, attempt)
+        except Exception:
+            with self._lock:
+                self._fails += 1
+            raise
+        with self._lock:
+            self._fails = 0
+        return out
+
+
+class UnavailableGenerator:
+    """Stand-in when the service could not be reached before labeling: every cell takes the
+    rule-label path and carries the 「AI 服務無回應」 reason."""
+
+    def generate(self, source: LabelSource, attempt: int) -> str:
+        raise LLMError("Ollama 未啟動")
+
+
+def ollama_up(host: str, timeout: float = 2.0, opener=urllib.request.urlopen) -> bool:
+    try:
+        with opener(f"{host.rstrip('/')}/api/tags", timeout=timeout) as r:
+            return 200 <= getattr(r, "status", 200) < 300
+    except (OSError, http.client.HTTPException, ValueError):
+        return False
+
+
+def ensure_ollama(host: str, *, ping=ollama_up, which=shutil.which, spawn=subprocess.Popen,
+                  wait_sec: float = 15.0, sleep=time.sleep, say=print) -> bool:
+    """True when Ollama answers at `host`. If it does not, start `ollama serve` once in the
+    background and wait briefly; False (with a clear message) when it still is not there."""
+    if ping(host):
+        return True
+    exe = which("ollama")
+    if not exe:
+        say(f"⚠ Ollama 沒有回應（{host}），也找不到 ollama 指令；五字標改用規則擷取，並標為低信心")
+        return False
+    say(f"Ollama 沒有回應（{host}），嘗試啟動 ollama serve …")
+    try:
+        spawn([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+              start_new_session=True)
+    except OSError as e:
+        say(f"⚠ 無法啟動 ollama serve（{e}）；五字標改用規則擷取，並標為低信心")
+        return False
+    waited = 0.0
+    while waited < wait_sec:
+        sleep(0.5)
+        waited += 0.5
+        if ping(host):
+            say("Ollama 已啟動")
+            return True
+    say(f"⚠ 等了 {wait_sec:.0f} 秒 Ollama 仍沒有回應；五字標改用規則擷取，並標為低信心")
+    return False
 
 
 class CachedGenerator:

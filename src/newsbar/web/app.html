@@ -68,6 +68,7 @@ pre.log{background:var(--bg);border:1px solid var(--line);border-radius:6px;padd
 table{border-collapse:collapse;width:100%;font-size:13px}
 th,td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:3px 8px;text-align:left;white-space:nowrap}
 thead th{position:sticky;top:0;background:var(--panel)} td.adc{background:var(--ad-soft);color:var(--ad);font-weight:700}
+.failbox{grid-column:1/-1;background:#ffe0e0;color:#7a1f1f;border-radius:6px;padding:6px 10px}
 </style></head><body>
 <div class="wrap">
   <div class="banner">已串接地端後端：按「開始分析」會在這台電腦執行 <code>newsbar run</code>，影片與表格不離開本機。</div>
@@ -224,7 +225,7 @@ function renderResult(){
   $('#tabs').innerHTML=chs.map(c=>`<button class="tab${c===cur?' on':''}" data-c="${c}">${NAMES[c]}</button>`).join('');
   document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.c;renderResult()});
   const segs=segsOf(cur), rep=RES.report[cur]||{};
-  $('#stats').innerHTML=`<div><b>${segs.filter(s=>s[1]!=='ad').length}</b>則新聞</div><div><b>${segs.filter(s=>s[1]==='ad').length}</b>段廣告</div><div><b>${rep.cells??'—'}</b>格寫入</div><div><b>${rep.low_conf??'—'}</b>格列入抽查</div>${segs.some(s=>s[4].judge)?`<div><b>${segs.filter(s=>cleared(s[5],s[4])).length}</b>格 LLM 已初判</div>`:''}`;
+  $('#stats').innerHTML=`<div><b>${segs.filter(s=>s[1]!=='ad').length}</b>則新聞</div><div><b>${segs.filter(s=>s[1]==='ad').length}</b>段廣告</div><div><b>${rep.cells??'—'}</b>格寫入</div><div><b>${rep.low_conf??'—'}</b>格列入抽查</div>${Object.entries(RES.failed||{}).map(([c,m])=>`<div class="failbox"><b>${esc(NAMES[c]||c)} 整台失敗</b> ${esc(m)}（Excel 該台欄位是空的，需人工補）</div>`).join('')}${segs.some(s=>s[4].judge)?`<div><b>${segs.filter(s=>cleared(s[5],s[4])).length}</b>格 LLM 已初判</div>`:''}`;
   $('#segs').innerHTML=segs.map((s,i)=>{const end=i+1<segs.length?segs[i+1][0]:3600;return `<div class="seg${s[1]==='ad'?' ad':''}" data-k="${i}" tabindex="0"><span class="t">${hm(s[0])}–${hm(Math.max(end-1,s[0]))}</span><span class="lbl">${esc(s[2])}</span>${FIX[cur+s[5].m]?`<span class="done-tag">${FIX[cur+s[5].m].verdict==='fix'?'已改正':'已確認'}</span>`:cleared(s[5],s[4])?'<span class="pill soft" title="LLM 初判這是新的一則，仍可人工覆核">LLM 已初判</span>':s[3]?'<span class="pill">列入抽查</span>':'<span></span>'}</div>`}).join('');
   $('#review').href=`/api/jobs/${JOB.id}/review`;
   document.querySelectorAll('.seg').forEach(el=>{
@@ -245,7 +246,7 @@ $('#judge').onclick=async()=>{
 };
 $('#toDone').onclick=()=>{
   const r=Object.values(RES.report), cells=r.reduce((a,x)=>a+(x.cells||0),0), low=r.reduce((a,x)=>a+(x.low_conf||0),0);
-  $('#lowline').textContent=`共寫入 ${cells} 格；其中 ${low} 格信心較低，照常填寫並另列抽查清單`;
+  $('#lowline').textContent=`共寫入 ${cells} 格；其中 ${low} 格信心較低，照常填寫並另列抽查清單`+(Object.keys(RES.failed||{}).length?`；整台失敗：${Object.keys(RES.failed).map(c=>NAMES[c]||c).join('、')}（欄位空白）`:'');
   $('#dl').href=`/api/jobs/${JOB.id}/xlsx`; $('#preview').hidden=true; show('done');
 };
 $('#prev').onclick=()=>{
