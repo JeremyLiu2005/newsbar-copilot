@@ -189,4 +189,6 @@ def reread_frame(path: Path) -> dict:
         text, conf = join_lines(get_backend("vision").read(path))
     except Exception as e:  # noqa: BLE001
         return {"status": "not_reverified", "why": f"無法重讀：{type(e).__name__}", "text": None}
+    if not text:  # an empty read verifies nothing
+        return {"status": "not_reverified", "why": "重讀無文字結果", "text": None, "frame": str(path)}
     return {"status": "reread", "text": text, "conf": conf, "frame": str(path)}

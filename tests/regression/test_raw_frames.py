@@ -24,7 +24,7 @@ def test_promo_frame_reread_recorded():
 
 
 @pytest.mark.xfail(strict=True, reason="TVBS 12:16 火燒車：OCR 有讀到（924–1005 秒），被換題「同則」判斷併入前一則紙廠火災；"
-                                         "規格禁止改換題核心門檻，故標為已知失敗（見 docs/review/diagnosis.md）")
+                                         "規格禁止改換題核心門檻，故標為已知失敗（tools/diagnose_candidates.py：924 秒 SAME-3 共用「火燒」）")
 def test_tvbs_fire_car_reaches_sheet():
     from openpyxl import load_workbook
     out = sorted((Path("/Users/rei/newsbar-copilot/out")).glob("stageA_new*/12監看_20261106.xlsx"))
