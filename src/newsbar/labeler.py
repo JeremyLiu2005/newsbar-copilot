@@ -278,7 +278,7 @@ def casualty_in(text: str) -> str | None:
 def event_missing(label: str, source: "LabelSource") -> str | None:
     """EVT-1: the source's main result is a death / injury but the label keeps neither the result nor
     the collision / fire / killing that caused it. Returns the result words the label dropped."""
-    basis = " ".join(source.bar_texts) if source.bar_texts else source.text
+    basis = source.bar_texts[0] if source.bar_texts else source.text  # the main title's result
     w = casualty_in(basis)
     if not w or any(ch in RESULT_CHARS for ch in label) or casualty_in(label):
         return None
@@ -743,7 +743,7 @@ def _token_spans(title: str) -> list[tuple[int, int]]:
 def _score(cand: str, title_idx: int, start: int, rules: LabelRules, clause: str = "", end: int | None = None
            ) -> float:
     lex = lexicon.get()
-    sc = -0.6 * abs(label_length(cand) - rules.target_len) - 0.03 * start - 0.5 * title_idx
+    sc = -0.6 * abs(label_length(cand) - rules.target_len) - 0.03 * start - 2.5 * title_idx  # the main title first
     if clause and end is not None:
         sc += 1.0 if start == 0 else 0  # keeps the clause's subject
         sc += 1.0 if end == len(clause) else 0  # closes the clause: a whole phrase
@@ -789,7 +789,7 @@ def fallback_candidates(source: LabelSource, rules: LabelRules = LabelRules(), a
                 if label_length(w1) < 2 or label_length(w1) > 3 or not (a1 == 0 or lexicon.get().places_in(w1)):
                     continue
                 for a2, b2, w2 in runs:
-                    if a2 <= b1 or label_length(w2) < 2:
+                    if a2 <= b1 or a2 - b1 > 4 or label_length(w2) < 2:  # far-apart pieces change the meaning
                         continue
                     w = w1 + w2
                     if not (rules.min_len <= label_length(w) <= rules.max_len):
