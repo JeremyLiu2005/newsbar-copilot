@@ -283,7 +283,7 @@ def casualty_in(text: str) -> str | None:
             if not _negated(text, m.start()):
                 return w
     for m in _CASUALTY_DIE.finditer(text):
-        if not _negated(text, m.start()):
+        if not _negated(text, max(0, m.start() - 1)):  # 傷亡、撞亡: the word starts one character earlier
             return text[max(0, m.start() - 1):m.end()]
     return None
 
