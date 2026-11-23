@@ -811,3 +811,28 @@ def test_thinking_off_answers_are_cached_apart(monkeypatch):
     on = llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": True}})
     off = llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": True, "thinking": False}})
     assert on.model != off.model and off.api_model == on.api_model == on.model
+
+
+def test_thinking_retry_mode_skips_thinking_only_on_first_answer(monkeypatch):
+    import io, json
+    from newsbar import llm
+    from newsbar.labeler import LabelSource
+    monkeypatch.setenv("NEWSBAR_LLM_API_KEY", "k")
+    sent = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def opener(req, timeout):
+        sent.append(json.loads(req.data))
+        return Resp(json.dumps({"choices": [{"message": {"content": '{"short_title": "汐止燒警車"}'}}]}).encode())
+
+    g = llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": True, "thinking": "retry"}})
+    g.opener = opener
+    src = LabelSource(["囂張!汐止分局旁汽油彈燒警車51歲嫌桃園遭逮"], "")
+    g.generate(src, 0)
+    g.generate(src, 1)
+    assert sent[0].get("chat_template_kwargs") == {"enable_thinking": False}
+    assert "chat_template_kwargs" not in sent[1]
+    assert g.model.endswith("#retrythink") and sent[0]["model"] == g.api_model

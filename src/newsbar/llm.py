@@ -428,7 +428,7 @@ class OpenAICompatGenerator:
 
     def __init__(self, model: str, api_key: str, base_url: str = NVIDIA_BASE_URL, allow_external: bool = False,
                  timeout: float = 180.0, max_tokens: int = 8000, system: str = SYSTEM, few_shot: list | None = None,
-                 rag=None, opener=None, thinking: bool = True):
+                 rag=None, opener=None, thinking: bool | str = True):
         if not allow_external:
             raise ExternalCallNotAllowed(
                 "外部 LLM 預設關閉（NFR-14）。要使用請在 rules.yaml 設 labeler.allow_external: true")
@@ -436,10 +436,11 @@ class OpenAICompatGenerator:
             raise ExternalCallNotAllowed("沒有雲端模型金鑰：請設環境變數 NEWSBAR_LLM_API_KEY（或 NVIDIA_API_KEY）")
         # reasoning models think before answering: 2000 tokens was all thinking and no answer (11/23)
         self.model, self.base_url, self.timeout, self.max_tokens = model, base_url.rstrip("/"), timeout, max_tokens
+        # thinking: True | False | "retry" (first answer without thinking, rewrites with thinking: cheap when it works)
         self.thinking = thinking
         self.api_model = model
-        if not thinking:  # the cache key follows the model name: answers given without thinking are kept apart
-            self.model = f"{model}#nothink"
+        if thinking is False or thinking == "retry":  # the cache key follows the model name: modes kept apart
+            self.model = f"{model}#{'nothink' if thinking is False else 'retrythink'}"
         self._key = api_key
         self.system, self.few_shot, self.rag = system, few_shot, rag
         self.opener = opener or urllib.request.urlopen
@@ -454,7 +455,7 @@ class OpenAICompatGenerator:
         msgs = [{"role": "system", "content": self.system}] + build_messages(source, attempt, self.rag_pairs(source),
                                                                             self.few_shot)
         payload = {"model": self.api_model, "messages": msgs, "temperature": 0, "max_tokens": self.max_tokens}
-        if not self.thinking:
+        if self.thinking is False or (self.thinking == "retry" and attempt == 0):
             payload["chat_template_kwargs"] = {"enable_thinking": False}
         body = json.dumps(payload).encode()
         req = urllib.request.Request(f"{self.base_url}/chat/completions", data=body, headers={
@@ -509,6 +510,10 @@ class ChainGenerator:
                     h.allow_probe()
 
 
+def _thinking(v) -> bool | str:
+    return "retry" if str(v).lower() == "retry" else bool(v)
+
+
 def from_rules(rules: dict | None, kb_override: str | None = None):
     """labeler.generator: rule | ollama | claude  (default rule = no LLM)."""
     cfg = (rules or {}).get("labeler", {}) or {}
@@ -539,7 +544,7 @@ def from_rules(rules: dict | None, kb_override: str | None = None):
             cloud = OpenAICompatGenerator(model=model, api_key=env.get("NEWSBAR_LLM_API_KEY") or env.get("NVIDIA_API_KEY", ""),
                                           base_url=env.get("NEWSBAR_LLM_BASE_URL") or cfg.get("base_url") or NVIDIA_BASE_URL,
                                           allow_external=bool(cfg.get("allow_external")), rag=rag,
-                                          thinking=bool(cfg.get("thinking", True)), **prompt)
+                                          thinking=_thinking(cfg.get("thinking", True)), **prompt)
         except ExternalCallNotAllowed as e:
             if local is None:
                 raise
