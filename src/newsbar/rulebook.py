@@ -501,6 +501,10 @@ RULES: list[Rule] = [
          "雲端模型寫五字標時可設 labeler.fallback: ollama：雲端沒回應（逾時、額度、空白答案）就改問本機模型，兩個都失敗才用規則備援；"
          "本機模型寫的格子記一條資訊提示「雲端模型無回應，短標由本機模型寫」。兩個模型各自有斷路器與快取。",
          ("llm.ChainGenerator", "cli.cmd_run", "pipeline.decide_story")),
+    Rule("R21-3", "fallback",
+         "雲端真的問過而沒回答（逾時、空白、HTTP 錯誤）也記在快取檔，重跑時直接交給本機模型，同一份影片重跑結果相同；"
+         "斷路器跳開而沒問的也記（何時跳開取決於當下時間）。要重問雲端，刪除工作資料夾的 label_cache_cloud.json（看圖重寫：label_cache_image.json）。",
+         ("llm.CachedGenerator", "vision.ImageLabeler.rewrite")),
     Rule("R20-4", "fallback",
          "一台的標題都命名完後，因「AI 服務無回應」改用規則備援的格子再問 AI 一次（先放一個探測請求，不等 30 秒）；"
          "仍然沒回應就停止補問，保留規則備援與標記，不拖慢整次執行。",

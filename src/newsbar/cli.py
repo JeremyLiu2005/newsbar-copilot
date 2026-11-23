@@ -359,7 +359,8 @@ def cmd_run(a: argparse.Namespace) -> int:
             local = gen.secondary
             if not (llm.ensure_ollama(local.host) and llm.warm_up(local)):
                 local = llm.UnavailableGenerator()
-            gen.primary = llm.CachedGenerator(llm.GuardedGenerator(gen.primary), work / "label_cache_cloud.json")
+            gen.primary = llm.CachedGenerator(llm.GuardedGenerator(gen.primary), work / "label_cache_cloud.json",
+                                              cache_failures=True)
             gen.secondary = llm.CachedGenerator(llm.GuardedGenerator(local), work / "label_cache.json")
         else:
             host = getattr(gen, "host", None)

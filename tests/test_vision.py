@@ -737,3 +737,44 @@ def test_cloud_usage_counts_calls_results_and_tokens(monkeypatch):
     u = llm.CLOUD_LABEL_USAGE.snapshot()
     assert (u["calls"], u["ok"], u["empty"], u["timeout"]) == (3, 1, 1, 1)
     assert (u["prompt_tokens"], u["completion_tokens"], u["reasoning_tokens"]) == (200, 8050, 40)
+
+
+# ---- R21-3: a real cloud failure is remembered, so a rerun gives the same sheet ----------------------------
+
+def test_cached_cloud_failure_replays_without_asking_again(tmp_path):
+    import pytest
+    from newsbar import llm
+    from newsbar.labeler import LabelSource
+
+    class Flaky:
+        model = "cloud"
+        calls = 0
+        def generate(self, source, attempt):
+            Flaky.calls += 1
+            raise llm.LLMError("雲端模型回空白")
+
+    path = tmp_path / "c.json"
+    src = LabelSource(["台積電聯發科一度跌停"], "")
+    g = llm.CachedGenerator(Flaky(), path, cache_failures=True)
+    with pytest.raises(llm.LLMError):
+        g.generate(src, 0)
+    g2 = llm.CachedGenerator(Flaky(), path, cache_failures=True)  # the next run
+    with pytest.raises(llm.LLMError):
+        g2.generate(src, 0)
+    assert Flaky.calls == 1
+
+
+def test_breaker_refusal_is_remembered_too(tmp_path):
+    import pytest
+    from newsbar import llm
+    from newsbar.labeler import LabelSource
+
+    class Open:
+        model = "cloud"
+        def generate(self, source, attempt):
+            raise llm.BreakerOpen("AI 服務連續無回應，稍後再試")
+
+    g = llm.CachedGenerator(Open(), tmp_path / "c.json", cache_failures=True)
+    with pytest.raises(llm.LLMError):
+        g.generate(LabelSource(["x"], ""), 0)
+    assert (tmp_path / "c.json").exists()  # the skip depends on timing; a rerun must not ask again

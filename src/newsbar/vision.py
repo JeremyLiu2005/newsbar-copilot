@@ -503,7 +503,19 @@ class ImageLabeler:
         key = f"{self.model}:{hashlib.sha1(image + system.encode() + prompt.encode()).hexdigest()}"
         with self.lock:
             if key in self.cache:
+                if self.cache[key] == "\u0000FAILED":
+                    raise VisionError("上次執行此題雲端沒回應（已記錄）")
                 return self.cache[key]
+        try:
+            return self._ask(key, image, media_type, system, prompt)
+        except VisionError:
+            with self.lock:  # R21-3: remember a real failure so a rerun gives the same sheet
+                self.cache[key] = "\u0000FAILED"
+                if self.cache_path:
+                    self.cache_path.write_text(json.dumps(self.cache, ensure_ascii=False, indent=0), encoding="utf-8")
+            raise
+
+    def _ask(self, key: str, image: bytes, media_type: str, system: str, prompt: str) -> str:
         data_uri = f"data:{media_type};base64,{base64.b64encode(image).decode('ascii')}"
         body = json.dumps({"model": self.model, "max_tokens": 8000, "temperature": 0, "messages": [
             {"role": "system", "content": system},

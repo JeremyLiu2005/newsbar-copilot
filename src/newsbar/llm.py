@@ -129,6 +129,10 @@ class LLMError(RuntimeError):
     """The model service did not answer usefully (down, timed out, HTTP error, malformed reply)."""
 
 
+class BreakerOpen(LLMError):
+    """GuardedGenerator refused without asking (the service failed several times in a row)."""
+
+
 @dataclass
 class OllamaGenerator:
     model: str = "qwen2.5:7b-instruct"
@@ -242,7 +246,7 @@ class GuardedGenerator:
             if self.tripped:
                 now = self.clock()
                 if self._tripped_at is not None and now - self._tripped_at < self.cooldown_sec:
-                    raise LLMError("AI 服務連續無回應，稍後再試")
+                    raise BreakerOpen("AI 服務連續無回應，稍後再試")
                 self._tripped_at = now  # this call is the probe; others keep failing fast meanwhile
         try:
             out = self.inner.generate(source, attempt)
@@ -332,11 +336,13 @@ class CachedGenerator:
     240 still changed between identical runs (11/06). The cache also skips repeat calls.
     """
 
-    def __init__(self, inner, path):
+    FAILED = "\u0000FAILED"  # a cloud call that was really made and failed (R21-3)
+
+    def __init__(self, inner, path, cache_failures: bool = False):
         import threading
         from pathlib import Path
 
-        self.inner, self.path = inner, Path(path)
+        self.inner, self.path, self.cache_failures = inner, Path(path), cache_failures
         self._lock = threading.Lock()
         self._cache: dict[str, str] = json.loads(self.path.read_text()) if self.path.exists() else {}
 
@@ -360,8 +366,20 @@ class CachedGenerator:
         key = self.key(source, attempt)
         with self._lock:
             if key in self._cache:
+                if self._cache[key] == self.FAILED:
+                    raise LLMError("上次執行此題雲端沒回應（已記錄，重跑沿用；刪除快取檔可重問）")
                 return self._cache[key]
-        out = self.inner.generate(source, attempt)
+        try:
+            out = self.inner.generate(source, attempt)
+        except LLMError:
+            # 規則 R21-3：這一題雲端這次沒答（逾時、空白、HTTP 錯誤，或斷路器跳開沒問）也記下來，
+            # 重跑時直接交給本機模型；斷路器何時跳開取決於當下時間，不記的話重跑結果會不同
+            if self.cache_failures:
+                with self._lock:
+                    self._cache[key] = self.FAILED
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                    self.path.write_text(json.dumps(self._cache, ensure_ascii=False, indent=0))
+            raise
         with self._lock:
             self._cache[key] = out
             self.path.parent.mkdir(parents=True, exist_ok=True)
