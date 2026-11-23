@@ -19,7 +19,7 @@ from pathlib import Path
 from . import words as wordseg
 
 # 規則 OCR-V3：已知常見誤辨（只當線索，仍要影格或同則標題佐證才修正）
-DEFAULT_CONFUSIONS = (("促鍆", "促銷"), ("牙叉", "貨叉"))
+DEFAULT_CONFUSIONS = (("促鍆", "促銷"), ("牙叉", "貨叉"), ("拒撿", "拒檢"), ("偷瀆", "偷渡"))
 STATUS_CLEAN = "無疑義"
 STATUS_FIXED = "已修正"
 STATUS_PENDING = "待回查"

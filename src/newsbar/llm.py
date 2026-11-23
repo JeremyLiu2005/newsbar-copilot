@@ -22,18 +22,31 @@ from dataclasses import dataclass
 
 from .labeler import LabelSource
 
-SYSTEM = """你是台灣電視新聞監看員，要替一則新聞寫「新聞短標」（俗稱五字標），讓看監看表的人一眼認得是哪則新聞。
+SYSTEM_TEMPLATE = """你是台灣電視新聞監看員，要替一則新聞寫「新聞短標」（俗稱五字標），讓看監看表的人一眼認得是哪則新聞。
 請依下列順序思考，最後只輸出一個 JSON 物件，不要其他文字：
 {"short_title": "短標", "evidence": ["短標依據的來源原文片段"], "issues": ["來源互相衝突或無法辨認之處；沒有就空陣列"]}
 規則：
 1. 優先保留主要行為與結果（例：婦人被堆高機撞死 → 要有「撞」或「亡」，不能只寫「堆高機警示」）。
 2. 不得新增來源沒有的人名、地點、數字、傷亡或因果；只能用主標題裡出現過的字，照繁體原字，不可寫成簡體字。
-3. 約 5 個字為目標，測試版允許 4–6 個字（英文專有名詞、每個數字各算一個字）。
+3. {length_rule}（英文專有名詞、每個數字各算一個字）。
 4. 不得直接截取標題前幾個字；詞不可從中間切斷（「一度」不能只寫「一」）；數字和單位要一起用或都不用（「6人」不能只寫「6」）；句子要說完（不能停在「陷入」「再」這類後面還要接東西的字）。
 5. 來源沒有地點就不要補地點；有地點但不影響辨認時可以省略。
 6. 來源只說「起訴」「求刑」「疑似」時，不得寫成「判刑」「確定」等定論；來源有「疑似」「傳出」「涉嫌」「據傳」這類未確認說法，短標要保留。
 7. evidence 必須逐字引用主標題（或沒有標題時的語音）裡的片段，不可改寫。
 8. 標題字看起來是錯字、人名無法辨認或來源互相衝突時，寫進 issues，不要猜。"""
+
+def length_rule(min_len: int = 4, max_len: int = 6, target_len: int = 5) -> str:
+    """LBL-5 in the prompt follows the rules file: 5/5 asks for exactly five (三立 11/22: 五字標只能 5 個字)."""
+    if min_len == max_len:
+        return f"剛好 {min_len} 個字，不多不少，寫完先數一次"
+    return f"約 {target_len} 個字為目標，測試版允許 {min_len}–{max_len} 個字"
+
+
+def system_prompt(min_len: int = 4, max_len: int = 6, target_len: int = 5) -> str:
+    return SYSTEM_TEMPLATE.replace("{length_rule}", length_rule(min_len, max_len, target_len))
+
+
+SYSTEM = system_prompt()  # the 4–6 text, unchanged since v8 (cached answers stay valid)
 
 FEW_SHOT = [
     ("新北土城一七旬老翁 轉彎不慎遭貨車輾亡",
@@ -49,6 +62,12 @@ FEW_SHOT = [
 ]
 PROMPT_VERSION = "v8-event-json"  # bump when SYSTEM or FEW_SHOT changes so cached answers are not replayed
 PROMPT_VERSION_RAG = "v5-rag-json"  # used only while retrieval is on
+# exactly-five setting: the one example that is not five characters is replaced (高金求刑14年 = 6)
+FEW_SHOT_EXACT5 = [(q, a.replace('"高金求刑14年"', '"高金共諜案"')) for q, a in FEW_SHOT]
+
+
+def few_shot_for(min_len: int, max_len: int) -> list:
+    return FEW_SHOT_EXACT5 if min_len == max_len == 5 else FEW_SHOT
 
 # 規則 NFR-14：外部 AI 最多只送 200 字語音節錄
 MAX_ASR_CHARS = 200  # NFR-14: never send more speech than needed
@@ -81,11 +100,12 @@ def retrieved_pairs(rag, source: LabelSource, exclude_ids=(), exclude_labels=())
     return rag.retrieve(" / ".join(source.bar_texts[:2]), exclude_ids, exclude_labels, set(FEW_SHOT))
 
 
-def build_messages(source: LabelSource, attempt: int, extra: list | None = None) -> list[dict]:
+def build_messages(source: LabelSource, attempt: int, extra: list | None = None,
+                   few_shot: list | None = None) -> list[dict]:
     """Few-shot turns (FEW_SHOT, then any retrieved pairs) followed by the question. Without
     `extra` this is exactly the v3 message list."""
     msgs: list[dict] = []
-    for q, a in FEW_SHOT:
+    for q, a in few_shot if few_shot is not None else FEW_SHOT:
         msgs += _turn(q, a)
     for r in extra or []:
         msgs += _turn(r.title, r.label)
@@ -116,6 +136,8 @@ class OllamaGenerator:
     rag: object = None  # kb.Rag; None = retrieval off
     rag_exclude_ids: tuple = ()
     rag_exclude_labels: tuple = ()
+    system: str = SYSTEM
+    few_shot: list | None = None
     opener = staticmethod(urllib.request.urlopen)
 
     def rag_pairs(self, source: LabelSource) -> list:
@@ -126,7 +148,8 @@ class OllamaGenerator:
         return None if self.rag is None else [f"{r.id}={r.label}" for r in self.rag_pairs(source)]
 
     def generate(self, source: LabelSource, attempt: int) -> str:
-        msgs = [{"role": "system", "content": SYSTEM}] + build_messages(source, attempt, self.rag_pairs(source))
+        msgs = [{"role": "system", "content": self.system}] + build_messages(source, attempt, self.rag_pairs(source),
+                                                                            self.few_shot)
         body = json.dumps({"model": self.model, "messages": msgs, "stream": False,
                            "options": {"temperature": 0, "seed": 42}}).encode()  # same video, same sheet
         req = urllib.request.Request(f"{self.host}/api/chat", data=body,
@@ -147,7 +170,8 @@ class ExternalCallNotAllowed(RuntimeError):
 class ClaudeGenerator:
     """Anthropic Messages API through the official `anthropic` SDK (`uv add anthropic`)."""
 
-    def __init__(self, model: str = "claude-opus-5-5", allow_external: bool = False, client=None, rag=None):
+    def __init__(self, model: str = "claude-opus-5-5", allow_external: bool = False, client=None, rag=None,
+                 system: str = SYSTEM, few_shot: list | None = None):
         # 規則 NFR-14：外部 AI 預設不准用，要在規則檔明確打開
         if not allow_external:
             raise ExternalCallNotAllowed(
@@ -159,6 +183,7 @@ class ClaudeGenerator:
         self.client = client
         self.model = model
         self.rag = rag
+        self.system, self.few_shot = system, few_shot
 
     def rag_pairs(self, source: LabelSource) -> list:
         return retrieved_pairs(self.rag, source)
@@ -167,11 +192,11 @@ class ClaudeGenerator:
         return None if self.rag is None else [f"{r.id}={r.label}" for r in self.rag_pairs(source)]
 
     def generate(self, source: LabelSource, attempt: int) -> str:
-        msgs = build_messages(source, attempt, self.rag_pairs(source))
+        msgs = build_messages(source, attempt, self.rag_pairs(source), self.few_shot)
         resp = self.client.beta.messages.create(
             model=self.model,
             max_tokens=4000,
-            system=SYSTEM,
+            system=self.system,
             messages=msgs,
             output_config={"effort": "low"},
             betas=["server-side-fallback-2026-07-01"],
@@ -202,6 +227,12 @@ class GuardedGenerator:
     @property
     def tripped(self) -> bool:
         return self._fails >= self.max_failures
+
+    def allow_probe(self) -> None:
+        """Let the next call through at once (used by the retry pass after a channel is labelled)."""
+        with self._lock:
+            if self.tripped:
+                self._tripped_at = None
 
     def generate(self, source: LabelSource, attempt: int) -> str:
         # 規則 R20-2：連續失敗 3 次後，不再等待逾時，直接丟錯讓標籤改用規則備援；
@@ -310,6 +341,14 @@ class CachedGenerator:
 
     def key(self, source: LabelSource, attempt: int) -> str:
         model, prompt = getattr(self.inner, "model", ""), build_user_prompt(source, attempt)
+        g = self.inner
+        while not hasattr(g, "system") and hasattr(g, "inner"):  # through GuardedGenerator and friends
+            g = g.inner
+        sysp, shots = getattr(g, "system", SYSTEM), getattr(g, "few_shot", None)
+        if sysp != SYSTEM or (shots is not None and shots != FEW_SHOT):
+            import hashlib
+
+            model += "#" + hashlib.sha1(json.dumps([sysp, shots], ensure_ascii=False).encode()).hexdigest()[:8]
         ctx = getattr(self.inner, "rag_context", None)
         ids = ctx(source) if ctx else None
         if ids is None:  # retrieval off: the same key as before RAG existed
@@ -338,10 +377,12 @@ def from_rules(rules: dict | None, kb_override: str | None = None):
     from . import kb
 
     rag = kb.rag_from_rules(rules, kb_override)  # None unless labeler.rag.enabled (or --kb)
+    lo, hi, tg = int(cfg.get("min_len", 4)), int(cfg.get("max_len", 6)), int(cfg.get("target_len", 5))
+    prompt = {"system": system_prompt(lo, hi, tg), "few_shot": few_shot_for(lo, hi)}
     if kind == "ollama":
         return OllamaGenerator(model=cfg.get("model", OllamaGenerator.model), host=cfg.get("host", OllamaGenerator.host),
-                               rag=rag)
+                               rag=rag, **prompt)
     if kind == "claude":
         return ClaudeGenerator(model=cfg.get("model", "claude-opus-5-5"), allow_external=bool(cfg.get("allow_external")),
-                               rag=rag)
+                               rag=rag, **prompt)
     raise ValueError(f"unknown labeler.generator {kind!r}")

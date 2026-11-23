@@ -88,7 +88,9 @@ def test_bad_answer_triggers_rewrite_with_concrete_reason():
 def test_rewrites_are_capped_at_two():
     gen = Scripted("台股盤中一")
     labeler.make_label(source_of(load_case("ettv_1200_taigu_cut")), gen, rules=RULES)
-    assert len(gen.calls) == 3  # first answer + at most 2 rewrites
+    rewrites = [c for c in gen.calls if "只能從下列候選" not in (c[1] or "")]
+    assert len(rewrites) == 3  # first answer + at most 2 rewrites
+    assert len(gen.calls) <= 4  # plus at most one pick from the checked rule candidates (FB-4c)
 
 
 @pytest.mark.parametrize("case_id", ["ettv_1200_taigu_cut", "tvbs_1251_france_open", "ftv_1209_detain_numfrag",

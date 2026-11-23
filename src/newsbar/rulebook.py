@@ -244,6 +244,13 @@ RULES: list[Rule] = [
          "新標題和目前這則的任何一個標題，共有連續兩個中文字（人名、地名都算，「新北」「台北」「今天」「記者」「現場」之類的泛稱不算）→ 視為同一則內主標與副標輪播，不換題。",
          ("segmenter.LexicalJudge.same", "segmenter.segment"),
          (Param("LexicalJudge.min_common", "共同詞至少幾個字", 2, "字", _call_default("segmenter", "LexicalJudge.__init__", "min_common")),)),
+    Rule("SAME-3b", "change",
+         "SAME-3 的例外：新標題出現一個地名，這則新聞的標題和新標題出現前 10 秒以前的語音都沒提過、兩者也沒有共同地名，"
+         "而且新標題出現前 10 秒內（到它的第一秒為止）的語音也帶出這則沒有的地名（主播在介紹下一則）→ 共用的一般詞不算數，照常換題。"
+         "只有標題多了地名、語音還在講同一件事時，不切（例：華視 武嶺重機違停 → 副標「開回台南上班」）。"
+         "11/06：TVBS 12:31「漁港偷渡」→「斥資80億整修前鎮漁港」只共用「漁港」。",
+         ("segmenter.new_place", "segmenter.segment"),
+         (Param("SAME3B_GAP", "新標題前多少秒的語音算「介紹下一則」", 10, "秒", _const("segmenter", "SAME3B_GAP")),)),
     Rule("NEW-2a", "change", "佐證一：候選點前後各 20 秒內，語音談的主題明顯不同。", ("segmenter.segment",),
          (Param("asr_window_sec", "語音主題比對視窗", 20, "秒", _dc("segmenter", "SegParams", "asr_window_sec")),)),
     Rule("NEW-2b", "change", "佐證二：候選點前後各 5 秒內，畫面切回主播台。", ("segmenter.segment",),
@@ -418,6 +425,11 @@ RULES: list[Rule] = [
          ("labeler.make_label",),
          (Param("DEFAULT_RETRIES", "退件後重寫次數", 2, "次", lambda: _const("labeler", "DEFAULT_RETRIES")()),
           Param("make_label(retries=)", "make_label 預設重寫次數", 2, "次", _call_default("labeler", "make_label", "retries")))),
+    Rule("FB-4c", "label",
+         "AI 自己寫的短標重寫後仍沒通過（多半是字數）→ 先把通過全部檢查、而且在標題裡不切斷詞的規則候選（最多 10 個）列給 AI，"
+         "請它只挑一個最能認出這則新聞的；挑中候選才採用，並記一條資訊提示。AI 沒回應、或挑了清單外的字 → 照常用規則備援（FB-4）。",
+         ("labeler.make_label", "labeler.clean_span"),
+         (Param("MENU_SIZE", "列給 AI 挑的候選數", 10, "個", _const("labeler", "MENU_SIZE")),)),
     Rule("FB-4", "label",
          "規則備援：把標題照標點和空白切成短句，丟掉開頭的驚嘆片語，以「完整的詞」組成候選（連續詞串，或句首主詞／地名＋後面的事件詞），只採用通過全部檢查的最佳候選；絕不截取標題前 N 個字。每個字都是從標題複製來的，不另外編字。"
          "社會新聞：優先用「地點＋事件詞（撞、輾、縱火、拘提…）」；其他新聞：選含地名或事件詞的短句，或剛好 4 到 6 字的短句。標題有兩字以上的未確認詞時，標籤會保留它。",
@@ -442,6 +454,10 @@ RULES: list[Rule] = [
          "AI 的答案只差字數（4、6 或 7 個字，其他檢查都過）→ 先試著修正、不丟掉：太長時只能拿掉助詞、數字，或答案頭尾的整個詞（不可拿掉半個詞）；"
          "太短時取主標題裡完整包含這個答案的 5 個字。修正後仍要通過全部檢查，否則照常重試或改用規則備援。",
          ("labeler.repair_length", "labeler.make_label")),
+    Rule("LBL-10b", "label",
+         "AI 的答案太長時，也可改用答案裡連續的一段：這一段要原樣出現在主標題、在標題裡不切斷詞，"
+         "前後也不能緊接英文字母或數字（「C羅宣布引退」不可變成「羅宣布引退」，「4槍」不可剩「4」）。",
+         ("labeler.repair_length", "labeler._title_windows")),
     Rule("X-1", "label",
          "另一台在前後 15 分鐘內，已經替同一件事命名（兩個標題共有至少 3 組連續兩字詞，或至少 2 組而且整體相似度達 0.35）→ 沿用那個標籤，讓四台對同一件事寫同樣的字；沿用的標籤仍須通過本台來源的字元檢查（X-2），所以不會把別台的事實帶進來。",
          ("cross_channel.unify", "cross_channel.same_event"),
@@ -472,6 +488,10 @@ RULES: list[Rule] = [
          ("ad_state.detect",),
          (Param("outage_black_sec", "判定訊號中斷的黑畫面秒數", 30, "秒", _dc("ad_state", "AdParams", "outage_black_sec")),
           Param("outage", "訊號中斷寫在格子裡的字", "訊號中斷", "字串", _labels("outage")))),
+    Rule("R20-4", "fallback",
+         "一台的標題都命名完後，因「AI 服務無回應」改用規則備援的格子再問 AI 一次（先放一個探測請求，不等 30 秒）；"
+         "仍然沒回應就停止補問，保留規則備援與標記，不拖慢整次執行。",
+         ("pipeline.run_channel", "llm.GuardedGenerator.allow_probe")),
     Rule("R20-3", "fallback",
          "任何用字沒把握的格子（備援標籤、低信心、缺地點、語氣不確定）→ 在複查版 Excel 標黃，並附上畫面標題、語音和原因，以及每一格的依據檔（evidence.jsonl）供回頭比對影片時間點。",
          ("evidence.build", "excel_writer.flag_reasons", "excel_writer.write_review_copy")),
@@ -525,6 +545,14 @@ RULES: list[Rule] = [
          ("ad_state.detect", "segmenter.segment", "mlmodel.load_model"),
          (Param("AdParams.mode", "廣告判斷模式", "rules", "模式", _dc("ad_state", "AdParams", "mode")),
           Param("SegParams.mode", "換題判斷模式", "rules", "模式", _dc("segmenter", "SegParams", "mode")))),
+    Rule("VIS-1", "optional",
+         "預設關閉。打開後（vision.mode 或環境變數 NEWSBAR_VISION_MODE），一則新聞的主標題若文字辨識信心很低，"
+         "就把這則裡信心最高的那一秒的主標題裁切圖交雲端視覺模型重讀；只有模型讀得到、而且保留 OCR 大部分的字時，"
+         "才用重讀的字去寫五字標，並在依據裡記下「標題經雲端模型重讀」。只送主標題裁切圖，不送影片、聲音、整張畫面；"
+         "金鑰只從環境變數讀。呼叫失敗或模型讀不到時照用 OCR 的字，不中斷。",
+         ("vision.reread_titles", "vision.backend_from_rules", "pipeline.decide_story"),
+         (Param("DEFAULT_MIN_OVERLAP", "採用重讀至少要保留 OCR 多少比例的字", 0.8, "", _const("vision", "DEFAULT_MIN_OVERLAP")),
+          Param("DEFAULT_REVIEW_CONF", "信心低於多少才重讀", 0.4, "", _const("vision", "DEFAULT_REVIEW_CONF")))),
     Rule("NFR-14", "optional",
          "外部 AI（Claude）預設不准用；准用時也只送主標題文字和不超過 200 字的語音節錄，不送影片或畫面。預設用本機 Ollama，資料不出公司。",
          ("llm.ClaudeGenerator", "llm.build_user_prompt"),

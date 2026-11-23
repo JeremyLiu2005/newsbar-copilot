@@ -92,6 +92,13 @@ def boundaries(text: str) -> set[int]:
         out.add(e)
     for s, e in _dict_words(text):
         out.difference_update(range(s + 1, e))
+    # 新聞常見詞，jieba 繁體字典常拆錯（APEC峰|會、稱下|週、台積|電、人聲|押禁見）：整詞內部不算詞界，兩端算詞界
+    for w in _NEWS_WORDS:
+        i = text.find(w)
+        while i >= 0:
+            out.difference_update(range(i + 1, i + len(w)))
+            out.update((i, i + len(w)))
+            i = text.find(w, i + 1)
     # ICU breaks a short word it does not know (美股) into single characters. Exactly two adjacent
     # single content characters between real words are kept together; a longer run means ICU found
     # nothing in that stretch (男二度毒駕拒檢催 …, 遭車撞飛), and gluing it would forbid fair cuts.
@@ -107,6 +114,12 @@ def boundaries(text: str) -> set[int]:
             out.difference_update(range(toks[i][0] + 1, toks[i][0] + 3))  # 江啟臣, 蔡阿嘎: surname + 2
         i = max(j, i + 1)
     return out
+
+
+# Words jieba's Simplified dictionary splits in Traditional news titles; never cut inside them.
+_NEWS_WORDS = ("峰會", "上週", "下週", "本週", "上月", "下月", "台積電", "聯發科", "鴻海", "年線", "季線", "月線",
+               "立委", "議員", "市長", "縣長", "總統", "院長", "部長", "警方", "消防", "颱風", "地震",
+               "聲押", "羈押", "禁見", "交保", "起訴", "判刑")
 
 
 # Common Taiwanese surnames: a run of single characters that starts with one is most likely a name.

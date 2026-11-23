@@ -179,11 +179,11 @@ def cut_words(label: str, source: "LabelSource") -> list[str]:
     out: list[str] = []
     for title in source.bar_texts:
         cuts: list[str] = []
-        found = False
+        found_pre = found_suf = False
         for k in range(len(label), 1, -1):  # longest prefix found in the title
             pos = title.find(label[:k])
             if pos >= 0:
-                found = True
+                found_pre = True
                 # the label's own first two characters being a word (起訴) overrides a doubtful split
                 if pos not in wordseg.boundaries(title) and (wordseg.strong_word_at(title, pos)
                                                              or not wordseg.is_word(label[:2])):
@@ -193,13 +193,17 @@ def cut_words(label: str, source: "LabelSource") -> list[str]:
             piece = label[-k:]
             pos = title.find(piece)
             if pos >= 0:
-                found = True
+                found_suf = True
                 end = pos + len(piece)
-                if end not in wordseg.boundaries(title) and (wordseg.strong_word_at(title, end)
-                                                             or not wordseg.is_word(label[-2:])):
+                # a compound split into two real words (涉案｜人員) is a fair place to stop
+                compound = wordseg.is_word(label[-2:]) and wordseg.is_word(title[end:end + 2])
+                if end not in wordseg.boundaries(title) and not compound and (
+                        wordseg.strong_word_at(title, end) or not wordseg.is_word(label[-2:])):
                     cuts.append(_word_at(title, end - 1))
                 break
-        if found and not cuts:
+        # 規則 LBL-9：要頭尾都在同一個標題裡找到、且都沒切詞，才算「這個標題乾淨地含有這個標」
+        # （只找到開頭不算：APEC峰 的開頭在「APEC領袖峰會」裡乾淨，結尾卻切斷了另一個標題的「峰會」）
+        if found_pre and found_suf and not cuts:
             return []  # one of the story's titles holds the label cleanly: that is enough
         out += cuts
     return list(dict.fromkeys(w for w in out if w))
@@ -324,6 +328,12 @@ def number_fragments(label: str, source: "LabelSource") -> list[str]:
             continue
         # where the label's own text sits in a title (到案6｜人) decides; otherwise every use of the number
         ctx = label[max(0, m.start() - 2):m.end()]
+        # a decimal or thousands part left behind (涉收中共1 ← 「1.7億」) is a cut number whatever follows
+        if not (after and after in ".．,，") and any(
+                t[k.end():k.end() + 1] in ".．,，" and t[k.end() + 1:k.end() + 2].isdigit()
+                for t in titles for k in re.finditer(re.escape(ctx), t)):
+            out.append(num + "…")
+            continue
         follows = [t[k.end():k.end() + 1] for t in titles for k in re.finditer(re.escape(ctx), t)]
         if not follows or ctx == num:
             follows = [t[k.end():k.end() + 1] for t in titles for k in re.finditer(re.escape(num) + r"(?!\d)", t)
@@ -694,6 +704,8 @@ REASON_LLM_DOWN = "AI 服務無回應"
 REASON_TONE = "未確認語氣"
 REASON_NO_PLACE = "短標未含地點"
 REASON_FALLBACK = "使用規則備援生成"
+REASON_MENU = "AI 從規則候選挑選"
+MENU_SIZE = 10  # FB-4c: how many checked rule candidates the AI may choose from
 REASON_PENDING = "無法產生合格短標，保留最佳候選"
 
 
@@ -901,6 +913,56 @@ def fallback_label(source: LabelSource, rules: LabelRules = LabelRules(), avoid:
     return whole or "新聞", ["LBL-5"]
 
 
+def _clean_at(v: str, a: int, b: int, hmm: bool = False) -> bool:
+    """v[a:b] cuts no word, and no letter or digit run continues across its edges (C羅, 4｜槍)."""
+    if (a > 0 and v[a - 1].isascii() and v[a - 1].isalnum()) or (b < len(v) and v[b].isascii() and v[b].isalnum()) \
+            or (b < len(v) and v[b - 1].isdigit()):
+        return False
+    if wordseg.cuts_word(v, a, b):
+        return False
+    if not hmm:
+        return True
+    # second opinion for rule candidates: jieba with its unknown-word model (its dictionary is
+    # Simplified and misses 喇叭, 綜藝…), so 前深圳禁按 and 錄綜藝曝定 are not offered
+    spans = wordseg._jieba_tokens(v, hmm=True)
+    return spans is None or {a, b} <= {x for se in spans for x in se}
+
+
+def clean_span(w: str, titles: list[str]) -> bool:
+    """A label that is one piece of a title must sit there cleanly somewhere; a joined label
+    (subject + later phrase) was checked when it was built."""
+    found = False
+    for v in (_visible(t) for t in titles):
+        k = v.find(w)
+        while k >= 0:
+            found = True
+            if _clean_at(v, k, k + len(w), hmm=True):
+                return True
+            k = v.find(w, k + 1)
+    return not found
+
+
+def _title_windows(cand: str, source: LabelSource, rules: LabelRules) -> list[str]:
+    out: list[str] = []
+    titles = [_visible(t) for t in (source.bar_texts or [])]
+    for size in range(len(cand) - 1, 1, -1):
+        for i in range(len(cand) - size + 1):
+            w = cand[i:i + size]
+            if not (rules.min_len <= label_length(w) <= rules.max_len) or w in out:
+                continue
+            for v in titles:
+                k = v.find(w)
+                while k >= 0:
+                    a, b = k, k + len(w)
+                    if _clean_at(v, a, b):
+                        out.append(w)
+                        break
+                    k = v.find(w, k + 1)
+                if w in out:
+                    break
+    return out
+
+
 def repair_length(cand: str, source: LabelSource, rules: LabelRules) -> str | None:
     """LBL-10: an AI answer that only misses the exact length (4 or 6 characters is the usual 7B
     miss) is fixed here instead of being thrown away for the weaker rule label — but only when the
@@ -912,10 +974,15 @@ def repair_length(cand: str, source: LabelSource, rules: LabelRules) -> str | No
               (海光歇業 is not in the title as one piece → no repair)
     The result must pass every check; otherwise None and the normal retry/fallback goes on."""
     n = label_length(cand)
-    if rules.min_len <= n <= rules.max_len or not (rules.min_len - 2 <= n <= rules.max_len + 2) \
-            or not all(_CJK.match(c) for c in cand):
+    if rules.min_len <= n <= rules.max_len or not (rules.min_len - 2 <= n <= rules.max_len + 2):
         return None
     tries: list[str] = []
+    if n > rules.max_len:
+        # 規則 LBL-10b：答案裡連續的一段，原樣出現在標題、而且在標題裡不切斷詞、數字或英文字
+        # （幼童過馬路摔 → 幼童過馬路；C羅宣布引退 → 不可變成 羅宣布引退）
+        tries += _title_windows(cand, source, rules)
+    if not all(_CJK.match(c) for c in cand):
+        return next((c for c in tries if not validate(c, source, rules)), None)
     if n > rules.max_len:
         from itertools import combinations
         soft = [i for i, ch in enumerate(cand) if ch in END_BAD | START_BAD | FUNCTION_CHARS]
@@ -1025,8 +1092,26 @@ def make_label(
                     return _finish(LabelResult(fixed, attempt + 1, None, history, [], notes + n, STATUS_OK, evid, issues))
             fb = feedback_for(cand, source, errs, rules) or "上一個答案沒有通過檢查，請依規則重寫"
             if "OCR-DOUBT" in errs:
-                fb += "；不要使用標題裡無法確認的字：" + "、".join(f"「{x}」" for x in avoid)
+                fb += "；不要使用標題裡無法確認的字：" + "、".join(f"「{x}」" for x in sorted(avoid, key=lambda x: (-len(x), x)))  # fixed order: same prompt, same cached answer
     # 規則 FB-4：重寫後仍不合格、或 AI 沒回應 → 詞界式規則備援（不截前 N 字）
+    # 規則 FB-4c：AI 自己寫的都沒通過（多半是字數）→ 把通過全部檢查的規則候選列給 AI，請它只挑一個最能認出這則新聞的。
+    # 挑選比數字數容易；候選本身已合格，AI 只決定選哪個（例：台南穿越有 → 隊伍過馬路）
+    if generator is not None and history and not any(n["reason"] == REASON_LLM_DOWN for n in notes):
+        menu = [w for _, w in fallback_candidates(source, rules, avoid)
+                if not validate(w, source, rules) and clean_span(w, source.bar_texts)][:MENU_SIZE]
+        if len(menu) > 1:
+            fb = ("字數或斷詞不合。這次不要自己寫，只能從下列候選中原樣挑一個最能讓人認出這則新聞的"
+                  "（要有主要行為或結果）：" + "、".join(f"「{w}」" for w in menu))
+            try:
+                raw = generator.generate(LabelSource(source.bar_texts, source.asr_text, fb), len(history))
+                pick = parse_answer(raw)[0]
+            except Exception:  # noqa: BLE001
+                pick = ""
+            history.append([] if pick in menu else ["MENU"])
+            if pick in menu:
+                n = [_note(LEVEL_INFO, REASON_MENU, detail=f"AI 自寫的短標未通過檢查，改由 AI 從 {len(menu)} 個合格候選中挑選")]
+                n += [x for x in review_notes(pick, source) if x not in n]
+                return _finish(LabelResult(pick, len(history), "FB-4c", history, [], notes + n, STATUS_OK))
     label, bad = fallback_label(source, rules, avoid)
     # 規則 REV-1：規則備援的短標常可辨認度不足（11/22 全備援重放：85 格中 46 格有問題）→ 建議回查
     notes.append(_note(LEVEL_CHECK, REASON_FALLBACK, detail="AI 未產生合格短標，請確認可辨認"))

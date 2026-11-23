@@ -127,6 +127,34 @@ def _terms(text: str) -> set[str]:
     return out
 
 
+def new_place(text: str, story_texts: list[str], near_speech: list[str] | None = None) -> bool:
+    """SAME-3b: the title names a place the story so far (its titles and earlier speech) never mentioned,
+    they share no place, AND the speech just before the new title (up to its first second) brings in a
+    place the story never had (an anchor introducing the next story; speech after it reads the title aloud). A shared generic word is then not enough to call it the same
+    story (11/06 TVBS 12:31: 張俊傑「漁港偷渡」→「斥資80億整修前鎮漁港」, speech 「高雄前鎮漁港」, share only 漁港).
+    A sub-title that merely adds a place while the speech goes on about the same event is not split."""
+    lex = lexicon.get()
+    new = set(lex.places_in(text or ""))
+    if not new:
+        return False
+    old: set[str] = set()
+    for t in story_texts:
+        old.update(lex.places_in(t or ""))
+    if new & old:
+        return False
+    spoken: set[str] = set()
+    for t in near_speech or []:
+        spoken.update(lex.places_in(t or ""))
+    return bool(spoken - old)
+
+
+SAME3B_GAP = 10  # speech this close to the new title belongs to the new title, not to the story before it
+
+
+def _speech_before(obs: list, start: int, end: int) -> list[str]:
+    return [o.asr_text for o in obs if start <= o.sec < end and o.asr_text]
+
+
 _CREDIT = re.compile(r"^[\u4e00-\u9fff]{2,12}$")
 # Function characters that occur in speech subtitles but practically never in personal names.
 _NOT_IN_NAMES = set("的了是我你他她們說這那會有在就也都要還不沒很個嗎呢吧啊喔啦因為所以如果但")
@@ -398,7 +426,10 @@ def segment(
                 continue
             n_before = len(segs)
             # 規則 SAME-3：新舊標題共有連續兩個中文字 → 同一則的主副標輪播，不換題
-            if cur.type is EventType.NEWS and cur.bar_texts and judge.same(run_text, cur.bar_texts):
+            # 規則 SAME-3b：但新標題和它前後的語音都出現這則從沒提過的地名時，共用的字不算數
+            if (cur.type is EventType.NEWS and cur.bar_texts and judge.same(run_text, cur.bar_texts)
+                    and not new_place(run_text, cur.bar_texts + _speech_before(obs, cur.start, run_start - SAME3B_GAP),
+                                      _speech_before(obs, run_start - SAME3B_GAP, run_start + 1))):
                 cur.bar_texts.append(run_text)  # SAME-3 / SAME-4
                 if feats is not None and recorder is not None:
                     recorder.append({"sec": run_start, "features": feats, "rules_new": False})

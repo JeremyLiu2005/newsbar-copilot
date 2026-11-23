@@ -9,7 +9,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from . import ad_state, cross_channel, delivery, evidence, excel_writer, labeler, ocr_check, segmenter, textfilter
+from . import ad_state, cross_channel, delivery, evidence, excel_writer, labeler, ocr_check, segmenter, textfilter, vision
 from .minute_mapper import map_events
 from .schemas import Event, EventType, Labels, SecondObs, Source
 
@@ -48,14 +48,36 @@ def _story_obs(obs: list[SecondObs], start: float, end: float | None) -> list[Se
 
 def decide_story(channel: str, bar_texts: list[str], asr_text: str, obs: list[SecondObs],
                  generator: labeler.Generator | None, rules: dict | None,
-                 conf_of: dict[str, float] | None = None, freq=None) -> dict:
-    """One story: OCR check → short title → review notes (levels). Also used by the regression replay."""
+                 conf_of: dict[str, float] | None = None, freq=None,
+                 vision_backend: vision.VisionBackend | None = None, vision_cache: vision.ReadCache | None = None) -> dict:
+    """One story: OCR check → (optional cloud re-read of low-confidence titles) → short title → review notes.
+    Also used by the regression replay."""
     lab = (rules or {}).get("labeler") or {}
     lrules = labeler.LabelRules.from_rules(rules)
     titles, ocr_recs, avoid = ocr_check.check_story(list(bar_texts), obs, asr_text, ocr_check.confusions_from(rules), freq)
+    vrecs: list[dict] = []
+    if vision_backend is not None:
+        # 規則 VIS-1（選用，預設關閉）：信心低的標題交雲端視覺模型重讀；只在模型保留了 OCR 大部分字時才採用
+        titles, fixed, vrecs = vision.reread_titles(titles, conf_of, obs, vision_backend, rules, vision_cache)
+        if fixed:
+            keep = [r for k, r in enumerate(ocr_recs) if k not in fixed]
+            avoid = {s["text"] for r in keep for s in r["suspects"]}
+            avoid |= {ch for r in keep for s in r["suspects"] if s.get("pattern") for ch in s["text"]}
+            conf_of = dict(conf_of or {})
+            for k in fixed:  # a title confirmed by a second reader is no longer a low-confidence read
+                conf_of[ocr_recs[k]["ocr_raw"]] = 1.0
+            for k in fixed:
+                ocr_recs[k] = {**ocr_recs[k], "suspects": []}
     res = labeler.make_label(labeler.LabelSource(titles, asr_text), generator,
                              lab.get("retries", labeler.DEFAULT_RETRIES), lrules, avoid)
-    return _story_result(res, titles, ocr_recs, rules, conf_of)
+    d = _story_result(res, titles, ocr_recs, rules, conf_of)
+    for v in vrecs:
+        if v["status"] == "replaced":
+            d["notes"].append({"level": labeler.LEVEL_INFO, "reason": "標題經雲端模型重讀",
+                               "detail": f"{v['ocr']} → {v['model']}（字元重疊 {v['overlap']}）"})
+    d["review_level"] = labeler.top_level(d["notes"])
+    d["vision"] = vrecs
+    return d
 
 
 def _story_result(res: labeler.LabelResult, titles: list[str], ocr_recs: list[dict], rules: dict | None,
@@ -101,10 +123,13 @@ def run_channel(
     todo = {i: s for i, s in enumerate(segs) if s.type is EventType.NEWS and s.reuse_of is None}
 
     freq = ocr_check.char_titles(o.bar_text for o in obs)  # the channel's own OCR as the rarity reference
+    vb = vision.backend_from_rules(rules)  # None unless vision.mode (or NEWSBAR_VISION_MODE) turns it on
+    vcfg = (rules or {}).get("vision") or {}
+    vcache = vision.ReadCache(Path(vcfg["cache"])) if vb is not None and vcfg.get("cache") else None
 
     def _one(seg):
         return decide_story(channel, seg.bar_texts, seg.asr_text, _story_obs(obs, seg.start, seg.end), generator,
-                            rules, conf_of, freq)
+                            rules, conf_of, freq, vb, vcache)
 
     workers = max(1, int(lab.get("parallel", DEFAULT_PARALLEL))) if generator is not None else 1
     if workers > 1 and len(todo) > 1:
@@ -114,6 +139,18 @@ def run_channel(
             done = dict(zip(todo, ex.map(_one, todo.values())))
     else:
         done = {i: _one(seg) for i, seg in todo.items()}
+    # 規則 R20-4：這一台寫完後，因「AI 服務無回應」改用規則備援的則數，等服務恢復再補問一次（例如模型剛載入、
+    # 一時忙碌而讓斷路器跳開）。先放一個探測請求；仍然沒回應就停止，保留規則備援，不拖慢整次執行。
+    retry = [i for i, d in done.items() if any(n.get("reason") == labeler.REASON_LLM_DOWN for n in d["notes"])]
+    if retry and generator is not None:
+        allow = getattr(generator, "allow_probe", None)
+        for i in retry:
+            if allow:
+                allow()
+            d2 = _one(todo[i])
+            if any(n.get("reason") == labeler.REASON_LLM_DOWN for n in d2["notes"]):
+                break  # still down: keep the rule labels for the rest
+            done[i] = d2
     for i, seg in enumerate(segs):
         sigs = {"ids": seg.signals, "boundary": seg.boundary, "end_sec": seg.end}
         src = Source(seg.bar_texts[0] if seg.bar_texts else None, seg.asr_text, seg.frame)

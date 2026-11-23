@@ -208,6 +208,13 @@ def _norm(text: str | None) -> str:
     return _NORM.sub("", text or "")
 
 
+def _bare(text: str | None) -> str:
+    """For comparing two reads: no spaces, no punctuation or quote marks (models add 「」:"" that OCR drops)."""
+    import unicodedata
+
+    return "".join(ch for ch in _norm(text) if not unicodedata.category(ch).startswith(("P", "S")))
+
+
 @dataclass
 class TitleRun:
     channel: str
@@ -294,7 +301,7 @@ def resolve_frame(frame: str, workdir: Path, channel: str) -> Path | None:
 def agreement(ocr_text: str, model_text: str) -> tuple[str, float]:
     """How much of the model's text OCR also read (character overlap, order-free). The model is only
     trusted as a re-read, never as a source of new words: a low ratio means 'differs', not 'better'."""
-    a, b = _norm(ocr_text), _norm(model_text)
+    a, b = _bare(ocr_text), _bare(model_text)
     if not a or not b:
         return "differs", 0.0
     pool = list(a)
@@ -381,3 +388,95 @@ def run_check(workdir: Path, channels: list[str], backend: VisionBackend | None,
         rep.verdicts[verdict] = rep.verdicts.get(verdict, 0) + 1
         rep.rows.append(row)
     return rep
+
+
+# ---------------------------------------------------------------- inside the labeling pipeline
+
+import hashlib  # noqa: E402
+import threading  # noqa: E402
+
+DEFAULT_MIN_OVERLAP = 0.8  # accept a re-read only if it keeps at least this share of OCR's characters
+DEFAULT_REVIEW_CONF = 0.4  # same threshold as TXT-10 (pipeline.OCR_REVIEW_CONF): titles OCR read badly
+
+
+def backend_from_rules(rules: dict | None, env: dict | None = None) -> VisionBackend | None:
+    """rules.yaml → vision.mode (off | mock | anthropic | nvidia); NEWSBAR_VISION_MODE overrides it.
+    Off by default. A missing key or model raises VisionConfigError before any story is labelled."""
+    env = os.environ if env is None else env
+    mode = env.get("NEWSBAR_VISION_MODE") or ((rules or {}).get("vision") or {}).get("mode") or "off"
+    return from_env(mode, env)
+
+
+class ReadCache:
+    """Answers keyed by (model, image hash): a rerun does not send the same crop again. Thread-safe."""
+
+    def __init__(self, path: Path | None):
+        self.path, self.lock = path, threading.Lock()
+        self.data: dict[str, dict] = {}
+        if path and path.is_file():
+            self.data = json.loads(path.read_text(encoding="utf-8"))
+
+    def key(self, backend: VisionBackend, image: bytes) -> str:
+        return f"{getattr(backend, 'model', type(backend).__name__)}:{hashlib.sha1(image).hexdigest()}"
+
+    def get(self, k: str) -> VisionResult | None:
+        with self.lock:
+            v = self.data.get(k)
+        return VisionResult(v["text"], v["readable"], "cached") if v else None
+
+    def put(self, k: str, res: VisionResult) -> None:
+        with self.lock:
+            self.data[k] = {"text": res.text, "readable": res.readable}
+            if self.path:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self.path.write_text(json.dumps(self.data, ensure_ascii=False), encoding="utf-8")
+
+
+def _best_crop(title: str, obs: list) -> Path | None:
+    """The story second that shows this title most confidently (and has a crop on disk)."""
+    want = _norm(title)
+    cands = [(float(getattr(o, "bar_conf", 0) or 0), -abs(i - len(obs) // 2), o.frame)
+             for i, o in enumerate(obs) if _norm(getattr(o, "bar_text", None)) == want and getattr(o, "frame", None)]
+    for _, _, frame in sorted(cands, reverse=True):
+        if Path(frame).is_file():
+            return Path(frame)
+    return None
+
+
+def reread_titles(titles: list[str], conf_of: dict[str, float] | None, obs: list, backend: VisionBackend,
+                  rules: dict | None = None, cache: ReadCache | None = None) -> tuple[list[str], set[int], list[dict]]:
+    """Re-read the low-confidence titles of one story from their crops.
+
+    Returns (titles, indexes of titles replaced, records). A re-read replaces the OCR title only when the model
+    could read the bar and kept at least min_overlap of OCR's characters: the model may fix misread characters
+    but may not bring in a different headline. Errors never stop labeling; the OCR title is kept."""
+    cfg = (rules or {}).get("vision") or {}
+    min_overlap = float(cfg.get("min_overlap", DEFAULT_MIN_OVERLAP))
+    review_conf = float(cfg.get("review_conf", DEFAULT_REVIEW_CONF))
+    out, fixed, recs = list(titles), set(), []
+    for i, t in enumerate(titles[: int(cfg.get("max_titles", 2))]):
+        conf = (conf_of or {}).get(t)
+        if conf is None or conf > review_conf:
+            continue
+        crop = _best_crop(t, obs)
+        rec = {"ocr": t, "conf": round(conf, 3), "frame": crop.name if crop else None}
+        if crop is None:
+            recs.append({**rec, "status": "no_crop"})
+            continue
+        image = crop.read_bytes()
+        k = cache.key(backend, image) if cache else None
+        try:
+            res = (cache.get(k) if cache else None) or _read_with_retry(backend, image, t)
+            if cache and res.note != "cached":
+                cache.put(k, res)
+        except VisionError as e:
+            recs.append({**rec, "status": "error", "error": str(e)})
+            continue
+        verdict, ratio = agreement(t, res.text) if res.readable else ("unreadable", 0.0)
+        ok = res.readable and bool(res.text) and ratio >= min_overlap and _norm(res.text) != _norm(t)
+        if ok:
+            out[i] = res.text
+            fixed.add(i)
+        recs.append({**rec, "model": res.text, "verdict": verdict, "overlap": ratio,
+                     "status": "replaced" if ok else ("same" if _norm(res.text) == _norm(t) else "kept_ocr")})
+    return out, fixed, recs
