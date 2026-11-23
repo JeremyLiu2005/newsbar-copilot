@@ -803,3 +803,11 @@ def test_low_confidence_title_is_info_when_clear_titles_back_every_label_charact
     conf = {titles[0]: 0.3, titles[1]: 0.3}
     d = pipeline._story_result(res, titles, recs, {}, conf)
     assert [x for x in d["notes"] if x["reason"] == pipeline.REASON_OCR][0]["level"] == labeler.LEVEL_CHECK
+
+
+def test_thinking_off_answers_are_cached_apart(monkeypatch):
+    from newsbar import llm
+    monkeypatch.setenv("NEWSBAR_LLM_API_KEY", "k")
+    on = llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": True}})
+    off = llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": True, "thinking": False}})
+    assert on.model != off.model and off.api_model == on.api_model == on.model

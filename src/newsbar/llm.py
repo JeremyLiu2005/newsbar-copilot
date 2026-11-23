@@ -437,6 +437,9 @@ class OpenAICompatGenerator:
         # reasoning models think before answering: 2000 tokens was all thinking and no answer (11/23)
         self.model, self.base_url, self.timeout, self.max_tokens = model, base_url.rstrip("/"), timeout, max_tokens
         self.thinking = thinking
+        self.api_model = model
+        if not thinking:  # the cache key follows the model name: answers given without thinking are kept apart
+            self.model = f"{model}#nothink"
         self._key = api_key
         self.system, self.few_shot, self.rag = system, few_shot, rag
         self.opener = opener or urllib.request.urlopen
@@ -450,7 +453,7 @@ class OpenAICompatGenerator:
     def generate(self, source: LabelSource, attempt: int) -> str:
         msgs = [{"role": "system", "content": self.system}] + build_messages(source, attempt, self.rag_pairs(source),
                                                                             self.few_shot)
-        payload = {"model": self.model, "messages": msgs, "temperature": 0, "max_tokens": self.max_tokens}
+        payload = {"model": self.api_model, "messages": msgs, "temperature": 0, "max_tokens": self.max_tokens}
         if not self.thinking:
             payload["chat_template_kwargs"] = {"enable_thinking": False}
         body = json.dumps(payload).encode()
