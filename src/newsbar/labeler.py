@@ -1084,11 +1084,11 @@ def make_label(
             if not errs or (set(errs) <= {"LBL-5"} and (fixed := repair(cand, source, rules))
                             and not any(x and x in fixed for x in avoid)):
                 label = cand if not errs else fixed
-                n = review_notes(label, source) + issue_notes(issues, label)
+                n = review_notes(label, source) + issue_notes(issues, label, source.bar_texts)
                 return _finish(LabelResult(label, attempt + 1, None, history, [], notes + n, STATUS_OK, evid, issues))
             if fixed := (repair(cand, source, rules) if "SRC-2" in errs else None):
                 if not any(x and x in fixed for x in avoid):
-                    n = review_notes(fixed, source) + issue_notes(issues, fixed)
+                    n = review_notes(fixed, source) + issue_notes(issues, fixed, source.bar_texts)
                     return _finish(LabelResult(fixed, attempt + 1, None, history, [], notes + n, STATUS_OK, evid, issues))
             fb = feedback_for(cand, source, errs, rules) or "上一個答案沒有通過檢查，請依規則重寫"
             if "OCR-DOUBT" in errs:
@@ -1126,14 +1126,23 @@ def make_label(
 _QUOTED = re.compile(r"[「『\"“]([^」』\"”]+)[」』\"”]")
 
 
-def issue_notes(issues: list[str], label: str) -> list[dict]:
-    """規則 REV-2：模型回報的疑點。點名了標題裡的某段字、而短標沒用到那段字 → 資訊提示（例：標題的「搢破」疑似錯字，
-    短標是「新台幣略升」）；用到了、或沒點名特定字（例：兩段標題互相衝突）→ 建議回查。"""
+_CONFLICT_WORDS = ("衝突", "不一致", "矛盾", "兩則", "不同新聞", "合併")
+
+
+def issue_notes(issues: list[str], label: str, titles: list[str] | None = None) -> list[dict]:
+    """規則 REV-2：模型回報的疑點。點名了標題裡的某段字（有引號，或原樣出現在標題裡的兩字以上片段）、而短標沒用到那段字
+    → 資訊提示（例：標題的「搢破」疑似錯字，短標是「新台幣略升」）；短標用到了、說的是來源互相衝突、或沒點名特定字
+    → 建議回查。"""
     out = []
+    joined = " ".join(titles or [])
     for i in issues:
-        quoted = [q for q in _QUOTED.findall(i) if q.strip()]
-        used = any(ch in label for q in quoted for ch in q if _CJK.match(ch) or ch.isalnum())
-        out.append(_note(LEVEL_INFO if quoted and not used else LEVEL_CHECK, "模型回報：" + i))
+        named = [q for q in _QUOTED.findall(i) if q.strip()]
+        if not named and joined:  # 鍆餐券可能為錯字: the title text named without quote marks
+            named = [i[a:b] for a in range(len(i)) for b in range(a + 2, min(len(i), a + 6) + 1)
+                     if all(_CJK.match(c) for c in i[a:b]) and i[a:b] in joined]
+        used = any(ch in label for q in named for ch in q if _CJK.match(ch) or ch.isalnum())
+        conflict = any(w in i for w in _CONFLICT_WORDS)
+        out.append(_note(LEVEL_INFO if named and not used and not conflict else LEVEL_CHECK, "模型回報：" + i))
     return out
 
 

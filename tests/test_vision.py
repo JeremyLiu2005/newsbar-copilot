@@ -778,3 +778,28 @@ def test_breaker_refusal_is_remembered_too(tmp_path):
     with pytest.raises(llm.LLMError):
         g.generate(LabelSource(["x"], ""), 0)
     assert (tmp_path / "c.json").exists()  # the skip depends on timing; a rerun must not ask again
+
+
+# ---- REV-2 / TXT-10b: review only what the label actually depends on ---------------------------------------
+
+def test_issue_naming_unused_title_text_without_quotes_is_info():
+    from newsbar.labeler import LEVEL_CHECK, LEVEL_INFO, issue_notes
+    t = ["最大旅展促鍆餐券買1送1機票76折甜甜價"]
+    assert issue_notes(["鍆餐券可能為錯字"], "旅展甜甜價", t)[0]["level"] == LEVEL_INFO
+    assert issue_notes(["兩段標題內容不一致"], "旅展甜甜價", t)[0]["level"] == LEVEL_CHECK
+    assert issue_notes(["「甜甜價」可能為錯字"], "旅展甜甜價", t)[0]["level"] == LEVEL_CHECK
+
+
+def test_low_confidence_title_is_info_when_clear_titles_back_every_label_character():
+    from newsbar import labeler, pipeline
+    res = labeler.LabelResult("玫瑰唱片行", 1, None, [[]], [], [], labeler.STATUS_OK)
+    recs = [{"ocr_raw": "青春掰掰玫瑰大眾唱片門市月底熄燈", "review_status": "無疑義", "suspects": []},
+            {"ocr_raw": "玫瑰唱片行熄燈", "review_status": "無疑義", "suspects": []}]
+    titles = [r["ocr_raw"] for r in recs]
+    conf = {titles[0]: 0.3, titles[1]: 1.0}
+    d = pipeline._story_result(res, titles, recs, {}, conf)
+    n = [x for x in d["notes"] if x["reason"] == pipeline.REASON_OCR]
+    assert n and n[0]["level"] == labeler.LEVEL_INFO
+    conf = {titles[0]: 0.3, titles[1]: 0.3}
+    d = pipeline._story_result(res, titles, recs, {}, conf)
+    assert [x for x in d["notes"] if x["reason"] == pipeline.REASON_OCR][0]["level"] == labeler.LEVEL_CHECK

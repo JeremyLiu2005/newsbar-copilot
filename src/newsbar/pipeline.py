@@ -141,7 +141,11 @@ def _story_result(res: labeler.LabelResult, titles: list[str], ocr_recs: list[di
                           "detail": f"「{sp['text']}」{('疑為「' + sp['suggestion'] + '」') if sp['suggestion'] else ''}：{sp['why']}"})
     ocr_review = float(((rules or {}).get("ocr") or {}).get("review_conf", OCR_REVIEW_CONF))
     if conf_of and any(conf_of.get(r["ocr_raw"], 1.0) <= ocr_review for r in ocr_recs[:2]):
-        notes.append({"level": labeler.LEVEL_CHECK, "reason": REASON_OCR})
+        # 規則 TXT-10b：短標的每個字都出現在同一則裡讀得清楚的標題 → 只留資訊提示；有字只靠讀不清楚的標題 → 建議回查
+        clear = "".join(t for r, t in zip(ocr_recs, titles) if conf_of.get(r["ocr_raw"], 1.0) > ocr_review)
+        backed = bool(res.label) and all(ch in clear for ch in res.label if not ch.isspace())
+        notes.append({"level": labeler.LEVEL_INFO if backed else labeler.LEVEL_CHECK, "reason": REASON_OCR,
+                      **({"detail": "短標的字都有讀得清楚的同則標題佐證"} if backed else {})})
     return {"label": res.label, "status": res.status, "fallback": res.fallback, "notes": notes,
             "review_level": labeler.top_level(notes), "ocr": ocr_recs, "titles": titles, "result": res}
 
