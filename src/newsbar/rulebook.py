@@ -430,6 +430,11 @@ RULES: list[Rule] = [
          "請它只挑一個最能認出這則新聞的；挑中候選才採用，並記一條資訊提示。AI 沒回應、或挑了清單外的字 → 照常用規則備援（FB-4）。",
          ("labeler.make_label", "labeler.clean_span"),
          (Param("MENU_SIZE", "列給 AI 挑的候選數", 10, "個", _const("labeler", "MENU_SIZE")),)),
+    Rule("IMG-1", "label",
+         "取代規則備援（選配，labeler.image_rewrite: true 且 allow_external: true）：AI 自寫與從候選挑都沒通過時，把這則的主標題截圖、"
+         "五字標規則與沒過的原因送給雲端視覺模型，請它看圖重寫（最多 2 次）；答案照常經過全部檢查才採用，並記一條資訊提示。"
+         "沒有截圖、連不上或仍沒通過，才保留規則備援（FB-4）並標建議回查。只送標題列裁切圖與標題文字；答案存快取，重跑結果相同。",
+         ("pipeline._rewrite_from_image", "vision.ImageLabeler", "vision.image_labeler_from_rules")),
     Rule("FB-4", "label",
          "規則備援：把標題照標點和空白切成短句，丟掉開頭的驚嘆片語，以「完整的詞」組成候選（連續詞串，或句首主詞／地名＋後面的事件詞），只採用通過全部檢查的最佳候選；絕不截取標題前 N 個字。每個字都是從標題複製來的，不另外編字。"
          "社會新聞：優先用「地點＋事件詞（撞、輾、縱火、拘提…）」；其他新聞：選含地名或事件詞的短句，或剛好 4 到 6 字的短句。標題有兩字以上的未確認詞時，標籤會保留它。",
@@ -488,6 +493,14 @@ RULES: list[Rule] = [
          ("ad_state.detect",),
          (Param("outage_black_sec", "判定訊號中斷的黑畫面秒數", 30, "秒", _dc("ad_state", "AdParams", "outage_black_sec")),
           Param("outage", "訊號中斷寫在格子裡的字", "訊號中斷", "字串", _labels("outage")))),
+    Rule("R21", "fallback",
+         "雲端模型寫五字標（選配，預設關閉）：labeler.generator 設 nvidia（或 openai_compat）並設 allow_external: true 才會連網；"
+         "只送主標題（讀不到標題時才附 200 字內語音），金鑰只從環境變數讀，回應錯誤只記狀態碼不記內容。答案照常經過全部檢查。",
+         ("llm.OpenAICompatGenerator", "llm.from_rules")),
+    Rule("R21-2", "fallback",
+         "雲端模型寫五字標時可設 labeler.fallback: ollama：雲端沒回應（逾時、額度、空白答案）就改問本機模型，兩個都失敗才用規則備援；"
+         "本機模型寫的格子記一條資訊提示「雲端模型無回應，短標由本機模型寫」。兩個模型各自有斷路器與快取。",
+         ("llm.ChainGenerator", "cli.cmd_run", "pipeline.decide_story")),
     Rule("R20-4", "fallback",
          "一台的標題都命名完後，因「AI 服務無回應」改用規則備援的格子再問 AI 一次（先放一個探測請求，不等 30 秒）；"
          "仍然沒回應就停止補問，保留規則備援與標記，不拖慢整次執行。",

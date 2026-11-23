@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -368,6 +369,125 @@ class CachedGenerator:
         return out
 
 
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+
+
+class Usage:
+    """規則 RUN-3：雲端呼叫次數與 token 用量（API 有回報才記），寫進執行紀錄；不估金額。"""
+
+    KEYS = ("calls", "ok", "failed", "timeout", "empty", "prompt_tokens", "completion_tokens", "reasoning_tokens")
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.reset()
+
+    def reset(self) -> None:
+        self.n = dict.fromkeys(self.KEYS, 0)
+
+    def add(self, **kw) -> None:
+        with self._lock:
+            for k, v in kw.items():
+                self.n[k] = self.n.get(k, 0) + int(v or 0)
+
+    def tokens(self, data: dict) -> None:
+        u = (data or {}).get("usage") or {}
+        self.add(prompt_tokens=u.get("prompt_tokens"), completion_tokens=u.get("completion_tokens"),
+                 reasoning_tokens=(u.get("completion_tokens_details") or {}).get("reasoning_tokens"))
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return dict(self.n)
+
+
+CLOUD_LABEL_USAGE = Usage()  # every real request to the cloud label model in this process (cache hits are not calls)
+IMAGE_USAGE = Usage()  # IMG-1 screenshot rewrites (vision.ImageLabeler)
+
+
+class OpenAICompatGenerator:
+    """規則 NFR-14、R21：雲端模型寫五字標（OpenAI 相容的 chat completions，預設 NVIDIA 託管）。
+    只送提示詞裡的主標題（讀不到標題時才附 200 字內語音），不送影片、截圖或收視率；
+    金鑰只從環境變數讀（NEWSBAR_LLM_API_KEY 或 NVIDIA_API_KEY），模型代號由規則檔或 NEWSBAR_LLM_MODEL 指定。"""
+
+    def __init__(self, model: str, api_key: str, base_url: str = NVIDIA_BASE_URL, allow_external: bool = False,
+                 timeout: float = 180.0, max_tokens: int = 8000, system: str = SYSTEM, few_shot: list | None = None,
+                 rag=None, opener=None, thinking: bool = True):
+        if not allow_external:
+            raise ExternalCallNotAllowed(
+                "外部 LLM 預設關閉（NFR-14）。要使用請在 rules.yaml 設 labeler.allow_external: true")
+        if not api_key:
+            raise ExternalCallNotAllowed("沒有雲端模型金鑰：請設環境變數 NEWSBAR_LLM_API_KEY（或 NVIDIA_API_KEY）")
+        # reasoning models think before answering: 2000 tokens was all thinking and no answer (11/23)
+        self.model, self.base_url, self.timeout, self.max_tokens = model, base_url.rstrip("/"), timeout, max_tokens
+        self.thinking = thinking
+        self._key = api_key
+        self.system, self.few_shot, self.rag = system, few_shot, rag
+        self.opener = opener or urllib.request.urlopen
+
+    def rag_pairs(self, source: LabelSource) -> list:
+        return retrieved_pairs(self.rag, source)
+
+    def rag_context(self, source: LabelSource) -> list[str] | None:
+        return None if self.rag is None else [f"{r.id}={r.label}" for r in self.rag_pairs(source)]
+
+    def generate(self, source: LabelSource, attempt: int) -> str:
+        msgs = [{"role": "system", "content": self.system}] + build_messages(source, attempt, self.rag_pairs(source),
+                                                                            self.few_shot)
+        payload = {"model": self.model, "messages": msgs, "temperature": 0, "max_tokens": self.max_tokens}
+        if not self.thinking:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        body = json.dumps(payload).encode()
+        req = urllib.request.Request(f"{self.base_url}/chat/completions", data=body, headers={
+            "Content-Type": "application/json", "Authorization": f"Bearer {self._key}"})
+        CLOUD_LABEL_USAGE.add(calls=1)
+        try:
+            with self.opener(req, timeout=self.timeout) as r:
+                data = json.loads(r.read().decode(), strict=False)
+            CLOUD_LABEL_USAGE.tokens(data)
+            text = data["choices"][0]["message"].get("content") or ""
+        except urllib.error.HTTPError as e:
+            CLOUD_LABEL_USAGE.add(failed=1)
+            raise LLMError(f"雲端模型 HTTP {e.code}") from None  # never echo the request (it carries the key)
+        except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError, IndexError) as e:
+            CLOUD_LABEL_USAGE.add(timeout=1) if isinstance(e, TimeoutError) or "timed out" in str(e) \
+                else CLOUD_LABEL_USAGE.add(failed=1)
+            raise LLMError(f"雲端模型無回應：{type(e).__name__}") from None
+        if not text.strip():
+            CLOUD_LABEL_USAGE.add(empty=1)
+            raise LLMError("雲端模型回空白（推理型模型的 max_tokens 可能太小）")
+        CLOUD_LABEL_USAGE.add(ok=1)
+        return clean_output(text)
+
+
+class ChainGenerator:
+    """規則 R21-2：雲端模型沒回應（逾時、額度、空白）就改問本機模型；兩個都失敗才丟錯，讓標籤改用規則備援。
+    記下哪幾則是本機模型寫的，複查時看得到。"""
+
+    def __init__(self, primary, secondary):
+        self.primary, self.secondary = primary, secondary
+        self.model = f"{getattr(primary, 'model', '')}+{getattr(secondary, 'model', '')}"
+        self._local: set[tuple] = set()
+        self._lock = threading.Lock()
+
+    def generate(self, source: LabelSource, attempt: int) -> str:
+        try:
+            return self.primary.generate(source, attempt)
+        except Exception:  # noqa: BLE001 - any cloud failure: ask the local model instead
+            out = self.secondary.generate(source, attempt)
+            with self._lock:
+                self._local.add(tuple(source.bar_texts))
+            return out
+
+    def answered_locally(self, titles) -> bool:
+        with self._lock:
+            return tuple(titles) in self._local
+
+    def allow_probe(self) -> None:
+        for g in (self.primary, self.secondary):
+            for h in (g, getattr(g, "inner", None)):
+                if h is not None and hasattr(h, "allow_probe"):
+                    h.allow_probe()
+
+
 def from_rules(rules: dict | None, kb_override: str | None = None):
     """labeler.generator: rule | ollama | claude  (default rule = no LLM)."""
     cfg = (rules or {}).get("labeler", {}) or {}
@@ -385,4 +505,24 @@ def from_rules(rules: dict | None, kb_override: str | None = None):
     if kind == "claude":
         return ClaudeGenerator(model=cfg.get("model", "claude-opus-5-5"), allow_external=bool(cfg.get("allow_external")),
                                rag=rag, **prompt)
+    if kind in ("nvidia", "openai_compat"):
+        env = os.environ
+        model = env.get("NEWSBAR_LLM_MODEL") or cfg.get("model")
+        if not model or model == OllamaGenerator.model:
+            model = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+        local = None
+        if cfg.get("fallback") == "ollama":  # R21-2: cloud first, the local model when the cloud does not answer
+            local = OllamaGenerator(model=cfg.get("fallback_model", OllamaGenerator.model),
+                                    host=cfg.get("host", OllamaGenerator.host), rag=rag, **prompt)
+        try:
+            cloud = OpenAICompatGenerator(model=model, api_key=env.get("NEWSBAR_LLM_API_KEY") or env.get("NVIDIA_API_KEY", ""),
+                                          base_url=env.get("NEWSBAR_LLM_BASE_URL") or cfg.get("base_url") or NVIDIA_BASE_URL,
+                                          allow_external=bool(cfg.get("allow_external")), rag=rag,
+                                          thinking=bool(cfg.get("thinking", True)), **prompt)
+        except ExternalCallNotAllowed as e:
+            if local is None:
+                raise
+            print(f"⚠ 雲端寫標未啟用（{e}）；改用本機模型 {local.model}")  # R21-2: no key is not a reason to stop
+            return local
+        return ChainGenerator(cloud, local) if local is not None else cloud
     raise ValueError(f"unknown labeler.generator {kind!r}")

@@ -1084,11 +1084,11 @@ def make_label(
             if not errs or (set(errs) <= {"LBL-5"} and (fixed := repair(cand, source, rules))
                             and not any(x and x in fixed for x in avoid)):
                 label = cand if not errs else fixed
-                n = review_notes(label, source) + [_note(LEVEL_CHECK, "模型回報：" + i) for i in issues]
+                n = review_notes(label, source) + issue_notes(issues, label)
                 return _finish(LabelResult(label, attempt + 1, None, history, [], notes + n, STATUS_OK, evid, issues))
             if fixed := (repair(cand, source, rules) if "SRC-2" in errs else None):
                 if not any(x and x in fixed for x in avoid):
-                    n = review_notes(fixed, source) + [_note(LEVEL_CHECK, "模型回報：" + i) for i in issues]
+                    n = review_notes(fixed, source) + issue_notes(issues, fixed)
                     return _finish(LabelResult(fixed, attempt + 1, None, history, [], notes + n, STATUS_OK, evid, issues))
             fb = feedback_for(cand, source, errs, rules) or "上一個答案沒有通過檢查，請依規則重寫"
             if "OCR-DOUBT" in errs:
@@ -1121,6 +1121,20 @@ def make_label(
         notes.append(_note(LEVEL_CHECK, REASON_PENDING, detail="未通過：" + "、".join(bad)))
     notes += [n for n in review_notes(label, source) if n not in notes]
     return _finish(LabelResult(label, len(history), "FB-4", history, [], notes, status))
+
+
+_QUOTED = re.compile(r"[「『\"“]([^」』\"”]+)[」』\"”]")
+
+
+def issue_notes(issues: list[str], label: str) -> list[dict]:
+    """規則 REV-2：模型回報的疑點。點名了標題裡的某段字、而短標沒用到那段字 → 資訊提示（例：標題的「搢破」疑似錯字，
+    短標是「新台幣略升」）；用到了、或沒點名特定字（例：兩段標題互相衝突）→ 建議回查。"""
+    out = []
+    for i in issues:
+        quoted = [q for q in _QUOTED.findall(i) if q.strip()]
+        used = any(ch in label for q in quoted for ch in q if _CJK.match(ch) or ch.isalnum())
+        out.append(_note(LEVEL_INFO if quoted and not used else LEVEL_CHECK, "模型回報：" + i))
+    return out
 
 
 def _finish(res: LabelResult) -> LabelResult:

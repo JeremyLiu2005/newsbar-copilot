@@ -480,3 +480,72 @@ def reread_titles(titles: list[str], conf_of: dict[str, float] | None, obs: list
         recs.append({**rec, "model": res.text, "verdict": verdict, "overlap": ratio,
                      "status": "replaced" if ok else ("same" if _norm(res.text) == _norm(t) else "kept_ocr")})
     return out, fixed, recs
+
+
+# ---------------------------------------------------------------- IMG-1: AI rewrites the short title from the screenshot
+
+class ImageLabeler:
+    """規則 IMG-1：AI 自寫與從候選挑都沒通過時，把這則的主標題截圖、五字標規則與沒過的原因一起送給雲端視覺模型，
+    請它看圖重寫。只送標題列裁切圖（小 JPEG）與標題文字，不送影片、聲音或整張畫面；金鑰只從環境變數讀。
+    同一張圖、同一段提示的答案存在快取檔，重跑結果相同。"""
+
+    def __init__(self, api_key: str, model: str, url: str = NVIDIA_URL, timeout: float = 180.0,
+                 cache_path: Path | None = None, opener=None):
+        self.model, self.url, self.timeout = model, url, timeout
+        self._key = api_key
+        self.opener = opener or urllib.request.urlopen
+        self.cache_path, self.lock = cache_path, threading.Lock()
+        self.cache: dict[str, str] = {}
+        if cache_path and cache_path.is_file():
+            self.cache = json.loads(cache_path.read_text(encoding="utf-8"))
+
+    def rewrite(self, image: bytes, media_type: str, system: str, prompt: str) -> str:
+        key = f"{self.model}:{hashlib.sha1(image + system.encode() + prompt.encode()).hexdigest()}"
+        with self.lock:
+            if key in self.cache:
+                return self.cache[key]
+        data_uri = f"data:{media_type};base64,{base64.b64encode(image).decode('ascii')}"
+        body = json.dumps({"model": self.model, "max_tokens": 8000, "temperature": 0, "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": [{"type": "text", "text": prompt},
+                                         {"type": "image_url", "image_url": {"url": data_uri}}]}]}).encode("utf-8")
+        req = urllib.request.Request(self.url, data=body, method="POST", headers={
+            "content-type": "application/json", "accept": "application/json", "authorization": f"Bearer {self._key}"})
+        from .llm import IMAGE_USAGE  # noqa: PLC0415
+        IMAGE_USAGE.add(calls=1)
+        try:
+            with self.opener(req, timeout=self.timeout) as r:
+                data = json.loads(r.read().decode("utf-8"), strict=False)
+            IMAGE_USAGE.tokens(data)
+            text = data["choices"][0]["message"].get("content") or ""
+        except urllib.error.HTTPError as e:
+            IMAGE_USAGE.add(failed=1)
+            raise VisionError(f"HTTP {e.code}") from None
+        except (OSError, ValueError, KeyError, IndexError, TypeError) as e:
+            IMAGE_USAGE.add(timeout=1) if isinstance(e, TimeoutError) or "timed out" in str(e) else IMAGE_USAGE.add(failed=1)
+            raise VisionError(type(e).__name__) from None
+        if not text.strip():
+            IMAGE_USAGE.add(empty=1)
+            raise VisionError("empty answer")
+        IMAGE_USAGE.add(ok=1)
+        with self.lock:
+            self.cache[key] = text
+            if self.cache_path:
+                self.cache_path.write_text(json.dumps(self.cache, ensure_ascii=False, indent=0), encoding="utf-8")
+        return text
+
+
+def image_labeler_from_rules(rules: dict | None, env: dict | None = None) -> ImageLabeler | None:
+    """labeler.image_rewrite: true (with allow_external: true) turns IMG-1 on; off by default."""
+    env = os.environ if env is None else env
+    cfg = (rules or {}).get("labeler") or {}
+    if not cfg.get("image_rewrite"):
+        return None
+    if not cfg.get("allow_external"):
+        raise VisionConfigError("看圖重寫要送截圖到雲端：請在規則檔設 labeler.allow_external: true")
+    key = next((env[k] for k in NVIDIA_KEY_ENVS if env.get(k)), "") or env.get("NEWSBAR_LLM_API_KEY", "")
+    if not key:
+        raise VisionConfigError(f"沒有 API 金鑰：請在環境變數設 {NVIDIA_KEY_ENVS[0]}（或 {NVIDIA_KEY_ENVS[1]}）")
+    model = env.get("NEWSBAR_VISION_MODEL") or cfg.get("image_model") or "nvidia/nemotron-3.5-super-vl-120b-a12b"
+    return ImageLabeler(key, model, env.get("NEWSBAR_VISION_BASE_URL", NVIDIA_URL),
+                        cache_path=Path(cfg["image_cache"]) if cfg.get("image_cache") else None)

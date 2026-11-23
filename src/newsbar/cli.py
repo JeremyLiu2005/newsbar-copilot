@@ -206,6 +206,39 @@ def _resolve_inputs(a: argparse.Namespace, cfg: dict) -> tuple[list[tuple[str, P
     return specs, template, out, missing
 
 
+def _model_facts(backend: str, rules: dict) -> dict:
+    """RUN-2: what actually ran and what left the machine, for the manifest (no keys, no secrets)."""
+    import os
+
+    from . import llm as _llm
+    from . import vision as _vision
+    try:
+        from .ocr.base import get_backend
+        ocr = type(get_backend(backend)).__name__
+        ocr = {"VisionBackend": "Apple Vision", "PaddleBackend": "PaddleOCR"}.get(ocr, ocr)
+    except Exception as e:  # noqa: BLE001
+        ocr = f"無法判定（{type(e).__name__}）"
+    lab = (rules or {}).get("labeler") or {}
+    kind = lab.get("generator", "rule")
+    facts: dict = {"ocr_backend_resolved": ocr, "llm_generator": kind}
+    if kind in ("nvidia", "openai_compat"):
+        facts["llm_endpoint"] = os.environ.get("NEWSBAR_LLM_BASE_URL") or lab.get("base_url") or _llm.NVIDIA_BASE_URL
+        facts["llm_sends"] = "主標題文字（讀不到標題時附 200 字內語音）"
+        if lab.get("fallback") == "ollama":
+            facts["llm_fallback_model"] = lab.get("fallback_model", _llm.OllamaGenerator.model)
+            facts["llm_fallback_host"] = lab.get("host", _llm.OllamaGenerator.host)
+    if lab.get("image_rewrite"):
+        facts["image_rewrite_model"] = (os.environ.get("NEWSBAR_VISION_MODEL") or lab.get("image_model")
+                                        or "nvidia/nemotron-3.5-super-vl-120b-a12b")
+        facts["image_rewrite_endpoint"] = os.environ.get("NEWSBAR_VISION_BASE_URL", _vision.NVIDIA_URL)
+        facts["image_rewrite_sends"] = "主標題列裁切圖（單張 JPEG）＋標題文字＋五字標規則"
+    vmode = os.environ.get("NEWSBAR_VISION_MODE") or ((rules or {}).get("vision") or {}).get("mode") or "off"
+    facts["vision_reread"] = vmode
+    if vmode not in ("off", "mock"):
+        facts["vision_reread_model"] = os.environ.get("NEWSBAR_VISION_MODEL", "")
+    return facts
+
+
 def cmd_run(a: argparse.Namespace) -> int:
     """Videos → obs → events → 12監看 xlsx + evidence + report + review page."""
     import time
@@ -314,17 +347,28 @@ def cmd_run(a: argparse.Namespace) -> int:
     headers = {k: v["excel_column_header"] for k, v in cfg.items() if k in streams}
     if not headers:
         raise SystemExit("沒有任何一台處理成功：" + "；".join(f"{c} {m}" for c, m in failed.items()))
+    lab_cfg = rules.setdefault("labeler", {}) if isinstance(rules, dict) else {}
+    if lab_cfg.get("image_rewrite") and not lab_cfg.get("image_cache"):
+        lab_cfg["image_cache"] = str(work / "label_cache_image.json")  # IMG-1 answers cached: reruns repeat
     gen = llm.from_rules(rules, getattr(a, "kb", None))
     llm_model = getattr(gen, "model", None)
     llm_state = "off" if gen is None else "on"
     if gen is not None:
-        host = getattr(gen, "host", None)
-        # R20: no AI service is not a reason to stop; R20-2: load the model before four channels ask at once
-        if host and not (llm.ensure_ollama(host) and llm.warm_up(gen)):
-            gen = llm.UnavailableGenerator()
-            llm_state = "unavailable"
+        if isinstance(gen, llm.ChainGenerator):
+            # R21-2: each model keeps its own breaker and cache (the local answers stay in label_cache.json)
+            local = gen.secondary
+            if not (llm.ensure_ollama(local.host) and llm.warm_up(local)):
+                local = llm.UnavailableGenerator()
+            gen.primary = llm.CachedGenerator(llm.GuardedGenerator(gen.primary), work / "label_cache_cloud.json")
+            gen.secondary = llm.CachedGenerator(llm.GuardedGenerator(local), work / "label_cache.json")
         else:
-            gen = llm.CachedGenerator(llm.GuardedGenerator(gen), work / "label_cache.json")
+            host = getattr(gen, "host", None)
+            # R20: no AI service is not a reason to stop; R20-2: load the model before four channels ask at once
+            if host and not (llm.ensure_ollama(host) and llm.warm_up(gen)):
+                gen = llm.UnavailableGenerator()
+                llm_state = "unavailable"
+            else:
+                gen = llm.CachedGenerator(llm.GuardedGenerator(gen), work / "label_cache.json")
     reasons = {ch: [i["reason"]] for ch, i in clock_info.items() if i.get("reason") and ch in streams}
     try:
         res = pipeline.run(streams, template, out, headers, gen, rules, a.sheet_start, a.minutes,
@@ -381,6 +425,11 @@ def cmd_run(a: argparse.Namespace) -> int:
         llm_state=llm_state, resumed={ch: {"mode": extraction[ch], "stages": runinfo.load_stages(work, ch)} for ch in extraction},
         out_files=[str(out), str(out.with_suffix(".evidence.jsonl")), str(out.with_suffix(".stories.jsonl")),
                    str(out.with_suffix(".report.json"))])
+    man["models"].update(_model_facts(a.backend, rules))
+    # 規則 RUN-3：這次執行實際送出的雲端請求（快取命中不算）；只記次數與 API 回報的 token，不估金額
+    man["cloud_usage"] = {"label_writing": llm.CLOUD_LABEL_USAGE.snapshot(), "image_rewrite": llm.IMAGE_USAGE.snapshot(),
+                          "note": "calls = 實際送出的請求；ok/failed/timeout/empty 為結果；token 為 API 回報值；快取沿用的答案不計"}
+    print(f"雲端呼叫：寫標 {man['cloud_usage']['label_writing']}；看圖重寫 {man['cloud_usage']['image_rewrite']}")
     out.with_suffix(".manifest.json").write_text(json.dumps(man, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"→ {out}\n→ {out.with_suffix('.review.html')}\n→ {out.with_suffix('.manifest.json')}（{run_id}）")
     if a.upload:

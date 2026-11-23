@@ -49,7 +49,8 @@ def _story_obs(obs: list[SecondObs], start: float, end: float | None) -> list[Se
 def decide_story(channel: str, bar_texts: list[str], asr_text: str, obs: list[SecondObs],
                  generator: labeler.Generator | None, rules: dict | None,
                  conf_of: dict[str, float] | None = None, freq=None,
-                 vision_backend: vision.VisionBackend | None = None, vision_cache: vision.ReadCache | None = None) -> dict:
+                 vision_backend: vision.VisionBackend | None = None, vision_cache: vision.ReadCache | None = None,
+                 image_labeler: vision.ImageLabeler | None = None) -> dict:
     """One story: OCR check → (optional cloud re-read of low-confidence titles) → short title → review notes.
     Also used by the regression replay."""
     lab = (rules or {}).get("labeler") or {}
@@ -70,7 +71,12 @@ def decide_story(channel: str, bar_texts: list[str], asr_text: str, obs: list[Se
                 ocr_recs[k] = {**ocr_recs[k], "suspects": []}
     res = labeler.make_label(labeler.LabelSource(titles, asr_text), generator,
                              lab.get("retries", labeler.DEFAULT_RETRIES), lrules, avoid)
+    if image_labeler is not None and res.fallback == "FB-4":
+        res = _rewrite_from_image(res, titles, asr_text, obs, image_labeler, lrules, avoid)
     d = _story_result(res, titles, ocr_recs, rules, conf_of)
+    local = getattr(generator, "answered_locally", None)
+    if local and local(titles):  # 規則 R21-2：雲端沒回應，改由本機模型寫
+        d["notes"].append({"level": labeler.LEVEL_INFO, "reason": "雲端模型無回應，短標由本機模型寫"})
     for v in vrecs:
         if v["status"] == "replaced":
             d["notes"].append({"level": labeler.LEVEL_INFO, "reason": "標題經雲端模型重讀",
@@ -78,6 +84,47 @@ def decide_story(channel: str, bar_texts: list[str], asr_text: str, obs: list[Se
     d["review_level"] = labeler.top_level(d["notes"])
     d["vision"] = vrecs
     return d
+
+
+REASON_IMAGE = "AI 看標題截圖依規則重寫"
+
+
+def _rewrite_from_image(res: labeler.LabelResult, titles: list[str], asr_text: str, obs: list,
+                        il: vision.ImageLabeler, lrules: labeler.LabelRules, avoid: set[str]) -> labeler.LabelResult:
+    """規則 IMG-1：取代規則備援。AI 自寫與挑候選都沒過 → 送主標題截圖＋規則＋沒過的原因，請雲端視覺模型重寫（最多 2 次）；
+    答案照常經過全部檢查，過了才用；都沒過或連不上，保留原本的備援與標記。"""
+    from . import llm  # noqa: PLC0415  (llm imports labeler; keep the module graph flat)
+    crop = next((c for t in titles[:2] if (c := vision._best_crop(t, obs))), None)
+    if crop is None:
+        return res
+    image = crop.read_bytes()
+    media = "image/png" if crop.suffix.lower() == ".png" else "image/jpeg"
+    src = labeler.LabelSource(titles, asr_text)
+    system = llm.system_prompt(lrules.min_len, lrules.max_len, lrules.target_len)
+    n = lrules.min_len if lrules.min_len == lrules.max_len else f"{lrules.min_len}–{lrules.max_len}"
+    why = (f"前面的答案都沒通過檢查（字數不是 {n} 字、切斷詞、或用了標題外的字）。請看截圖裡的新聞主標題，"
+           f"依規則重寫，只能用標題裡的字。")
+    prompt = f"文字辨識讀到的主標題：{' / '.join(titles[:2])}\n{why}\n請輸出 JSON：{{\"short_title\": \"…\"}}"
+    history = list(res.history)
+    for _ in range(2):
+        try:
+            cand = labeler.parse_answer(il.rewrite(image, media, system, prompt))[0]
+        except vision.VisionError:
+            return res
+        errs = labeler.validate(cand, src, lrules)
+        if any(x and x in cand for x in avoid):
+            errs = sorted(set(errs) | {"OCR-DOUBT"})
+        history.append(errs or [])
+        if cand and not errs:
+            keep = [x for x in res.notes if x["reason"] not in (labeler.REASON_FALLBACK, labeler.REASON_PENDING)]
+            notes = keep + [{"level": labeler.LEVEL_INFO, "reason": REASON_IMAGE}]
+            notes += [x for x in labeler.review_notes(cand, src) if x not in notes]
+            out = labeler.LabelResult(cand, res.attempts + len(history) - len(res.history), "IMG-1", history, [],
+                                      notes, labeler.STATUS_OK)
+            out.reasons = list(dict.fromkeys(x["reason"] for x in notes))
+            return out
+        prompt += f"\n上一個答案「{cand}」沒通過：{labeler.feedback_for(cand, src, errs, lrules) or '請依規則重寫'}。"
+    return res
 
 
 def _story_result(res: labeler.LabelResult, titles: list[str], ocr_recs: list[dict], rules: dict | None,
@@ -126,10 +173,16 @@ def run_channel(
     vb = vision.backend_from_rules(rules)  # None unless vision.mode (or NEWSBAR_VISION_MODE) turns it on
     vcfg = (rules or {}).get("vision") or {}
     vcache = vision.ReadCache(Path(vcfg["cache"])) if vb is not None and vcfg.get("cache") else None
+    il = None
+    if generator is not None:  # IMG-1, off by default; a missing key turns it off instead of stopping the run
+        try:
+            il = vision.image_labeler_from_rules(rules)
+        except vision.VisionConfigError as e:
+            print(f"⚠ 看圖重寫未啟用（{e}）")
 
     def _one(seg):
         return decide_story(channel, seg.bar_texts, seg.asr_text, _story_obs(obs, seg.start, seg.end), generator,
-                            rules, conf_of, freq, vb, vcache)
+                            rules, conf_of, freq, vb, vcache, il)
 
     workers = max(1, int(lab.get("parallel", DEFAULT_PARALLEL))) if generator is not None else 1
     if workers > 1 and len(todo) > 1:

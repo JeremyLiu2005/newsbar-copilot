@@ -22,11 +22,14 @@ segmenter:
   visual_window_sec: 5
 
 labeler:
-  generator: ollama
-  parallel: 4             # 同時送出的 LLM 請求數
+  generator: nvidia       # 雲端優先（R21）：NVIDIA 託管模型寫五字標；沒金鑰或沒回應自動改用本機模型（R21-2）
+  fallback: ollama        # 雲端沒回應 → 本機 Ollama（下方 host、fallback_model）
+  fallback_model: qwen2.5:7b-instruct
+  image_rewrite: true     # IMG-1：都沒過檢查時，送主標題列截圖請雲端模型看圖重寫
+  allow_external: true    # NFR-14：只送主標題文字（讀不到才附 200 字內語音）與標題列裁切圖；金鑰放環境變數 NVIDIA_API_KEY
+  parallel: 2             # 同時送出的 LLM 請求數（雲端免費額度：2）
   host: http://127.0.0.1:11435   # 專用 Ollama：OLLAMA_NUM_PARALLEL=4（預設 App 只開 1 槽，請求會排隊）
   model: qwen2.5:7b-instruct
-  allow_external: false   # NFR-14：外部 LLM 只送 bar 文字與 200 字內語音節錄
   min_len: 5             # 五字標剛好 5 字（三立 11/22：五字標只能 5 個字）；改成 4／6 為測試版 4–6 字
   max_len: 5
   target_len: 5
@@ -46,7 +49,7 @@ cross_channel:
   enabled: true
   window_sec: 900
 
-# labeler.generator: rule（不用 LLM）| ollama（地端，預設建議）| claude（外部，需 allow_external: true）
+# labeler.generator: rule（不用 LLM）| ollama（地端，預設建議）| claude 或 nvidia（外部，需 allow_external: true；nvidia 金鑰放環境變數 NEWSBAR_LLM_API_KEY 或 NVIDIA_API_KEY）
 
 asr:
   # 準確模式 small（Mac M4 四台一小時約 31–35 分鐘）；快速模式 base（約 10 分鐘，11/06 TVBS 13 分鐘換題 F1 0.94→0.82）

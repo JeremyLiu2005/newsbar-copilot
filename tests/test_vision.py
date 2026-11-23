@@ -579,3 +579,161 @@ def test_cut_words_allows_compound_split_but_not_half_words():
     assert L.cut_words("APEC峰", src("APEC峰會前深圳禁按喇叭網kuso馬路變花果山"))
     assert L.cut_words("電拉回撐盤", src("台股盤中一度屠殺3700點神山台積電拉回撐盤"))
     assert L.cut_words("蔣萬安稱下", src("跟進沈伯洋請益陳健治蔣萬安稱下週邀陳健治到競總"))
+
+
+# ---- R21: cloud label generator (OpenAI-compatible, NVIDIA default) -----------------------------------------
+
+def test_cloud_label_generator_needs_opt_in_and_key(monkeypatch):
+    import pytest
+    from newsbar import llm
+    monkeypatch.delenv("NEWSBAR_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    with pytest.raises(llm.ExternalCallNotAllowed):
+        llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": False}})
+    with pytest.raises(llm.ExternalCallNotAllowed):
+        llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": True}})
+
+
+def test_cloud_label_generator_sends_title_only_and_hides_key(monkeypatch):
+    import io, json
+    from newsbar import llm
+    from newsbar.labeler import LabelSource
+    monkeypatch.setenv("NEWSBAR_LLM_API_KEY", "secret-test-key")
+    sent = {}
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def opener(req, timeout):
+        sent["url"], sent["body"], sent["auth"] = req.full_url, json.loads(req.data), req.get_header("Authorization")
+        return Resp(json.dumps({"choices": [{"message": {"content": '{"short_title": "汐止燒警車"}'}}]}).encode())
+
+    g = llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": True, "min_len": 5, "max_len": 5}})
+    g.opener = opener
+    out = g.generate(LabelSource(["囂張!汐止分局旁汽油彈燒警車51歲嫌桃園遭逮"], "這段語音不該送出"), 0)
+    assert "汐止燒警車" in out and sent["url"].endswith("/chat/completions")
+    text = json.dumps(sent["body"], ensure_ascii=False)
+    assert "汽油彈燒警車" in text and "這段語音不該送出" not in text and "secret-test-key" not in text
+    assert sent["auth"] == "Bearer secret-test-key" and "剛好 5 個字" in text
+
+
+# ---- R21-2: cloud first, local model when the cloud does not answer ----------------------------------------
+
+def test_chain_uses_local_model_when_cloud_fails_and_marks_it():
+    from newsbar import llm, pipeline
+    from newsbar.labeler import LabelSource
+
+    class Cloud:
+        model = "cloud"
+        def generate(self, source, attempt):
+            if "台積電" in source.bar_texts[0]:
+                raise llm.LLMError("雲端模型 HTTP 429")
+            return '{"short_title": "汐止燒警車", "evidence": ["汽油彈燒警車"], "issues": []}'
+
+    class Local:
+        model = "local"
+        def generate(self, source, attempt):
+            return '{"short_title": "台積電跌停", "evidence": ["台積電聯發科一度跌停"], "issues": []}'
+
+    g = llm.ChainGenerator(Cloud(), Local())
+    assert "汐止燒警車" in g.generate(LabelSource(["囂張!汐止分局旁汽油彈燒警車51歲嫌桃園遭逮"], ""), 0)
+    assert "台積電跌停" in g.generate(LabelSource(["台積電聯發科一度跌停"], ""), 0)
+    assert g.answered_locally(["台積電聯發科一度跌停"]) and not g.answered_locally(["囂張!汐止分局旁汽油彈燒警車51歲嫌桃園遭逮"])
+    d = pipeline.decide_story("tvbs", ["台積電聯發科一度跌停"], "", [], g,
+                              {"labeler": {"min_len": 5, "max_len": 5, "target_len": 5}})
+    assert d["label"] == "台積電跌停"
+    assert any(n["reason"] == "雲端模型無回應，短標由本機模型寫" for n in d["notes"])
+
+
+def test_chain_from_rules_needs_fallback_setting(monkeypatch):
+    from newsbar import llm
+    monkeypatch.setenv("NEWSBAR_LLM_API_KEY", "k")
+    base = {"generator": "nvidia", "allow_external": True}
+    assert isinstance(llm.from_rules({"labeler": base}), llm.OpenAICompatGenerator)
+    g = llm.from_rules({"labeler": {**base, "fallback": "ollama"}})
+    assert isinstance(g, llm.ChainGenerator) and isinstance(g.secondary, llm.OllamaGenerator)
+
+
+# ---- IMG-1: when the AI's answers and its pick all fail, the AI rewrites from the title screenshot ------------
+
+def test_image_rewrite_replaces_rule_fallback(tmp_path):
+    from newsbar import labeler, pipeline, vision
+    from newsbar.schemas import SecondObs
+    crop = tmp_path / "c.jpg"
+    crop.write_bytes(b"\xff\xd8fakejpeg")
+    title = "囂張!汐止分局旁汽油彈燒警車51歲嫌桃園遭逮"
+    obs = [SecondObs(sec=i, bar_text=title, frame=str(crop)) for i in range(10)]
+
+    class Never:  # the text model only ever writes six characters, and picks nothing from the menu
+        def generate(self, source, attempt):
+            return '{"short_title": "汽油彈燒警車", "evidence": [], "issues": []}'
+
+    class FakeIL(vision.ImageLabeler):
+        def __init__(self):
+            self.calls = []
+        def rewrite(self, image, media_type, system, prompt):
+            self.calls.append((image, media_type, "剛好 5 個字" in system))
+            return '{"short_title": "汐止燒警車"}'
+
+    rules = {"labeler": {"min_len": 5, "max_len": 5, "target_len": 5}}
+    il = FakeIL()
+    d = pipeline.decide_story("tvbs", [title], "", obs, Never(), rules, image_labeler=il)
+    assert d["label"] == "汐止燒警車" and d["fallback"] == "IMG-1"
+    assert il.calls and il.calls[0][0].startswith(b"\xff\xd8") and il.calls[0][2]
+    reasons = [n["reason"] for n in d["notes"]]
+    assert pipeline.REASON_IMAGE in reasons and labeler.REASON_FALLBACK not in reasons
+
+
+def test_image_rewrite_is_off_unless_opted_in():
+    import pytest
+    from newsbar import vision
+    assert vision.image_labeler_from_rules({"labeler": {}}) is None
+    with pytest.raises(vision.VisionConfigError):
+        vision.image_labeler_from_rules({"labeler": {"image_rewrite": True}}, env={"NVIDIA_API_KEY": "k"})
+    il = vision.image_labeler_from_rules({"labeler": {"image_rewrite": True, "allow_external": True}},
+                                         env={"NVIDIA_API_KEY": "k"})
+    assert il is not None and "nemotron" in il.model
+
+
+def test_no_cloud_key_falls_back_to_local_model_instead_of_stopping(monkeypatch):
+    from newsbar import llm
+    for k in ("NEWSBAR_LLM_API_KEY", "NVIDIA_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    g = llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": True, "fallback": "ollama"}})
+    assert isinstance(g, llm.OllamaGenerator)
+
+
+# ---- RUN-3: cloud calls and token usage are counted for the manifest ---------------------------------------
+
+def test_cloud_usage_counts_calls_results_and_tokens(monkeypatch):
+    import io, json
+    import pytest
+    from newsbar import llm
+    from newsbar.labeler import LabelSource
+    monkeypatch.setenv("NEWSBAR_LLM_API_KEY", "k")
+    llm.CLOUD_LABEL_USAGE.reset()
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    answers = [{"choices": [{"message": {"content": '{"short_title": "汐止燒警車"}'}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50, "completion_tokens_details": {"reasoning_tokens": 40}}},
+               {"choices": [{"message": {"content": ""}}], "usage": {"prompt_tokens": 100, "completion_tokens": 8000}}]
+
+    def opener(req, timeout):
+        if not answers:
+            raise TimeoutError("timed out")
+        return Resp(json.dumps(answers.pop(0)).encode())
+
+    g = llm.from_rules({"labeler": {"generator": "nvidia", "allow_external": True}})
+    g.opener = opener
+    src = LabelSource(["囂張!汐止分局旁汽油彈燒警車51歲嫌桃園遭逮"], "")
+    g.generate(src, 0)
+    for _ in range(2):
+        with pytest.raises(llm.LLMError):
+            g.generate(src, 0)
+    u = llm.CLOUD_LABEL_USAGE.snapshot()
+    assert (u["calls"], u["ok"], u["empty"], u["timeout"]) == (3, 1, 1, 1)
+    assert (u["prompt_tokens"], u["completion_tokens"], u["reasoning_tokens"]) == (200, 8050, 40)
